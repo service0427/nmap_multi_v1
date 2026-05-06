@@ -20,7 +20,17 @@ echo "============================================================"
 echo "   Server Initial Setup Start"
 echo "============================================================"
 
-# 1. SSH 키 설정 (자동 등록)
+# 1. Sudo 비밀번호 생략 설정 (현재 사용자)
+echo "[*] Configuring passwordless sudo for $USER..."
+if ! sudo grep -q "^$USER ALL=(ALL) NOPASSWD:ALL" "/etc/sudoers.d/$USER" 2>/dev/null; then
+    echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$USER" >/dev/null
+    sudo chmod 0440 "/etc/sudoers.d/$USER"
+    echo "  -> Passwordless sudo enabled for $USER."
+else
+    echo "  -> Passwordless sudo already configured. Skipping."
+fi
+
+# 2. SSH 키 설정 (자동 등록)
 echo "[*] Configuring SSH Public Keys..."
 # .ssh 디렉토리 생성 및 권한 설정
 if [ ! -d ~/.ssh ]; then
@@ -48,7 +58,7 @@ fi
 
 chmod 600 ~/.ssh/authorized_keys
 
-# 2. SSH 데몬 설정 (PubkeyAuthentication 활성화)
+# 3. SSH 데몬 설정 (PubkeyAuthentication 활성화)
 echo "[*] Enabling PubkeyAuthentication in sshd_config..."
 if ! grep -q "^PubkeyAuthentication yes" /etc/ssh/sshd_config; then
     sudo sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
@@ -72,7 +82,7 @@ date
 # 5. 패키지 리스트 업데이트 및 기본 도구 설치
 echo "[*] Updating package list & Installing basic tools..."
 sudo apt update
-sudo apt install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg
+sudo apt install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq
 
 # 6. Python 및 blackboxprotobuf 설치
 echo "[*] Installing Python3 and blackboxprotobuf..."
@@ -80,7 +90,7 @@ sudo apt install -y python3 python3-pip python3-dev python3-venv
 sudo python3 -m pip install --upgrade pip --break-system-packages || sudo python3 -m pip install --upgrade pip
 sudo python3 -m pip install blackboxprotobuf flask --break-system-packages || sudo python3 -m pip install blackboxprotobuf flask
 
-# 6. Node.js 최신 LTS 버전 설치
+# 7. Node.js 최신 LTS 버전 설치
 echo "[*] Installing Node.js (Latest LTS)..."
 if ! command -v node >/dev/null 2>&1; then
     curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -89,7 +99,7 @@ else
     echo "  -> Node.js is already installed. Skipping."
 fi
 
-# 7. PM2 설치 (글로벌)
+# 8. PM2 설치 (글로벌)
 echo "[*] Installing PM2..."
 if ! command -v pm2 >/dev/null 2>&1; then
     sudo npm install -g pm2
