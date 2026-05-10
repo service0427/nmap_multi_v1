@@ -14,7 +14,7 @@ fi
 # 2. Setup path (MMDD/HHMMSS_DEVICEID)
 DATE_DIR=$(date +%m%d)
 TIME_STR=$(date +%H%M%S)
-BASE_PATH="/home/tech/nmap/screenshot/${DATE_DIR}/${TIME_STR}_${DEV_ID}"
+BASE_PATH="$(dirname "$0")/screenshot/${DATE_DIR}/${TIME_STR}_${DEV_ID}"
 
 mkdir -p "$BASE_PATH"
 

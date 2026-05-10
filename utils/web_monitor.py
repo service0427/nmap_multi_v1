@@ -12,7 +12,7 @@ app = Flask(__name__)
 PORT = 5000
 REFRESH_INTERVAL = 0.12  # 약 8fps (모니터링 최적, ADB 부하 최소화)
 MAX_SLOTS = 5
-LOG_BASE_DIR = "/home/tech/nmap/test_nmap_v2/logs"
+LOG_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_nmap_v2", "logs")
 
 # 기기 위치 고정 및 진단 캐시
 device_slots = [None] * MAX_SLOTS
@@ -475,8 +475,11 @@ def swipe(dev_id):
 
 @app.route('/key/<dev_id>')
 def key(dev_id):
-    code = request.args.get('code', 3)
-    subprocess.Popen(["adb", "-s", dev_id, "shell", "input", "keyevent", str(code)])
+    code = request.args.get('code')
+    try:
+        subprocess.Popen(["adb", "-s", dev_id, "shell", "input", "keyevent", str(code)])
+    except Exception as e:
+        print(f"Key error: {e}", flush=True)
     return "OK"
 
 @app.route('/unlock/<dev_id>')

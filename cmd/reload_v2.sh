@@ -3,7 +3,7 @@
 
 TARGET=$1
 DEVICES=$(adb devices | grep -v "List" | grep -w "device" | awk '{print $1}')
-BASE_DIR="/home/tech/nmap/test_nmap_v2"
+BASE_DIR="$(cd "$(dirname "$0")/../test_nmap_v2" && pwd)"
 
 echo "========================================================"
 echo "🚑 [V2 HOT-RELOAD] Injecting Real Paths from Packets..."
