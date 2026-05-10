@@ -148,13 +148,9 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# 8. Monitoring for termination
-while true; do
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null)
-    CURRENT_FOCUS=$(adb -s "$DEV_ID" shell "dumpsys activity activities | grep -E 'mResumedActivity|mCurrentFocus|topResumedActivity' | grep $PKG_NAME" 2>/dev/null)
-    if [ -z "$PID" ] || [ -z "$CURRENT_FOCUS" ]; then
-        echo -e "${MAGENTA}[$ALIAS] App terminated or moved to background. Closing...${NC}"
-        cleanup
-    fi
-    sleep 3
-done
+# 8. Wait for manual termination
+echo -e "${YELLOW}[!] Session is active. Perform manual actions now.${NC}"
+echo -e "${YELLOW}[!] Press Ctrl+C to stop and cleanup.${NC}"
+
+# Wait for background processes or user interrupt
+wait
