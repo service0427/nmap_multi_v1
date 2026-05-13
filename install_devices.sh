@@ -18,8 +18,17 @@ if [ -f "$CERT_PATH" ]; then
     CERT_HASH=$(openssl x509 -inform PEM -subject_hash_old -in "$CERT_PATH" 2>/dev/null | head -1)
 fi
 
-# Get all connected devices
-DEVICES=$(adb devices | grep -w "device" | awk '{print $1}')
+# Get target device from argument (optional)
+TARGET_DEVICE=$1
+
+# Get connected devices
+if [ -z "$TARGET_DEVICE" ]; then
+    echo "[*] No target device specified. Checking all connected devices..."
+    DEVICES=$(adb devices | grep -w "device" | awk '{print $1}')
+else
+    echo "[*] Targeting specific device: $TARGET_DEVICE"
+    DEVICES=$TARGET_DEVICE
+fi
 
 if [ -z "$DEVICES" ]; then
     echo "No devices connected."
