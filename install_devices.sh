@@ -18,6 +18,15 @@ if [ -f "$CERT_PATH" ]; then
     CERT_HASH=$(openssl x509 -inform PEM -subject_hash_old -in "$CERT_PATH" 2>/dev/null | head -1)
 fi
 
+# Download Static Curl if not exists
+CURL_BIN="$INSTALL_DIR/curl-aarch64"
+if [ ! -f "$CURL_BIN" ]; then
+    echo "[*] Downloading statically compiled curl for aarch64..."
+    mkdir -p "$INSTALL_DIR"
+    curl -sL "https://github.com/moparisthebest/static-curl/releases/latest/download/curl-aarch64" -o "$CURL_BIN"
+    chmod +x "$CURL_BIN"
+fi
+
 # Get target device from argument (optional)
 TARGET_DEVICE=$1
 
@@ -49,6 +58,24 @@ for serial in $DEVICES; do
         echo "[$serial] [!] 'su' command not found. Root actions will fail."
     else
         echo "[$serial] [✓] Found 'su' at: $HAS_SU"
+    fi
+
+    # 0.5. Curl Check & Installation
+    HAS_CURL=$(adb -s "$serial" shell "which curl" 2>/dev/null | tr -d '\r')
+    if [ -z "$HAS_CURL" ]; then
+        if [ -n "$HAS_SU" ]; then
+            echo "[$serial] 'curl' not found. Installing static curl..."
+            adb -s "$serial" push "$CURL_BIN" /data/local/tmp/curl >/dev/null 2>&1
+            adb -s "$serial" shell "$HAS_SU -c 'mount -o rw,remount / 2>/dev/null || mount -o rw,remount /system 2>/dev/null'"
+            adb -s "$serial" shell "$HAS_SU -c 'cp /data/local/tmp/curl /system/bin/curl 2>/dev/null || cp /data/local/tmp/curl /system/xbin/curl 2>/dev/null'"
+            adb -s "$serial" shell "$HAS_SU -c 'chmod 755 /system/bin/curl 2>/dev/null || chmod 755 /system/xbin/curl 2>/dev/null'"
+            adb -s "$serial" shell "$HAS_SU -c 'rm -f /data/local/tmp/curl'"
+            echo "[$serial] [✓] 'curl' installed successfully."
+        else
+            echo "[$serial] [!] 'curl' not found, but no root. Cannot install."
+        fi
+    else
+        echo "[$serial] [✓] Found 'curl' at: $HAS_CURL"
     fi
 
     # 1. App Installation with Pass Logic

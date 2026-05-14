@@ -22,6 +22,8 @@ for orig_key, spoof_key in pairs:
 SESSION_STORAGE_OFFSET = random.randint(-500000000, 500000000)
 SESSION_BOOT_OFFSET_MS = random.randint(300000, 86400000)
 SESSION_INSTALL_OFFSET_SEC = random.randint(86400, 604800)
+# [V2.1.7] App initialization timestamp offset (Install + 60~600s jitter)
+SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) + random.randint(60000, 600000)
 
 def smart_cleanse(obj):
     """Recursive identity washing using simple string/byte replacement.
@@ -29,7 +31,8 @@ def smart_cleanse(obj):
     if isinstance(obj, dict):
         return {k: (v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
                    (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
-                   (v - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else smart_cleanse(v)))) 
+                   (v - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
+                   (v - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v))))) 
                 for k, v in obj.items()}
     elif isinstance(obj, list): return [smart_cleanse(i) for i in obj]
     elif isinstance(obj, str):
