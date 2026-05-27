@@ -24,6 +24,24 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CERT_PATH="/home/tech/.mitmproxy/mitmproxy-ca-cert.pem"
 
+# [V2.0] 최초 실행 시 mitmproxy 인증서 자동 생성 자동화
+if [ ! -f "$CERT_PATH" ]; then
+    echo "[*] mitmproxy 인증서를 찾을 수 없습니다. 자동 생성을 시도합니다..."
+    if command -v mitmdump >/dev/null 2>&1; then
+        # mitmdump를 백그라운드에서 실행하고 2초 후 종료하여 인증서를 생성합니다.
+        mitmdump &
+        MITM_PID=$!
+        sleep 2
+        kill $MITM_PID 2>/dev/null
+        # 인증서 생성 여부 재확인
+        if [ -f "$CERT_PATH" ]; then
+            echo "  -> mitmproxy 인증서 자동 생성 완료: $CERT_PATH"
+        fi
+    else
+        echo "[-] mitmdump 명령어를 찾을 수 없어 인증서를 자동 생성할 수 없습니다."
+    fi
+fi
+
 # 인증서 해시 추출
 CERT_HASH=""
 if [ -f "$CERT_PATH" ]; then

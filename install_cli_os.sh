@@ -127,7 +127,29 @@ else
     echo "  -> PM2 is already installed. Skipping."
 fi
 
-# 9. 설치 확인
+# 9. mitmproxy 인증서 자동 초기 생성
+echo "[*] Initializing mitmproxy CA Certificate..."
+CERT_PATH="/home/tech/.mitmproxy/mitmproxy-ca-cert.pem"
+if [ ! -f "$CERT_PATH" ]; then
+    if command -v mitmdump >/dev/null 2>&1; then
+        echo "  -> Generating mitmproxy certificates (running mitmdump in background for 2s)..."
+        mitmdump &
+        MITM_PID=$!
+        sleep 2
+        kill $MITM_PID 2>/dev/null
+        if [ -f "$CERT_PATH" ]; then
+            echo "  -> Certificates generated successfully: $CERT_PATH"
+        else
+            echo "  -> [Warning] Certificate generation might have failed. Please check manually."
+        fi
+    else
+        echo "  -> [Warning] mitmdump not found. Cannot generate certificates."
+    fi
+else
+    echo "  -> mitmproxy certificates already exist. Skipping."
+fi
+
+# 10. 설치 확인
 echo "============================================================"
 echo "   Installation Summary"
 echo "============================================================"
