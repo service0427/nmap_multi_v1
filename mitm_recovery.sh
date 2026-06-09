@@ -210,7 +210,7 @@ EOF2
     adb -s "$serial" shell "rm -f /data/local/tmp/fix_script.sh /data/local/tmp/wipe_cert.sh"
     rm -f /tmp/fix_script_$serial.sh /tmp/wipe_cert_$serial.sh
 
-    # 3. 새로운 인증서 주입 (install_devices.sh 로직 재사용)
+    # 3. 새로운 인증서 주입 (app_installation.sh 로직 재사용)
     echo "[$serial] 현재 서버의 올바른 인증서 주입 중..."
     adb -s "$serial" push "$CERT_PATH" "/data/local/tmp/$CERT_HASH.0" >/dev/null 2>&1
     

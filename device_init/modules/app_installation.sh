@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+# ============================================================
+# Application Installation & Base Provisioning Module
+# ============================================================
+
+init_app_installation() {
+    local serial=$1
+    local has_su=$2
+    local YELLOW="\e[1;33m"
+    local GREEN="\e[1;32m"
+    local NC="\e[0m"
+
+    # Base installation paths on the host
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    local INSTALL_DIR="$PROJECT_ROOT/install"
+
+    # Define packages and their files
+    local APPS=(
+        "com.nhn.android.nmap:1:$INSTALL_DIR/com.nhn.android.nmap_6.6.1/base.apk $INSTALL_DIR/com.nhn.android.nmap_6.6.1/split_config.arm64_v8a.apk $INSTALL_DIR/com.nhn.android.nmap_6.6.1/split_config.xxhdpi.apk"
+        "com.rosteam.gpsemulator:1:$INSTALL_DIR/gpsemulator/base.apk $INSTALL_DIR/gpsemulator/split_config.arm64_v8a.apk $INSTALL_DIR/gpsemulator/split_config.ko.apk $INSTALL_DIR/gpsemulator/split_config.xxhdpi.apk"
+        "com.android.adbkeyboard:0:$INSTALL_DIR/ADBKeyboard.apk"
+    )
+
+    # 1. Download Static Curl if not exists on the host
+    local CURL_BIN="$INSTALL_DIR/curl-aarch64"
+    if [ ! -f "$CURL_BIN" ]; then
+        echo -e "    - Downloading statically compiled curl for aarch64..."
+        mkdir -p "$INSTALL_DIR"
+        curl -sL "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64" -o "$CURL_BIN"
+        chmod +x "$CURL_BIN"
+    fi
+
+    echo -e "\n[*] Provisioning applications and base configuration..."
+
+    # 2. Curl Check & Installation on the device
+    local has_device_curl=$(adb -s "$serial" shell "which curl" 2>/dev/null | tr -d '\r')
+    if [ -z "$has_device_curl" ]; then
+        if [ -n "$has_su" ]; then
+            echo -e "    - 'curl' not found. Installing static curl..."
+            adb -s "$serial" push "$CURL_BIN" /data/local/tmp/curl >/dev/null 2>&1
+            adb -s "$serial" shell "$has_su -c 'mount -o rw,remount / 2>/dev/null || mount -o rw,remount /system 2>/dev/null'"
+            adb -s "$serial" shell "$has_su -c 'cp /data/local/tmp/curl /system/bin/curl 2>/dev/null || cp /data/local/tmp/curl /system/xbin/curl 2>/dev/null'"
+            adb -s "$serial" shell "$has_su -c 'chmod 755 /system/bin/curl 2>/dev/null || chmod 755 /system/xbin/curl 2>/dev/null'"
+            adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/curl'"
+            
+            local has_device_curl_verify=$(adb -s "$serial" shell "which curl" 2>/dev/null | tr -d '\r')
+            if [ -n "$has_device_curl_verify" ]; then
+                echo -e "    [✓] 'curl' installed successfully on device."
+            else
+                echo -e "    [!] Failed to install static 'curl'."
+            fi
+        else
+            echo -e "    [!] 'curl' not found and root is unavailable. Cannot install."
+        fi
+    else
+        echo -e "    [✓] 'curl' is already installed. Skipping."
+    fi
+
+    # 3. App Installation with Pass Logic
+    local installed_packages=$(adb -s "$serial" shell pm list packages | cut -d':' -f2)
+    for app in "${APPS[@]}"; do
+        IFS=':' read -r pkg type files <<< "$app"
+        if echo "$installed_packages" | grep -qx "$pkg"; then
+            echo -e "    [✓] $pkg is already installed. Skipping."
+        else
+            echo -e "    - $pkg not found. Installing..."
+            if [ "$type" -eq "0" ]; then
+                adb -s "$serial" install $files >/dev/null 2>&1
+            else
+                adb -s "$serial" install-multiple $files >/dev/null 2>&1
+            fi
+            
+            # Verify installation
+            local check_install=$(adb -s "$serial" shell pm list packages | cut -d':' -f2 | grep -qx "$pkg" && echo "YES" || echo "NO")
+            if [ "$check_install" = "YES" ]; then
+                echo -e "    [✓] $pkg installed successfully."
+            else
+                echo -e "    [!] Failed to install $pkg."
+            fi
+        fi
+    done
+
+    # 4. Push Magisk Modules to Download directory
+    echo -e "    - Syncing Magisk modules to /sdcard/Download/..."
+    if [ -d "$INSTALL_DIR/Magisk_Module" ]; then
+        local need_push=false
+        for f in "$INSTALL_DIR/Magisk_Module"/*.zip; do
+            [ -e "$f" ] || continue
+            local fname=$(basename "$f")
+            if ! adb -s "$serial" shell "[ -f /sdcard/Download/$fname ]" >/dev/null 2>&1; then
+                need_push=true; break
+            fi
+        done
+        if [ "$need_push" = true ]; then
+            adb -s "$serial" shell "mkdir -p /sdcard/Download"
+            adb -s "$serial" push "$INSTALL_DIR/Magisk_Module/." /sdcard/Download/ >/dev/null 2>&1
+            echo -e "    [✓] Magisk modules pushed to /sdcard/Download/."
+        else
+            echo -e "    [✓] Magisk modules are already in sync. Skipping."
+        fi
+    else
+        echo -e "    [!] Local Magisk modules folder not found: $INSTALL_DIR/Magisk_Module"
+    fi
+
+    # 5. System Tweak & MTP Lockout
+    echo -e "    - Applying System Tweaks & USB/MTP Lockout..."
+    
+    # 5.1 USB Stability: Set Persistent USB to ADB Only (No MTP)
+    adb -s "$serial" shell "su -c 'setprop persist.sys.usb.config adb && setprop sys.usb.config adb && svc usb setFunctions adb'" 2>/dev/null
+    
+    # 5.2 Disable Bloatware & MTP packages
+    adb -s "$serial" shell pm uninstall com.google.android.webview >/dev/null 2>&1
+    adb -s "$serial" shell pm disable-user --user 0 com.android.vending >/dev/null 2>&1
+    adb -s "$serial" shell pm disable-user --user 0 com.samsung.android.mtp >/dev/null 2>&1 || true
+    adb -s "$serial" shell pm disable-user --user 0 com.samsung.android.mtpapplication >/dev/null 2>&1 || true
+    adb -s "$serial" shell pm disable-user --user 0 com.android.mtp >/dev/null 2>&1 || true
+
+    # 5.3 UI Settings
+    adb -s "$serial" shell settings put system accelerometer_rotation 0 >/dev/null 2>&1
+    adb -s "$serial" shell settings put global ota_disable_automatic_update 1 >/dev/null 2>&1
+    echo -e "    [✓] System tweaks and USB/MTP Lockout applied."
+}

@@ -17,6 +17,7 @@ source "$BASE_DIR/device_init/modules/scanning_settings.sh"
 source "$BASE_DIR/device_init/modules/screen_orientation.sh"
 source "$BASE_DIR/device_init/modules/gps_emulator_setup.sh"
 source "$BASE_DIR/device_init/modules/naver_map_setup.sh"
+source "$BASE_DIR/device_init/modules/app_installation.sh"
 
 # Get target device from argument (optional)
 TARGET_DEVICE=$1
@@ -125,13 +126,8 @@ for serial in $DEVICES; do
         exit 1
     fi
 
-    # 0.5. Automatic Package Installation check
-    local is_nmap_installed=$(adb -s "$serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r')
-    local is_gps_installed=$(adb -s "$serial" shell "pm path com.rosteam.gpsemulator" 2>/dev/null | tr -d '\r')
-    if [ -z "$is_nmap_installed" ] || [ -z "$is_gps_installed" ]; then
-        echo -e "${YELLOW}[*] Required packages not found. Automatically running install_devices.sh for $serial...${NC}"
-        bash "$BASE_DIR/install_devices.sh" "$serial"
-    fi
+    # 0.5. Run modular application installation & base provisioning
+    init_app_installation "$serial" "$HAS_SU"
 
     # Run individual initialization modules
     init_bluetooth "$serial" "$HAS_SU"
