@@ -125,6 +125,14 @@ for serial in $DEVICES; do
         exit 1
     fi
 
+    # 0.5. Automatic Package Installation check
+    local is_nmap_installed=$(adb -s "$serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r')
+    local is_gps_installed=$(adb -s "$serial" shell "pm path com.rosteam.gpsemulator" 2>/dev/null | tr -d '\r')
+    if [ -z "$is_nmap_installed" ] || [ -z "$is_gps_installed" ]; then
+        echo -e "${YELLOW}[*] Required packages not found. Automatically running install_devices.sh for $serial...${NC}"
+        bash "$BASE_DIR/install_devices.sh" "$serial"
+    fi
+
     # Run individual initialization modules
     init_bluetooth "$serial" "$HAS_SU"
     init_scanning_settings "$serial" "$HAS_SU"
