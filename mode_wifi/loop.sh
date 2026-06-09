@@ -131,6 +131,13 @@ while true; do
             continue
         fi
 
+        # [NEW] Battery Level Safety Check (Skip if battery < 10%)
+        BATT_LEVEL=$(timeout 5 /usr/bin/adb -s "$DEV_ID" shell "dumpsys battery" | grep "level:" | grep -oE '[0-9]+' | head -n 1)
+        if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -lt 10 ]; then
+            log_info "[$DEV_ID] Battery level too low (${BATT_LEVEL}% < 10%). Skipping..."
+            continue
+        fi
+
         # [NEW] Clear only our stale proxy settings before checking IP (only touch it if it matches our expected port)
         DEV_SEQ=$(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')
         EXP_FRIDA=$((6000 + DEV_SEQ))

@@ -109,6 +109,13 @@ while true; do
             continue
         fi
 
+        # [NEW] Battery Level Safety Check (Skip if battery < 10%)
+        BATT_LEVEL=$(timeout 5 /usr/bin/adb -s "$DEV_ID" shell "dumpsys battery" | grep "level:" | grep -oE '[0-9]+' | head -n 1)
+        if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -lt 10 ]; then
+            log_info "[$DEV_ID] Battery level too low (${BATT_LEVEL}% < 10%). Skipping..."
+            continue
+        fi
+
         # 3. Request Task
         API_URL="http://$API_SERVER/api/v1/request?device_id=$DEV_ID"
         RESPONSE=$(curl -s "$API_URL")
