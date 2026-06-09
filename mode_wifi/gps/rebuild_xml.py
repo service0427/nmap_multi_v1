@@ -32,7 +32,7 @@ def build_xml(target_file, speed, dev_id):
     entries.append(f'    <string name="ruta0">{value}</string>')
     
     start_pt = f"{coords[0][0]},{coords[0][1]}"
-    entries.append(f'    <string name="lastloc">Current_Start+{start_pt}+15.0</string>')
+    entries.append(f'    <string name="lastloc">CurrentStart+{start_pt}+15.0</string>')
 
     xml_content = "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
     xml_content += "\n".join(entries)

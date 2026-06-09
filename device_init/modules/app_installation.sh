@@ -122,5 +122,23 @@ init_app_installation() {
     # 5.3 UI Settings
     adb -s "$serial" shell settings put system accelerometer_rotation 0 >/dev/null 2>&1
     adb -s "$serial" shell settings put global ota_disable_automatic_update 1 >/dev/null 2>&1
+
+    # 5.4 Disable Slow Charging Warning Popup (Samsung Devices)
+    if [ -n "$has_su" ]; then
+        local pref_dir="/data/user_de/0/com.android.systemui/shared_prefs"
+        local pref_file="$pref_dir/com.android.systemui.power_slow_charger_connection_info.xml"
+        
+        # Check if SystemUI directory exists and find its owner
+        local sysui_owner=$(adb -s "$serial" shell "$has_su -c 'stat -c \"%U:%G\" /data/user_de/0/com.android.systemui 2>/dev/null'" 2>/dev/null | tr -d '\r')
+        if [ -n "$sysui_owner" ] && [[ "$sysui_owner" != *"No such"* ]]; then
+            local current_val=$(adb -s "$serial" shell "$has_su -c 'cat $pref_file 2>/dev/null'" 2>/dev/null | tr -d '\r')
+            if [[ "$current_val" != *"DoNotShowSlowChargerConnectionInfo"* ]] || [[ "$current_val" != *"true"* ]]; then
+                adb -s "$serial" shell "$has_su -c 'mkdir -p $pref_dir && printf \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?>\n<map>\n    <boolean name=\\\"DoNotShowSlowChargerConnectionInfo\\\" value=\\\"true\\\" />\n</map>\n\" > $pref_file && chmod 660 $pref_file && chown $sysui_owner $pref_file'" >/dev/null 2>&1
+                # Restart SystemUI to apply configuration
+                adb -s "$serial" shell "$has_su -c 'pkill -f com.android.systemui'" >/dev/null 2>&1
+            fi
+        fi
+    fi
+
     echo -e "    [✓] System tweaks and USB/MTP Lockout applied."
 }

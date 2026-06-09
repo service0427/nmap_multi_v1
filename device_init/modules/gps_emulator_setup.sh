@@ -88,4 +88,35 @@ init_gps_emulator() {
     else
         echo -e "    [✓] Mock Location is already allowed. Skipping."
     fi
+
+    # 5. Pre-configure preferences (No underscore in lastloc to avoid parsing crash)
+    if [ -n "$has_su" ]; then
+        echo -e "    - Pre-configuring GPS Emulator preferences..."
+        local pref_dir="/data/data/com.rosteam.gpsemulator/shared_prefs"
+        local pref_file="$pref_dir/com.rosteam.gpsemulator_preferences.xml"
+        
+        local gps_owner=$(adb -s "$serial" shell "$has_su -c 'stat -c \"%U:%G\" /data/data/com.rosteam.gpsemulator 2>/dev/null'" 2>/dev/null | tr -d '\r')
+        if [ -n "$gps_owner" ] && [[ "$gps_owner" != *"No such"* ]]; then
+            adb -s "$serial" shell "$has_su -c 'mkdir -p $pref_dir && printf \"<?xml version=\\\"1.0\\\" encoding=\\\"utf-8\\\" standalone=\\\"yes\\\" ?>\n<map>\n    <boolean name=\\\"noads\\\" value=\\\"true\\\" />\n    <boolean name=\\\"onettimeblock\\\" value=\\\"true\\\" />\n    <int name=\\\"pagbookmark\\\" value=\\\"1\\\" />\n    <int name=\\\"accion\\\" value=\\\"0\\\" />\n    <float name=\\\"velocidad\\\" value=\\\"0.0\\\" />\n    <int name=\\\"consent_status\\\" value=\\\"1\\\" />\n    <boolean name=\\\"appstartvisible\\\" value=\\\"false\\\" />\n    <string name=\\\"lastloc\\\">CurrentStart+37.5665,126.9780+15.0</string>\n</map>\n\" > $pref_file && chmod 660 $pref_file && chown $gps_owner $pref_file && restorecon -R /data/data/com.rosteam.gpsemulator'" >/dev/null 2>&1
+        fi
+    fi
+
+    # 6. First-time Launch UI Dismissal (Auto-dismiss Important popup)
+    echo -e "    - Performing first-time launch auto-dismiss..."
+    adb -s "$serial" shell monkey -p com.rosteam.gpsemulator -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+    sleep 3
+    
+    local script_dir
+    if [ -n "$BASE_DIR" ]; then
+        script_dir="$BASE_DIR"
+    else
+        script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
+    fi
+    
+    # Click OK/Accept button (android:id/button1) dynamically
+    python3 "$script_dir/device_init/utils/ui_clicker.py" "$serial" "id:android:id/button1" >/dev/null 2>&1 || true
+    
+    # Force stop to complete the initialization
+    adb -s "$serial" shell am force-stop com.rosteam.gpsemulator
+    echo -e "    [✓] GPS Emulator auto-dismiss check complete."
 }

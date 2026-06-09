@@ -50,11 +50,11 @@ echo "------------------------------------------------------------"
 
 # 1.5 IP Change & REAL IP Verification
 if [ "$NMAP_NO_IP" != "true" ]; then
-    echo "[$DEV_ID] Skipping Airplane Mode toggle (LTE WiFi mode)..."
+    # echo "[$DEV_ID] Skipping Airplane Mode toggle (LTE WiFi mode)..."
     # adb -s "$DEV_ID" shell su -c "cmd connectivity airplane-mode enable"
     # sleep 3
     # adb -s "$DEV_ID" shell su -c "cmd connectivity airplane-mode disable"
-    echo -n "    > Waiting for stable network connection..."
+    # echo -n "    > Waiting for stable network connection..."
     
     REAL_IP="Unknown"
     CONNECTED=false
