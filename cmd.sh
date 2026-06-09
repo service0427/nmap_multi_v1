@@ -10,6 +10,9 @@ case "$1" in
     --dark)
         bash "$CMD_DIR/dark.sh"
         ;;
+    --light)
+        bash "$CMD_DIR/light.sh"
+        ;;
     --portrait|--portait)
         bash "$CMD_DIR/portrait.sh"
         ;;
@@ -18,6 +21,10 @@ case "$1" in
         ;;
     --ip)
         bash "$CMD_DIR/ip.sh"
+        ;;
+    --wifi)
+        shift
+        bash "$CMD_DIR/wifi.sh" "$@"
         ;;
     *)
         # 인자 없이 실행 시: 연결된 모든 기기의 화면을 그리드로 정렬하여 띄움

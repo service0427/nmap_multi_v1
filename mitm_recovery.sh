@@ -76,16 +76,55 @@ for serial in $DEVICES; do
         continue
     fi
 
+    # [인증서 및 스크립트 해시 비교 - 중복 작업 및 재부팅 방지]
+    HOST_MD5=$(md5sum "$CERT_PATH" 2>/dev/null | awk '{print $1}')
+    USER_CERT_PATH="/data/misc/user/0/cacerts-added/$CERT_HASH.0"
+    USER_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum $USER_CERT_PATH'" 2>/dev/null | awk '{print $1}')
+    
+    MODULE_DIR_EXISTS=$(adb -s "$serial" shell "$HAS_SU -c '[ -d /data/adb/modules/trustusercerts ] && echo YES || echo NO'" 2>/dev/null | tr -d '\r')
+    MODULE_CERT_MATCH=true
+    SCRIPT_CORRECT=true
+    
+    if [ "$MODULE_DIR_EXISTS" = "YES" ]; then
+        MODULE_CERT_PATH="/data/adb/modules/trustusercerts/system/etc/security/cacerts/$CERT_HASH.0"
+        MODULE_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum $MODULE_CERT_PATH'" 2>/dev/null | awk '{print $1}')
+        if [ "$MODULE_MD5" != "$HOST_MD5" ]; then
+            MODULE_CERT_MATCH=false
+        fi
+        
+        ACTIVE_SCRIPT="/data/adb/modules/trustusercerts/post-fs-data.sh"
+        check_active=$(adb -s "$serial" shell "$HAS_SU -c \"[ -f $ACTIVE_SCRIPT ] && grep -c '\[교정됨\]' $ACTIVE_SCRIPT || echo 0\"" 2>/dev/null | tr -d '\r')
+        if [ "$check_active" = "0" ] || [ -z "$check_active" ]; then
+            SCRIPT_CORRECT=false
+        fi
+    fi
+    
+    UPDATE_DIR_EXISTS=$(adb -s "$serial" shell "$HAS_SU -c '[ -d /data/adb/modules_update/trustusercerts ] && echo YES || echo NO'" 2>/dev/null | tr -d '\r')
+    if [ "$UPDATE_DIR_EXISTS" = "YES" ]; then
+        UPDATE_SCRIPT="/data/adb/modules_update/trustusercerts/post-fs-data.sh"
+        check_update=$(adb -s "$serial" shell "$HAS_SU -c \"[ -f $UPDATE_SCRIPT ] && grep -c '\[교정됨\]' $UPDATE_SCRIPT || echo 0\"" 2>/dev/null | tr -d '\r')
+        if [ "$check_update" = "0" ] || [ -z "$check_update" ]; then
+            SCRIPT_CORRECT=false
+        fi
+    fi
+
+    if [ "$USER_MD5" = "$HOST_MD5" ] && [ "$MODULE_CERT_MATCH" = true ] && [ "$SCRIPT_CORRECT" = true ]; then
+        echo "[$serial] [✓] MITM 인증서와 Magisk 스크립트가 이미 최신 상태로 적용되어 있습니다. 복구 및 재부팅을 건너뜁니다."
+        echo "=================================================="
+        continue
+    fi
+
     # 1. Magisk 모듈 post-fs-data.sh 복사 순서 교정 스크립트 작성
     cat << 'EOF' > /tmp/fix_script_$serial.sh
 #!/system/bin/sh
-MOD_SCRIPT="/data/adb/modules/trustusercerts/post-fs-data.sh"
+MOD_SCRIPT_ACTIVE="/data/adb/modules/trustusercerts/post-fs-data.sh"
+MOD_SCRIPT_UPDATE="/data/adb/modules_update/trustusercerts/post-fs-data.sh"
+MODIFIED_ANY=false
 
-if [ -f "$MOD_SCRIPT" ]; then
-    echo "[$serial] trustusercerts 모듈 스크립트를 교정합니다..."
-    
-    # 올바른 순서의 스크립트로 덮어쓰기
-    cat << 'INNER_EOF' > $MOD_SCRIPT
+write_corrected_script() {
+    local target=$1
+    echo "trustusercerts 모듈 스크립트를 교정합니다: $target"
+    cat << 'INNER_EOF' > "$target"
 # Certificates are collected during post-fs-data so that they are auto-mounted on top of /system for non-conscrypt devices
 MODDIR=${0%/*}
 SYS_CERT_DIR=/system/etc/security/cacerts
@@ -123,11 +162,23 @@ main(){
 }
 main
 INNER_EOF
+    chmod 755 "$target"
+}
 
-    chmod 755 $MOD_SCRIPT
-    echo "[$serial] 스크립트 교정 완료."
+if [ -f "$MOD_SCRIPT_ACTIVE" ]; then
+    write_corrected_script "$MOD_SCRIPT_ACTIVE"
+    MODIFIED_ANY=true
+fi
+
+if [ -f "$MOD_SCRIPT_UPDATE" ]; then
+    write_corrected_script "$MOD_SCRIPT_UPDATE"
+    MODIFIED_ANY=true
+fi
+
+if [ "$MODIFIED_ANY" = "true" ]; then
+    echo "스크립트 교정 완료."
 else
-    echo "[$serial] trustusercerts 모듈을 찾을 수 없습니다. 무시하고 진행합니다."
+    echo "trustusercerts 모듈(Active 또는 Update)을 찾을 수 없습니다. 무시하고 진행합니다."
 fi
 EOF
 

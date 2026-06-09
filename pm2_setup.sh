@@ -38,6 +38,17 @@ else
     echo "[!] test_nmap_v2/run_scheduler.sh not found. Skipping."
 fi
 
+# 3.5 Register Wi-Fi Scheduler (STOPPED state)
+if [ -f "mode_wifi/run_scheduler.sh" ]; then
+    echo "[*] Registering Nmap Wi-Fi Scheduler (STOPPED state)..."
+    chmod +x mode_wifi/run_scheduler.sh
+    pm2 delete wifi-scheduler 2>/dev/null
+    pm2 start mode_wifi/run_scheduler.sh --name "wifi-scheduler"
+    pm2 stop wifi-scheduler
+else
+    echo "[!] mode_wifi/run_scheduler.sh not found. Skipping."
+fi
+
 # 4. Register Log Cleaner (Hourly Cron)
 if [ -f "log_clean.sh" ]; then
     echo "[*] Registering Nmap Log Cleaner (Hourly Cron)..."

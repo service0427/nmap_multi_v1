@@ -23,7 +23,7 @@ CURL_BIN="$INSTALL_DIR/curl-aarch64"
 if [ ! -f "$CURL_BIN" ]; then
     echo "[*] Downloading statically compiled curl for aarch64..."
     mkdir -p "$INSTALL_DIR"
-    curl -sL "https://github.com/moparisthebest/static-curl/releases/latest/download/curl-aarch64" -o "$CURL_BIN"
+    curl -sL "https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64" -o "$CURL_BIN"
     chmod +x "$CURL_BIN"
 fi
 
