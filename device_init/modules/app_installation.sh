@@ -36,26 +36,25 @@ init_app_installation() {
 
     # 2. Curl Check & Installation on the device
     local has_device_curl=$(adb -s "$serial" shell "which curl" 2>/dev/null | tr -d '\r')
-    if [ -z "$has_device_curl" ]; then
-        if [ -n "$has_su" ]; then
-            echo -e "    - 'curl' not found. Installing static curl..."
-            adb -s "$serial" push "$CURL_BIN" /data/local/tmp/curl >/dev/null 2>&1
-            adb -s "$serial" shell "$has_su -c 'mount -o rw,remount / 2>/dev/null || mount -o rw,remount /system 2>/dev/null'"
-            adb -s "$serial" shell "$has_su -c 'cp /data/local/tmp/curl /system/bin/curl 2>/dev/null || cp /data/local/tmp/curl /system/xbin/curl 2>/dev/null'"
-            adb -s "$serial" shell "$has_su -c 'chmod 755 /system/bin/curl 2>/dev/null || chmod 755 /system/xbin/curl 2>/dev/null'"
-            adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/curl'"
-            
-            local has_device_curl_verify=$(adb -s "$serial" shell "which curl" 2>/dev/null | tr -d '\r')
-            if [ -n "$has_device_curl_verify" ]; then
-                echo -e "    [✓] 'curl' installed successfully on device."
-            else
-                echo -e "    [!] Failed to install static 'curl'."
-            fi
-        else
-            echo -e "    [!] 'curl' not found and root is unavailable. Cannot install."
-        fi
+    
+    # Always ensure static curl is deployed to /data/local/tmp/curl as a reliable fallback
+    echo -e "    - Deploying static 'curl' to /data/local/tmp/curl..."
+    adb -s "$serial" push "$CURL_BIN" /data/local/tmp/curl >/dev/null 2>&1
+    adb -s "$serial" shell "chmod 755 /data/local/tmp/curl"
+    
+    # Try system path installation as best effort
+    if [ -n "$has_su" ]; then
+        adb -s "$serial" shell "$has_su -c 'mount -o rw,remount / 2>/dev/null || mount -o rw,remount /system 2>/dev/null'" >/dev/null 2>&1
+        adb -s "$serial" shell "$has_su -c 'cp /data/local/tmp/curl /system/bin/curl 2>/dev/null || cp /data/local/tmp/curl /system/xbin/curl 2>/dev/null'" >/dev/null 2>&1
+        adb -s "$serial" shell "$has_su -c 'chmod 755 /system/bin/curl 2>/dev/null || chmod 755 /system/xbin/curl 2>/dev/null'" >/dev/null 2>&1
+    fi
+
+    # Final verification
+    local verify_curl=$(adb -s "$serial" shell "which curl || [ -x /data/local/tmp/curl ] && echo '/data/local/tmp/curl'" 2>/dev/null | tr -d '\r')
+    if [ -n "$verify_curl" ]; then
+        echo -e "    [✓] 'curl' is ready on device ($verify_curl)."
     else
-        echo -e "    [✓] 'curl' is already installed. Skipping."
+        echo -e "    [!] Failed to verify 'curl' on device."
     fi
 
     # 3. App Installation with Pass Logic

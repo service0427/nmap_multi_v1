@@ -62,7 +62,7 @@ if [ "$NMAP_NO_IP" != "true" ]; then
     # 최대 30초 대기
     for i in {1..30}; do
         if adb -s "$DEV_ID" shell "ping -c 1 -W 1 8.8.8.8" >/dev/null 2>&1; then
-            REAL_IP=$(adb -s "$DEV_ID" shell "curl -4 -s --connect-timeout 3 https://ifconfig.me" | tr -d '\r\n')
+            REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -4 -s --connect-timeout 3 https://ifconfig.me || curl -4 -s --connect-timeout 3 https://ifconfig.me" | tr -d '\r\n')
             if [ -n "$REAL_IP" ] && [[ "$REAL_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 echo " [✓] Connected! Real IPv4: $REAL_IP"
                 CONNECTED=true

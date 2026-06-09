@@ -62,8 +62,8 @@ if [ "$NMAP_NO_IP" != "true" ]; then
     for i in {1..30}; do
         # 1. 먼저 핑으로 기본 연결 확인
         if adb -s "$DEV_ID" shell "ping -c 1 -W 1 8.8.8.8" >/dev/null 2>&1; then
-            # 2. 실제 HTTP 요청이 성공하는지 확인 (SSL 핸드쉐이크 등 안정성 보장)
-            REAL_IP=$(adb -s "$DEV_ID" shell "curl -4 -s --connect-timeout 3 https://ifconfig.me" | tr -d '\r\n')
+            # 2. 실제 HTTP 요청이 성공하는지 확인 (SSL 핸드쉐이크 등 안정성 보장, local/tmp/curl 폴백 지원)
+            REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -4 -s --connect-timeout 3 https://ifconfig.me || curl -4 -s --connect-timeout 3 https://ifconfig.me" | tr -d '\r\n')
             if [ -n "$REAL_IP" ] && [[ "$REAL_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 echo " [✓] Connected! Real IPv4: $REAL_IP"
                 CONNECTED=true

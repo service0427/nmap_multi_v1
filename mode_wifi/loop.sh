@@ -131,8 +131,8 @@ while true; do
             continue
         fi
 
-        # [NEW] Detect Real IP before requesting task
-        CUR_IP=$(timeout 10 /usr/bin/adb -s "$DEV_ID" shell "curl -s -4 --connect-timeout 3 https://ifconfig.me" | tr -d '\r\n')
+        # [NEW] Detect Real IP before requesting task (fallback to local/tmp/curl if system curl is missing)
+        CUR_IP=$(timeout 10 /usr/bin/adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s -4 --connect-timeout 3 https://ifconfig.me || curl -s -4 --connect-timeout 3 https://ifconfig.me" 2>/dev/null | tr -d '\r\n')
         if [ -z "$CUR_IP" ] || [[ ! "$CUR_IP" =~ ^[0-9] ]]; then
             log_info "[$DEV_ID] Network unstable (No IP). Skipping..."
             continue
