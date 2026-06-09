@@ -40,6 +40,62 @@ GREEN="\e[1;32m"
 YELLOW="\e[1;33m"
 NC="\e[0m"
 
+# Preliminary Root Check for multi-device initialization
+if [ -z "$TARGET_DEVICE" ]; then
+    echo -e "${YELLOW}[*] Performing preliminary root authorization check on all connected devices...${NC}"
+    FAILED_DEVICES=()
+    NO_SU_DEVICES=()
+    
+    for serial in $DEVICES; do
+        # Find su
+        HAS_SU=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
+        if [ -z "$HAS_SU" ]; then
+            HAS_SU=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
+        fi
+        
+        if [ -z "$HAS_SU" ]; then
+            echo -e "  - ${serial}: ${YELLOW}su not found${NC}"
+            NO_SU_DEVICES+=("$serial")
+            continue
+        fi
+        
+        # Test su with a 3-second timeout. If it's waiting for approval, it will time out and trigger the prompt on device.
+        SU_TEST=$(timeout 3 adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
+        if [[ "$SU_TEST" == *"uid=0"* ]]; then
+            echo -e "  - ${serial}: ${GREEN}Root shell authorization OK${NC}"
+        else
+            echo -e "  - ${serial}: ${YELLOW}Root shell authorization failed / Requesting popup...${NC}"
+            FAILED_DEVICES+=("$serial")
+        fi
+    done
+    
+    # Check if there are failures
+    if [ ${#FAILED_DEVICES[@]} -ne 0 ] || [ ${#NO_SU_DEVICES[@]} -ne 0 ]; then
+        echo -e "\n\e[1;31m[⚠️] 일부 디바이스의 Root 권한이 확보되지 않았습니다.\e[0m"
+        
+        if [ ${#FAILED_DEVICES[@]} -ne 0 ]; then
+            echo -e "\n${YELLOW}[!] Magisk 권한 승인이 필요한 디바이스:${NC}"
+            for serial in "${FAILED_DEVICES[@]}"; do
+                echo -e "  - ${serial}"
+            done
+            echo -e "  -> 대상 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭해주세요."
+        fi
+        
+        if [ ${#NO_SU_DEVICES[@]} -ne 0 ]; then
+            echo -e "\n${YELLOW}[!] 'su' 명령어를 찾을 수 없거나 루팅이 확인되지 않는 디바이스:${NC}"
+            for serial in "${NO_SU_DEVICES[@]}"; do
+                echo -e "  - ${serial}"
+            done
+            echo -e "  -> 기기가 정상적으로 루팅(Magisk)되어 있는지 확인해주세요."
+        fi
+        
+        echo -e "\n승인 완료 후 이 스크립트를 다시 구동해주시기 바랍니다."
+        exit 1
+    fi
+    echo -e "${GREEN}[✓] All connected devices passed root check. Proceeding to initialization...${NC}\n"
+fi
+
+
 for serial in $DEVICES; do
     echo -e "${CYAN}============================================================${NC}"
     echo -e "Initializing device: ${GREEN}$serial${NC}"
