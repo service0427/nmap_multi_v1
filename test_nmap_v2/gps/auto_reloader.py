@@ -147,6 +147,7 @@ def main(log_dir, device_id):
     # 정체 감지 및 안전 단계 변수
     last_remaining_dist = 99999.9
     stuck_count = 0
+    gps_fail_count = 0
     safety_stage = 0 # 0: Normal, 1: GPS Moved, 2: Finished
     
     log_print(f"============================================================")
@@ -193,10 +194,11 @@ def main(log_dir, device_id):
                             subprocess.run(["python3", os.path.join(script_dir, "reload_path.py"), latest_file, device_id], check=True, env=env)
                             drive_state = "MONITORING"
                             log_print(f"[🛰️] State Transition: MONITORING")
-
+ 
             elif drive_state == "MONITORING":
                 cur_lat, cur_lng = get_current_mock_location(device_id)
                 if cur_lat and coords_list:
+                    gps_fail_count = 0
                     min_err = float('inf')
                     start_idx = 0
                     for i, (plat, plng) in enumerate(coords_list):
@@ -205,17 +207,94 @@ def main(log_dir, device_id):
                             min_err = err; start_idx = i
                     remaining_dist = RouteDecoder.calculate_distance(coords_list[start_idx:])
                     log_print(f"[🛣️] Progress: {remaining_dist:.2f} km remaining | Time: {elapsed}s / {total_target_sec}s")
+                    
+                    # Stuck Detection Logic
+                    if remaining_dist > 0.0:
+                        if last_remaining_dist == 99999.9:
+                            last_remaining_dist = remaining_dist
+                        
+                        dist_diff = last_remaining_dist - remaining_dist
+                        if dist_diff < 0.01: # less than 10m
+                            stuck_count += 1
+                            log_print(f"[⏳] Stuck warning: progress {dist_diff*1000:.1f}m < 10m. Stuck count: {stuck_count}/9")
+                            # Self-healing: 30s stuck -> teleport to end
+                            if stuck_count == 3 and safety_stage == 0:
+                                move_gps_to_target(device_id, coords_list[-1][0], coords_list[-1][1])
+                                safety_stage = 1
+                        else:
+                            stuck_count = 0
+                            last_remaining_dist = remaining_dist
+                        
+                        if stuck_count >= 9:
+                            log_print(f"[🚨] STUCK DETECTED (No progress for 90s). Aborting session...")
+                            # Report fail status to API server
+                            log_id = os.environ.get("NMAP_LOG_ID")
+                            api_server = os.environ.get("API_SERVER", "localhost:8000")
+                            if log_id:
+                                try:
+                                    import urllib.request
+                                    url = f"http://{api_server}/api/v1/update_status"
+                                    req_data = json.dumps({
+                                        "task_id": int(log_id),
+                                        "log_id": int(log_id),
+                                        "status": "FAIL_DRIVING_STUCK",
+                                        "device_id": device_id
+                                    }).encode('utf-8')
+                                    req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
+                                    with urllib.request.urlopen(req, timeout=5) as response:
+                                        log_print(f"[*] Reported FAIL_DRIVING_STUCK: {response.read().decode('utf-8')}")
+                                except Exception as e:
+                                    log_print(f"[!] Failed to report status: {e}")
+                            
+                            pkg = "com.nhn.android.nmap"
+                            subprocess.run(["adb", "-s", device_id, "shell", "am", "force-stop", pkg], capture_output=True)
+                            sys.exit(1)
+
+                    # Use server-provided NMAP_START_DIST for logic
+                    try:
+                        api_start_dist_km = float(os.environ.get("NMAP_START_DIST", 0.0)) / 1000.0
+                    except:
+                        api_start_dist_km = 0.0
+
                     if remaining_dist <= 1.0:
-                        log_print(f"[⚠️] APPROACHING (<= 1.0km). Slowing to 40km/h.")
-                        set_simulator_speed(device_id, 40.0)
+                        if api_start_dist_km == 0.0 or api_start_dist_km >= 3.0:
+                            log_print(f"[⚠️] APPROACHING (<= 1.0km). Slowing to 40km/h.")
+                            set_simulator_speed(device_id, 40.0)
+                        else:
+                            log_print(f"[⚠️] APPROACHING (<= 1.0km). Short trip ({api_start_dist_km:.1f}km). Keeping original speed.")
                         drive_state = "SLOWDOWN_SENT"
                         last_remaining_dist = remaining_dist
                 else:
-                    log_print("[?] Waiting for GPS update...")
+                    gps_fail_count += 1
+                    log_print(f"[?] Waiting for GPS update... ({gps_fail_count}/12)")
+                    if gps_fail_count >= 12:
+                        log_print("[🚨] GPS UPDATE TIMEOUT (120s). Aborting session...")
+                        log_id = os.environ.get("NMAP_LOG_ID")
+                        api_server = os.environ.get("API_SERVER", "localhost:8000")
+                        if log_id:
+                            try:
+                                import urllib.request
+                                url = f"http://{api_server}/api/v1/update_status"
+                                req_data = json.dumps({
+                                    "task_id": int(log_id),
+                                    "log_id": int(log_id),
+                                    "status": "FAIL_GPS_TIMEOUT",
+                                    "device_id": device_id
+                                }).encode('utf-8')
+                                req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
+                                with urllib.request.urlopen(req, timeout=5) as response:
+                                    log_print(f"[*] Reported FAIL_GPS_TIMEOUT: {response.read().decode('utf-8')}")
+                            except Exception as e:
+                                log_print(f"[!] Failed to report status: {e}")
+                        
+                        pkg = "com.nhn.android.nmap"
+                        subprocess.run(["adb", "-s", device_id, "shell", "am", "force-stop", pkg], capture_output=True)
+                        sys.exit(1)
 
             elif drive_state == "SLOWDOWN_SENT":
                 cur_lat, cur_lng = get_current_mock_location(device_id)
                 if cur_lat and coords_list:
+                    gps_fail_count = 0
                     min_err = float('inf')
                     start_idx = 0
                     for i, (plat, plng) in enumerate(coords_list):
@@ -225,24 +304,78 @@ def main(log_dir, device_id):
                     rem = RouteDecoder.calculate_distance(coords_list[start_idx:])
                     log_print(f"[🏁] Arriving: {rem*1000:.0f}m to goal | Time: {elapsed}s / {total_target_sec}s")
                     
-                    # 정체 감지
-                    if rem >= last_remaining_dist - 0.0001:
-                        stuck_count += 1
-                        # 2단계: 30초 정체 시 GPS 강제 이동
-                        if stuck_count == 3 and safety_stage == 0:
-                            move_gps_to_target(device_id, coords_list[-1][0], coords_list[-1][1])
-                            safety_stage = 1
-                        # 3단계: 강제 이동 후에도 20초(누적 50초) 정체 시 백키 시퀀스
-                        elif stuck_count >= 5 and safety_stage == 1:
-                            trigger_back_sequence(device_id)
-                            drive_state = "FORCED_FINISH"
-                    else:
-                        stuck_count = 0
-                    
-                    last_remaining_dist = rem
+                    # Stuck Detection Logic for SLOWDOWN_SENT
+                    if rem > 0.0:
+                        if last_remaining_dist == 99999.9:
+                            last_remaining_dist = rem
+                        
+                        dist_diff = last_remaining_dist - rem
+                        if dist_diff < 0.01: # less than 10m
+                            stuck_count += 1
+                            log_print(f"[⏳] Stuck warning (slowdown): progress {dist_diff*1000:.1f}m < 10m. Stuck count: {stuck_count}/9")
+                            # Self-healing: 30s stuck -> teleport to end
+                            if stuck_count == 3 and safety_stage == 0:
+                                move_gps_to_target(device_id, coords_list[-1][0], coords_list[-1][1])
+                                safety_stage = 1
+                        else:
+                            stuck_count = 0
+                            last_remaining_dist = rem
+                        
+                        if stuck_count >= 9:
+                            log_print(f"[🚨] STUCK DETECTED during slowdown (No progress for 90s). Aborting session...")
+                            # Report fail status
+                            log_id = os.environ.get("NMAP_LOG_ID")
+                            api_server = os.environ.get("API_SERVER", "localhost:8000")
+                            if log_id:
+                                try:
+                                    import urllib.request
+                                    url = f"http://{api_server}/api/v1/update_status"
+                                    req_data = json.dumps({
+                                        "task_id": int(log_id),
+                                        "log_id": int(log_id),
+                                        "status": "FAIL_DRIVING_STUCK",
+                                        "device_id": device_id
+                                    }).encode('utf-8')
+                                    req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
+                                    with urllib.request.urlopen(req, timeout=5) as response:
+                                        log_print(f"[*] Reported FAIL_DRIVING_STUCK: {response.read().decode('utf-8')}")
+                                except Exception as e:
+                                    log_print(f"[!] Failed to report status: {e}")
+                            
+                            pkg = "com.nhn.android.nmap"
+                            subprocess.run(["adb", "-s", device_id, "shell", "am", "force-stop", pkg], capture_output=True)
+                            sys.exit(1)
+
                     if rem < 0.03:
-                        log_print("[✨] Destination reached.")
+                        log_print("[✨] Destination reached. Transitioning to FORCED_FINISH.")
+                        drive_state = "FORCED_FINISH"
                         time.sleep(30)
+                else:
+                    gps_fail_count += 1
+                    log_print(f"[?] Waiting for GPS update in slowdown... ({gps_fail_count}/12)")
+                    if gps_fail_count >= 12:
+                        log_print("[🚨] GPS UPDATE TIMEOUT during slowdown (120s). Aborting session...")
+                        log_id = os.environ.get("NMAP_LOG_ID")
+                        api_server = os.environ.get("API_SERVER", "localhost:8000")
+                        if log_id:
+                            try:
+                                import urllib.request
+                                url = f"http://{api_server}/api/v1/update_status"
+                                req_data = json.dumps({
+                                    "task_id": int(log_id),
+                                    "log_id": int(log_id),
+                                    "status": "FAIL_GPS_TIMEOUT",
+                                    "device_id": device_id
+                                }).encode('utf-8')
+                                req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
+                                with urllib.request.urlopen(req, timeout=5) as response:
+                                    log_print(f"[*] Reported FAIL_GPS_TIMEOUT: {response.read().decode('utf-8')}")
+                            except Exception as e:
+                                log_print(f"[!] Failed to report status: {e}")
+                        
+                        pkg = "com.nhn.android.nmap"
+                        subprocess.run(["adb", "-s", device_id, "shell", "am", "force-stop", pkg], capture_output=True)
+                        sys.exit(1)
             
             elif drive_state == "FORCED_FINISH":
                 time.sleep(30)

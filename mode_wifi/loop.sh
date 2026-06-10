@@ -41,6 +41,38 @@ get_devices() {
     if [ -n "$SINGLE_DEV_ID" ]; then echo "$SINGLE_DEV_ID"; else timeout 5 /usr/bin/adb devices | grep -w "device" | awk '{print $1}'; fi
 }
 
+force_purge_device() {
+    local TARGET_DEV=$1
+    log_info "[$TARGET_DEV] Executing comprehensive purge for background workers..."
+    
+    # 1. Kill main.sh script
+    local PIDS=$(pgrep -f "main.sh $TARGET_DEV" | xargs)
+    [ -n "$PIDS" ] && kill -9 $PIDS 2>/dev/null
+    
+    # 2. Kill child workers based on target device signature
+    local DEV_SEQ=$(echo "$TARGET_DEV" | cksum | awk '{print $1 % 1000}')
+    local EXP_FRIDA=$((6000 + DEV_SEQ))
+    local EXP_MITM=$((EXP_FRIDA + 10000))
+    
+    pkill -9 -f "mitmdump -p $EXP_MITM" 2>/dev/null
+    pkill -9 -f "monitor.sh $TARGET_DEV" 2>/dev/null
+    pkill -9 -f "auto_reloader.py.*$TARGET_DEV" 2>/dev/null
+    pkill -9 -f "frida -H localhost:$EXP_FRIDA" 2>/dev/null
+    
+    # 3. Terminate android app and GPS service
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" shell am force-stop $PKG_NAME 2>/dev/null
+    
+    local su_path=$(timeout 5 /usr/bin/adb -s "$TARGET_DEV" shell "which su" 2>/dev/null | tr -d '\r')
+    [ -z "$su_path" ] && su_path="su"
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" shell "$su_path -c 'am stopservice com.rosteam.gpsemulator/.servicex2484'" 2>/dev/null
+    
+    # 4. Reset network & proxy configurations
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" shell settings put global http_proxy :0 2>/dev/null
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" reverse --remove tcp:$EXP_FRIDA 2>/dev/null
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" reverse --remove tcp:$EXP_MITM 2>/dev/null
+    timeout 5 /usr/bin/adb -s "$TARGET_DEV" forward --remove tcp:$EXP_FRIDA 2>/dev/null
+}
+
 LAST_CLEANUP=0
 while true; do
     DEVICES=$(get_devices)
@@ -79,8 +111,7 @@ while true; do
             
             if [ "$AGE" -gt 900 ]; then
                 log_info "[$DEV_ID] GLOBAL TIMEOUT ($AGE s > 15m). Force Purging everything..."
-                [ -n "$SCRIPT_PIDS" ] && kill -9 $SCRIPT_PIDS 2>/dev/null
-                timeout 5 /usr/bin/adb -s "$DEV_ID" shell am force-stop $PKG_NAME 2>/dev/null
+                force_purge_device "$DEV_ID"
                 rm -f "$CURRENT_TASK_JSON"
                 rm -f "${DEV_TMP_DIR}/nmap_lock"
                 continue
@@ -118,9 +149,7 @@ while true; do
             fi
             
             log_info "[$DEV_ID] STALE Session Detected. Reason: $AGE."
-            log_info "    > Purging hung PIDs: $SCRIPT_PIDS"
-            kill -9 $SCRIPT_PIDS 2>/dev/null
-            timeout 5 /usr/bin/adb -s "$DEV_ID" shell am force-stop $PKG_NAME 2>/dev/null
+            force_purge_device "$DEV_ID"
             rm -f "$LOCK_FILE"
             rm -f "$CURRENT_TASK_JSON"
             continue
