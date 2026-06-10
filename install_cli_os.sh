@@ -149,6 +149,18 @@ else
     echo "  -> mitmproxy certificates already exist. Skipping."
 fi
 
+# 9.5. 자동 업데이트(unattended-upgrades) 비활성화 (재부팅/서비스 재시작 방지)
+echo "[*] Disabling automatic background updates (unattended-upgrades)..."
+sudo systemctl stop unattended-upgrades 2>/dev/null || true
+sudo systemctl disable unattended-upgrades 2>/dev/null || true
+if [ -d /etc/apt/apt.conf.d ]; then
+    echo 'APT::Periodic::Update-Package-Lists "0";' | sudo tee /etc/apt/apt.conf.d/10periodic >/dev/null
+    echo 'APT::Periodic::Unattended-Upgrade "0";' | sudo tee -a /etc/apt/apt.conf.d/10periodic >/dev/null
+    echo 'APT::Periodic::Update-Package-Lists "0";' | sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
+    echo 'APT::Periodic::Unattended-Upgrade "0";' | sudo tee -a /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
+    echo "  -> Automatic updates disabled in APT configs."
+fi
+
 # 10. 설치 확인
 echo "============================================================"
 echo "   Installation Summary"
