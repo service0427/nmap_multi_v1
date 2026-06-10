@@ -69,12 +69,8 @@ else
     echo "  -> PubkeyAuthentication is already enabled. Skipping."
 fi
 
-# SSH 서비스 재시작 및 방화벽 설정
+# SSH 서비스 활성화
 sudo systemctl enable ssh
-if command -v ufw >/dev/null 2>&1; then
-    sudo ufw allow ssh
-fi
-# sudo ufw --force enable # 필요에 따라 방화벽 활성화
 
 # 4. 타임존 설정 (한국 시간)
 echo "[*] Setting timezone to Asia/Seoul..."
