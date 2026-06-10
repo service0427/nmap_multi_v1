@@ -56,7 +56,7 @@ init_mitm_recovery() {
         fi
 
         local active_script="/data/adb/modules/trustusercerts/post-fs-data.sh"
-        local check_active=$(adb -s "$serial" shell "$has_su -c \"[ -f $active_script ] && (grep -q '\[교정됨\]' $active_script && echo 1 || echo 0) || echo 0\"" 2>/dev/null | tr -d '\r')
+        local check_active=$(adb -s "$serial" shell "$has_su -c \"[ -f $active_script ] && (grep -q 'SELinux' $active_script && echo 1 || echo 0) || echo 0\"" 2>/dev/null | tr -d '\r')
         if [ "$check_active" = "0" ] || [ -z "$check_active" ]; then
             script_correct=false
         fi
@@ -71,7 +71,7 @@ init_mitm_recovery() {
     local update_dir_exists=$(adb -s "$serial" shell "$has_su -c '[ -d /data/adb/modules_update/trustusercerts ] && echo YES || echo NO'" 2>/dev/null | tr -d '\r')
     if [ "$update_dir_exists" = "YES" ]; then
         local update_script="/data/adb/modules_update/trustusercerts/post-fs-data.sh"
-        local check_update=$(adb -s "$serial" shell "$has_su -c \"[ -f $update_script ] && (grep -q '\[교정됨\]' $update_script && echo 1 || echo 0) || echo 0\"" 2>/dev/null | tr -d '\r')
+        local check_update=$(adb -s "$serial" shell "$has_su -c \"[ -f $update_script ] && (grep -q 'SELinux' $update_script && echo 1 || echo 0) || echo 0\"" 2>/dev/null | tr -d '\r')
         if [ "$check_update" = "0" ] || [ -z "$check_update" ]; then
             script_correct=false
         fi
