@@ -146,7 +146,7 @@ def report_fail(log_id, device_id, status, requested, actual, error):
     if not log_id: return
     log_path = os.environ.get("CAPTURE_LOG_DIR", "Unknown")
     data = {
-        "log_id": int(log_id), "device_id": device_id, "status": status, 
+        "task_id": int(log_id), "log_id": int(log_id), "device_id": device_id, "status": status, 
         "requested_address": requested, "actual_address": actual, 
         "error_msg": error, "log_path": log_path
     }

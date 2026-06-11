@@ -53,7 +53,7 @@ check_app_survival() {
     if [ $ELAPSED -gt "$GLOBAL_TIMEOUT" ]; then
         echo "[$(NOW)] [🚨] GLOBAL TIMEOUT EXCEEDED (${ELAPSED}s / ${GLOBAL_TIMEOUT}s). Force killing..."
         curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" -H "Content-Type: application/json" \
-             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GLOBAL_TIMEOUT\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
+             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GLOBAL_TIMEOUT\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
     fi
 
@@ -76,7 +76,7 @@ check_app_survival() {
             if [ $STUCK_COUNT -ge 18 ]; then
                 echo "[$(NOW)] [🚨] SILENCE DETECTED (90s). No new packet JSONs. Killing session."
                 curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" -H "Content-Type: application/json" \
-                     -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_PACKET_STUCK\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
+                     -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_PACKET_STUCK\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
                 stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
             fi
         fi
@@ -154,7 +154,7 @@ while true; do
                     $MACRO_EXEC "$DEV_ID" "text:$NMAP_DEST_ADDR" "$CAT"
                     if [ $? -ne 0 ]; then
                         curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_ADDRESS_NOT_FOUND\", \"device_id\": \"$DEV_ID\", \"requested_address\": \"$NMAP_DEST_ADDR\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_ADDRESS_NOT_FOUND\", \"device_id\": \"$DEV_ID\", \"requested_address\": \"$NMAP_DEST_ADDR\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
                         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
@@ -166,7 +166,7 @@ while true; do
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
                         curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GUIDANCE_NOT_FOUND\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GUIDANCE_NOT_FOUND\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
                         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
@@ -182,7 +182,7 @@ while true; do
                         fi
                     done
                     curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" -H "Content-Type: application/json" \
-                         -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": \"$ACTUAL_DIST\", \"drive_time\": \"$ACTUAL_TIME\"}" > /dev/null
+                         -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": \"$ACTUAL_DIST\", \"drive_time\": \"$ACTUAL_TIME\"}" > /dev/null
                     SLEEP_SEC=$(( RANDOM % 11 + 20 ))
                     echo "[$(NOW)] [*] Waiting ${SLEEP_SEC}s for app to auto-return to home..."
                     sleep "$SLEEP_SEC"

@@ -110,14 +110,14 @@ if [ "$NMAP_NO_IP" != "true" ]; then
         echo " [🚨] Network verification FAILED. Terminating session."
         curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" \
              -H "Content-Type: application/json" \
-             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_NETWORK_TIMEOUT\", \"device_id\": \"$DEV_ID\"}" > /dev/null
+             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_NETWORK_TIMEOUT\", \"device_id\": \"$DEV_ID\"}" > /dev/null
         exit 1
     fi
 
     # Update Status to Server with Real IP
     curl -s -X POST "http://${API_SERVER:-localhost:5003}/api/v1/update_status" \
          -H "Content-Type: application/json" \
-         -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
+         -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
     export NMAP_REAL_IP="$REAL_IP"
     # 연결 직후 앱이 실행되면 시스템 팝업(Wi-Fi 확인 등)과 충돌할 수 있으므로 추가 안정화 시간 부여
     sleep 2

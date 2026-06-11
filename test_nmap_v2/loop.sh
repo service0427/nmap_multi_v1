@@ -123,16 +123,28 @@ while true; do
             LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
             LOCK_TIME=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || echo 0)
             AGE=0
+            
             if [ "$LOCK_TIME" -gt 0 ]; then
                 AGE=$(( $(date +%s) - LOCK_TIME ))
                 if [ $AGE -lt 45 ]; then
                     continue
                 fi
+            else
+                # 락 파일이 없는 경우, 세션 시작 후 180초까지는 유예 기간 부여 (네트워크 지연 고려)
+                START_TS=$(jq -r '.start_ts // 0' "$CURRENT_TASK_JSON" 2>/dev/null || echo 0)
+                NOW_TS=$(date +%s)
+                SESSION_AGE=$((NOW_TS - START_TS))
+                if [ "$SESSION_AGE" -lt 180 ]; then
+                    continue
+                fi
+                AGE="NO_LOCK_$SESSION_AGE"
             fi
+            
             log_info "[$DEV_ID] STALE Session Detected. Reason: $AGE."
             force_purge_device "$DEV_ID"
             rm -f "$LOCK_FILE"
             rm -f "$CURRENT_TASK_JSON"
+            continue
         fi
 
         # 2. 기기 상태 체크 (앱이 포그라운드인지)
@@ -147,27 +159,74 @@ while true; do
             continue
         fi
 
-        # 3. Request Task
-        API_URL="http://$API_SERVER/api/v1/request?device_id=$DEV_ID"
-        RESPONSE=$(curl -s "$API_URL")
+        # [NEW] Clear only our stale proxy settings before checking IP
+        DEV_SEQ=$(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')
+        EXP_FRIDA=$((6000 + DEV_SEQ))
+        EXP_MITM=$((EXP_FRIDA + 10000))
+        CUR_PROXY=$(timeout 5 /usr/bin/adb -s "$DEV_ID" shell "settings get global http_proxy" 2>/dev/null | tr -d '\r\n')
+        if [[ "$CUR_PROXY" == *":"$EXP_MITM ]] || [ "$CUR_PROXY" == "null" ] || [ -z "$CUR_PROXY" ]; then
+            timeout 5 /usr/bin/adb -s "$DEV_ID" shell "settings put global http_proxy :0" >/dev/null 2>&1
+        fi
+
+        # [NEW] Detect Real IP before requesting task
+        resolved_ip=$(timeout 10 /usr/bin/adb -s "$DEV_ID" shell "ping -c 1 -W 2 ifconfig.me | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'" 2>/dev/null | tr -d '\r\n')
+        CUR_IP=""
+        if [ -n "$resolved_ip" ]; then
+            CUR_IP=$(timeout 10 /usr/bin/adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s -4 --connect-timeout 3 --resolve ifconfig.me:80:$resolved_ip http://ifconfig.me || curl -s -4 --connect-timeout 3 --resolve ifconfig.me:80:$resolved_ip http://ifconfig.me" 2>/dev/null | tr -d '\r\n')
+        fi
         
-        if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
+        # IP 획득 실패 시 타겟 기기 건너뜀
+        if [ -z "$CUR_IP" ] || [[ ! "$CUR_IP" =~ ^[0-9] ]]; then
+            log_info "[$DEV_ID] Network unstable (No IP). Skipping..."
             continue
         fi
 
-        # Extract
-        LOG_ID=$(echo "$RESPONSE" | jq -r '.log_id')
-        NAME=$(echo "$RESPONSE" | jq -r '.destination.name')
-        FRIDA_PORT=$(echo "$RESPONSE" | jq -r '.port')
+        # 3. Request Task (V3 POST Style)
+        REQ_PAYLOAD="{\"device_id\":\"$DEV_ID\",\"ip\":\"$CUR_IP\"}"
+        RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \
+             -H "Content-Type: application/json" \
+             -d "$REQ_PAYLOAD")
+        
+        if [ -z "$RESPONSE" ] || ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+            log_info "[$DEV_ID] Task request failed or invalid JSON response."
+            continue
+        fi
+
+        if [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
+            log_info "[$DEV_ID] No task available."
+            continue
+        fi
+
+        # Extract Fields (V3 Mapping)
+        LOG_ID=$(echo "$RESPONSE" | jq -r '.task_id')
+        NAME=$(echo "$RESPONSE" | jq -r '.destination.target_name')
+        KEYWORD=$(echo "$RESPONSE" | jq -r '.destination.search_keyword // "N/A"')
+        ADDR=$(echo "$RESPONSE" | jq -r '.destination.address // empty')
+
+        DIST_M=$(echo "$RESPONSE" | jq -r '.start_pos.dist_m // 0')
+        SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh // 0')
+        ARR_TIME=$(echo "$RESPONSE" | jq -r '.arrival_time // 0')
+        
+        # Port Logic
+        FRIDA_PORT=$(echo "$RESPONSE" | jq -r '.port // empty')
+        if [ -z "$FRIDA_PORT" ]; then
+            DEV_SEQ=$(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')
+            FRIDA_PORT=$((6000 + DEV_SEQ))
+        fi
         MITM_PORT=$((FRIDA_PORT + 10000))
         
-        log_success "[$DEV_ID] ALLOCATED: $NAME (LogID:$LOG_ID)"
+        log_success "[$DEV_ID] ALLOCATED: $NAME | TaskID: $LOG_ID | IP: $CUR_IP"
+        log_info "    > Info: Key[$KEYWORD] | Addr[$ADDR]"
+        log_info "    > StartPos: Dist[${DIST_M}m] | Speed[${SPEED}km/h] | Target[${ARR_TIME}s]"
 
         # Record Spoofed Identity
         SPOOFED_JSON=$(echo "$RESPONSE" | jq -c '.identity.spoofed')
         curl -s -X POST "http://$API_SERVER/api/v1/update_status" \
              -H "Content-Type: application/json" \
-             -d "{\"log_id\": $LOG_ID, \"status\": \"ALLOCATED\", \"device_id\": \"$DEV_ID\", \"spoofed_identity\": $SPOOFED_JSON}" >> "${DEV_TMP_DIR}/main_debug.log"
+             -d "{\"task_id\": $LOG_ID, \"status\": \"ALLOCATED\", \"device_id\": \"$DEV_ID\", \"spoofed_identity\": $SPOOFED_JSON}" >> "${DEV_TMP_DIR}/main_debug.log"
+
+        # [V2.9.7] Pre-register task to prevent premature STALE purge
+        echo "{\"task_id\": \"$LOG_ID\", \"start_ts\": $(date +%s), \"status\": \"ALLOCATING\"}" > "$CURRENT_TASK_JSON"
 
         # Socket Purge
         timeout 5 /usr/bin/adb -s "$DEV_ID" forward --remove tcp:$FRIDA_PORT >/dev/null 2>&1 || true
@@ -183,9 +242,13 @@ while true; do
         NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
         NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
         NMAP_DEST_NAME="$NAME" \
-        NMAP_DEST_ADDR=$(echo "$RESPONSE" | jq -r '.destination.address') \
-        NMAP_MIN_ARRIVAL=$(echo "$RESPONSE" | jq -r '.destination.min_arrival // 10') \
-        NMAP_MAX_ARRIVAL=$(echo "$RESPONSE" | jq -r '.destination.max_arrival // 30') \
+        NMAP_DEST_ADDR="$ADDR" \
+        NMAP_START_LAT=$(echo "$RESPONSE" | jq -r '.start_pos.lat') \
+        NMAP_START_LNG=$(echo "$RESPONSE" | jq -r '.start_pos.lng') \
+        NMAP_START_SPEED="$SPEED" \
+        NMAP_START_DIST="$DIST_M" \
+        NMAP_MIN_ARRIVAL="$ARR_TIME" \
+        NMAP_MAX_ARRIVAL=$(( ARR_TIME + 60 )) \
         NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
         NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
         NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
