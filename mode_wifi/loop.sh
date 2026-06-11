@@ -16,7 +16,7 @@ export MODE_WIFI_LOGS="$SCRIPT_DIR/logs"
 export MODE_WIFI_LIB="$SCRIPT_DIR/lib"
 
 PKG_NAME="com.nhn.android.nmap"
-export API_SERVER="15.165.243.244:8000"
+export API_SERVER="114.207.112.245:8000"
 
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }

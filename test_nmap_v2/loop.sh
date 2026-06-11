@@ -8,7 +8,7 @@ for arg in "$@"; do
 done
 
 PKG_NAME="com.nhn.android.nmap"
-export API_SERVER="121.173.150.103:5003"
+export API_SERVER="114.207.112.245:8000"
 
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
