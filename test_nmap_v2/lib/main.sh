@@ -142,7 +142,16 @@ jq -n \
   '{log_id: $lid, dest_name: $dname, target_range: ($tmin + "~" + $tmax), start_ts: ($sts|tonumber), start_iso: $siso, real_ip: $ip, session_path: $path, ports: {frida: $fport, mitm: $mport}}' \
   > "$CURRENT_TASK_JSON" 2>/dev/null
 
-# 2. Cleanup & IME Setup
+# 2. Cleanup, Screen Wakeup & IME Setup
+echo "[$DEV_ID] Waking up screen, bypassing lockscreen and clearing system popups..."
+# 화면 깨우기 및 잠금 해제 (Dismiss Keyguard / Swipe)
+adb -s "$DEV_ID" shell input keyevent 224
+adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
+adb -s "$DEV_ID" shell input swipe 500 1500 500 200 300
+sleep 0.5
+adb -s "$DEV_ID" shell input keyevent 4
+adb -s "$DEV_ID" shell input keyevent 3
+
 adb -s "$DEV_ID" shell am force-stop $PKG_NAME
 adb -s "$DEV_ID" shell am force-stop $GPS_PKG
 adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
