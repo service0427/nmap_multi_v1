@@ -65,7 +65,7 @@ fi
 
 # Download archive from Google Drive
 echo "[*] Google Drive에서 파일 다운로드 중 (File ID: $GDRIVE_FILE_ID)..."
-"$GDOWN_BIN" "$GDRIVE_FILE_ID" -O "$ARCHIVE_PATH"
+"$GDOWN_BIN" "https://drive.google.com/uc?id=$GDRIVE_FILE_ID" -O "$ARCHIVE_PATH"
 
 if [ $? -eq 0 ] && [ -f "$ARCHIVE_PATH" ]; then
     echo "[✓] 다운로드 완료. 기존 install 폴더가 존재할 경우 백업 후 새로 압축을 해제합니다..."
