@@ -195,6 +195,15 @@ EOF
     adb -s "$serial" shell pm disable-user --user 0 com.samsung.android.mtpapplication >/dev/null 2>&1 || true
     adb -s "$serial" shell pm disable-user --user 0 com.android.mtp >/dev/null 2>&1 || true
 
+    # 4.2.5 Disable Samsung Security Log Agent (Knox "Unauthorized changes" warning)
+    for pkg in "com.samsung.android.securitylogagent" "com.sec.knox.securitylogagent"; do
+        if adb -s "$serial" shell "pm list packages" | grep -q "$pkg"; then
+            echo "[$serial] Disabling $pkg to prevent Knox warning..."
+            adb -s "$serial" shell "su -c 'pm disable $pkg'" >/dev/null 2>&1 || \
+            adb -s "$serial" shell "pm disable-user --user 0 $pkg" >/dev/null 2>&1
+        fi
+    done
+
     # 4.3 UI Settings
     adb -s "$serial" shell settings put system accelerometer_rotation 0 >/dev/null 2>&1
     adb -s "$serial" shell settings put global ota_disable_automatic_update 1 >/dev/null 2>&1
