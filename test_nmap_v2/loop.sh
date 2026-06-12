@@ -36,6 +36,9 @@ while true; do
         
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Log:$LOG_ID)"
 
+        # Ensure the log directory exists before redirecting to it
+        mkdir -p "logs/${DEV_ID}/tmp"
+
         # Pass ALL variables to the engine
         NMAP_API_RESPONSE="$RESPONSE" \
         NMAP_LOG_ID="$LOG_ID" \
