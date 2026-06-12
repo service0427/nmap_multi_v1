@@ -45,7 +45,7 @@ cleanup() {
     kill -9 $MITM_PID $FRIDA_PID $MONITOR_PID $RELOAD_PID $HEARTBEAT_PID 2>/dev/null
     adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
-    adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
+    adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
     rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON"
     exit 0
@@ -76,7 +76,7 @@ APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | gr
 ./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ORIG_SSAID"
 
 # 4. Proxy & Workers
-adb -s "$DEV_ID" reverse tcp:"$NMAP_FRIDA_PORT" tcp:"$NMAP_FRIDA_PORT" >/dev/null 2>&1
+adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1
 adb -s "$DEV_ID" reverse tcp:"$NMAP_MITM_PORT" tcp:"$NMAP_MITM_PORT" >/dev/null 2>&1
 adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT"
 
