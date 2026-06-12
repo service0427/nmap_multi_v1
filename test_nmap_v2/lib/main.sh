@@ -84,6 +84,9 @@ nohup mitmdump -p "$NMAP_MITM_PORT" -s mitm/addon.py --ssl-insecure --listen-hos
 MITM_PID=$!
 setsid python3 gps/auto_reloader.py "$CAPTURE_LOG_DIR" "$DEV_ID" >> "$EXEC_LOG" 2>&1 &
 RELOAD_PID=$!
+chmod +x macro/monitor.sh
+nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" > "$CAPTURE_LOG_DIR/monitor.log" 2>&1 &
+MONITOR_PID=$!
 
 # 5. Launch
 ./gps/static.sh "$DEV_ID" "$NMAP_DEST_LAT" "$NMAP_DEST_LNG"
