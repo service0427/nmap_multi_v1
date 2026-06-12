@@ -157,6 +157,15 @@ init_app_installation() {
     adb -s "$serial" shell settings put system accelerometer_rotation 0 >/dev/null 2>&1
     adb -s "$serial" shell settings put global ota_disable_automatic_update 1 >/dev/null 2>&1
 
+    # 5.3.5 Disable System Update & Galaxy Store packages to prevent auto-updates (Samsung)
+    for pkg in "com.sec.android.soagent" "com.wssyncmldm" "com.sec.android.app.samsungapps"; do
+        if adb -s "$serial" shell "pm list packages" | grep -q "$pkg"; then
+            echo -e "    - Disabling $pkg to prevent auto-updates..."
+            adb -s "$serial" shell "$su_cmd -c 'pm disable $pkg'" >/dev/null 2>&1 || \
+            adb -s "$serial" shell "pm disable-user --user 0 $pkg" >/dev/null 2>&1
+        fi
+    done
+
     # 5.4 Disable Slow Charging Warning Popup (Samsung Devices)
     if [ -n "$has_su" ]; then
         local pref_dir="/data/user_de/0/com.android.systemui/shared_prefs"

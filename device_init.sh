@@ -19,6 +19,7 @@ source "$BASE_DIR/device_init/modules/gps_emulator_setup.sh"
 source "$BASE_DIR/device_init/modules/naver_map_setup.sh"
 source "$BASE_DIR/device_init/modules/app_installation.sh"
 source "$BASE_DIR/device_init/modules/mitm_recovery.sh"
+source "$BASE_DIR/device_init/modules/touch_protection.sh"
 
 # Get target device from argument (optional)
 TARGET_DEVICE=$1
@@ -156,6 +157,7 @@ for serial in $DEVICES; do
     # Run these at the very end to override/correct any volume/portrait changes caused by the apps
     init_sound "$serial" "$HAS_SU"
     init_screen_orientation "$serial" "$HAS_SU"
+    init_touch_protection "$serial" "$HAS_SU"
 
     # Apply MITM certificate recovery and reboot
     force_reboot_flag="false"
