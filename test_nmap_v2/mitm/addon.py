@@ -5,7 +5,21 @@ import threading
 import gzip
 import json
 import datetime
+import socket
 from mitmproxy import http
+
+# Monkey patch socket.socket.connect to force outbound traffic through NMAP_BIND_IP
+BIND_IP = os.environ.get("NMAP_BIND_IP")
+if BIND_IP:
+    old_connect = socket.socket.connect
+    def new_connect(self, address):
+        if self.family == socket.AF_INET and self.type == socket.SOCK_STREAM:
+            try:
+                self.bind((BIND_IP, 0))
+            except Exception:
+                pass
+        return old_connect(self, address)
+    socket.socket.connect = new_connect
 
 # Add repository root to python path to resolve mitm modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

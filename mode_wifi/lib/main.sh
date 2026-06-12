@@ -1,247 +1,110 @@
 #!/bin/bash
-# test_nmap_v2/lib/main.sh: Unified Task Execution Engine (V4.1 - Real IP Verification)
+# Unified Task Execution Engine (V4.5 - Standardized)
 export PATH="$HOME/.local/bin:$PATH"
 
 # --- [ADB TIMEOUT WRAPPER] ---
-# ADB 서버 데드락 및 좀비 프로세스 방지를 위해 모든 adb 명령에 10초 타임아웃 적용
-# 'command'는 쉘 내장 명령어라 timeout이 실행할 수 없으므로 실제 경로(/usr/bin/adb)를 사용합니다.
-adb() {
-    timeout 10 /usr/bin/adb "$@"
-}
+adb() { timeout 10 /usr/bin/adb "$@"; }
 export -f adb
 
-cd "$MODE_WIFI_ROOT" || exit 1
+# Setup Paths
+LIB_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ENGINE_ROOT="$(dirname "$LIB_DIR")"
+PROJECT_ROOT="$(dirname "$ENGINE_ROOT")"
+cd "$ENGINE_ROOT" || exit 1
+
+# Load Network Utils
+source "$PROJECT_ROOT/device_init/modules/network_utils.sh"
 
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
-RESET_MODE=true; AGREE_MODE=true
-PKG_NAME="com.nhn.android.nmap"; GPS_PKG="com.rosteam.gpsemulator"
+# Bypassed per-device binding to route through default route (lowest metric: lte11)
+BIND_IFACE=""
+BIND_IP=""
+export NMAP_BIND_IP=""
+CURL_OPT=""
 
-if [ -z "$NMAP_LOG_ID" ] || [ -z "$NMAP_DEST_ID" ]; then exit 1; fi
 NMAP_MITM_PORT=$((NMAP_FRIDA_PORT + 10000))
-
-# Export Constants
-export NMAP_LOG_ID NMAP_DEST_ID CAPTURE_LOG_DIR
-export NMAP_DEST_NAME NMAP_DEST_ADDR
-export NMAP_MIN_ARRIVAL NMAP_MAX_ARRIVAL
-export NMAP_ID_SSAID NMAP_ID_ADID NMAP_ID_NI NMAP_ID_IDFV NMAP_ID_TOKEN
-
-# 1. Setup Logs
-DATE_STR=$(date +%Y%m%d); TIME_STR=$(date +%H%M%S)
-LOG_REL_PATH="logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${NMAP_DEST_ID}"
-export CAPTURE_LOG_DIR="${MODE_WIFI_LOGS}/${DEV_ID}/${DATE_STR}/${TIME_STR}_${NMAP_DEST_ID}"
-mkdir -p "$CAPTURE_LOG_DIR"
-
-# 기기별 격리된 tmp 폴더 경로 설정 및 생성 (하트비트 조기 시작)
-DEV_TMP_DIR="${MODE_WIFI_LOGS}/${DEV_ID}/tmp"
+DEV_TMP_DIR="logs/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
+CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
 
 ( while true; do touch "$LOCK_FILE"; sleep 10; done ) &
 HEARTBEAT_PID=$!
 
 cleanup() {
     local REASON=$1
-    [ -z "$REASON" ] && REASON="Unknown Reason"
-    echo -e "\n[$DEV_ID] Cleaning up session. Reason: $REASON"
+    echo -e "\n[$DEV_ID] Terminating. Reason: $REASON"
     
-    # [V3 STYLE] Report Final Result
-    local FINAL_STATUS="FAIL"
-    local SUMMARY_PATH="$CAPTURE_LOG_DIR/session_summary.json"
-    if [ -f "$SUMMARY_PATH" ]; then
-        if grep -q "ARRIVED" "$SUMMARY_PATH"; then FINAL_STATUS="SUCCESS"; fi
-    fi
-    
-    curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" \
+    # Report using designated LTE
+    curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
          -H "Content-Type: application/json" \
-         -d "{\"task_id\": $NMAP_TASK_ID, \"device_id\": \"$DEV_ID\", \"status\": \"$FINAL_STATUS\", \"message\": \"Terminated: $REASON\"}" > /dev/null
+         -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\"}" > /dev/null
 
     kill -9 $MITM_PID $FRIDA_PID $MONITOR_PID $RELOAD_PID $HEARTBEAT_PID 2>/dev/null
-    adb -s "$DEV_ID" shell am force-stop $PKG_NAME
-    local su_path=$(adb -s "$DEV_ID" shell "which su" 2>/dev/null | tr -d '\r')
-    if [ -z "$su_path" ]; then
-        su_path=$(adb -s "$DEV_ID" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
-    fi
-    [ -z "$su_path" ] && su_path="su"
-    adb -s "$DEV_ID" shell "$su_path -c 'am stopservice $GPS_PKG/.servicex2484'" 2>/dev/null
-    local cur_proxy=$(adb -s "$DEV_ID" shell settings get global http_proxy 2>/dev/null | tr -d '\r\n')
-    if [[ "$cur_proxy" == *":"$NMAP_MITM_PORT ]]; then
-        adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
-    fi
+    adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap
+    adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
-    adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
-    rm -f "$LOCK_FILE"
-    rm -f "$CURRENT_TASK_JSON"
-    echo "[$DEV_ID] Session terminated safely."
+    rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON"
     exit 0
 }
-trap "cleanup 'Interrupted by Signal'" INT TERM
+trap "cleanup 'SigTerm'" INT TERM
 
-# Save Original API Response
-if [ -n "$NMAP_API_RESPONSE" ]; then
-    echo "$NMAP_API_RESPONSE" | jq '.' > "$CAPTURE_LOG_DIR/api_response.json" 2>/dev/null
-fi
-
+# 1. Setup Logs
+DATE_STR=$(date +%Y%m%d); TIME_STR=$(date +%H%M%S)
+export CAPTURE_LOG_DIR="$ENGINE_ROOT/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${NMAP_DEST_ID}"
+mkdir -p "$CAPTURE_LOG_DIR"
 EXEC_LOG="$CAPTURE_LOG_DIR/execution.log"
 exec > >(tee -a "$EXEC_LOG") 2>&1
 
 echo "============================================================"
-echo " [$DEV_ID] TASK STARTED (LogID: $NMAP_LOG_ID)"
-echo " Destination: $NMAP_DEST_NAME (ID: $NMAP_DEST_ID)"
-echo " FRIDA:$NMAP_FRIDA_PORT | MITM:$NMAP_MITM_PORT"
+echo " [$DEV_ID] TASK STARTED via $BIND_IFACE"
 echo "------------------------------------------------------------"
 
-# 1.5 IP Change & REAL IP Verification
-if [ "$NMAP_NO_IP" != "true" ]; then
-    REAL_IP="Unknown"
-    CONNECTED=false
-    # 최대 30초 대기
-    for i in {1..30}; do
-        if adb -s "$DEV_ID" shell "ping -c 1 -W 1 8.8.8.8" >/dev/null 2>&1; then
-            # 실제 HTTP 요청이 성공하는지 확인 (static curl DNS & SSL CA 우회 지원)
-            resolved_ip=$(adb -s "$DEV_ID" shell "ping -c 1 -W 2 ifconfig.me | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'" | tr -d '\r\n')
-            if [ -n "$resolved_ip" ]; then
-                REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -4 -s --connect-timeout 3 --resolve ifconfig.me:80:$resolved_ip http://ifconfig.me || curl -4 -s --connect-timeout 3 --resolve ifconfig.me:80:$resolved_ip http://ifconfig.me" | tr -d '\r\n')
-                if [ -n "$REAL_IP" ] && [[ "$REAL_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                    echo " [✓] Connected! Real IPv4: $REAL_IP"
-                    CONNECTED=true
-                    break
-                fi
-            fi
-        fi
-        echo -n "."
-        sleep 1
-    done
-    
-    if [ "$CONNECTED" = false ]; then
-        echo " [🚨] Network verification FAILED. Terminating session."
-        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" \
-             -H "Content-Type: application/json" \
-             -d "{\"task_id\": $NMAP_TASK_ID, \"status\": \"FAIL_NETWORK_TIMEOUT\", \"device_id\": \"$DEV_ID\", \"drive_dist\": 0, \"drive_time\": 0}" > /dev/null
-        exit 1
-    fi
+# 2. IP Verification
+REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s -4 http://ifconfig.me || curl -s -4 http://ifconfig.me" | tr -d '\r\n')
+echo " [✓] Real IPv4: $REAL_IP"
+curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/update_status" \
+     -H "Content-Type: application/json" \
+     -d "{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
 
-    # Update Status to Server with Real IP
-    curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" \
-         -H "Content-Type: application/json" \
-         -d "{\"task_id\": $NMAP_TASK_ID, \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\", \"drive_dist\": 0, \"drive_time\": 0}" > /dev/null
-    export NMAP_REAL_IP="$REAL_IP"
-    sleep 2
-fi
+# 3. Golden Template
+APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
+[ -z "$APP_UID" ] && APP_UID="root"
+./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ORIG_SSAID"
 
-# 1.6 Initialize Session Summary
-echo "{\"task_id\": $NMAP_TASK_ID, \"device_id\": \"$DEV_ID\", \"real_ip\": \"$NMAP_REAL_IP\", \"task_start_time\": \"$(date +%Y-%m-%dT%H:%M:%S)\", \"status\": \"STARTED\"}" > "$CAPTURE_LOG_DIR/session_summary.json"
-
-# [NEW] Create Live Task Badge for Web Monitor (즉시 할당 정보 반영)
-CURRENT_TASK_JSON="${MODE_WIFI_LOGS}/${DEV_ID}/current_task.json"
-jq -n \
-  --arg lid "$NMAP_TASK_ID" \
-  --arg dname "$NMAP_DEST_NAME" \
-  --arg tmin "$NMAP_MIN_ARRIVAL" \
-  --arg tmax "$NMAP_MAX_ARRIVAL" \
-  --arg dist "$NMAP_START_DIST" \
-  --arg speed "$NMAP_START_SPEED" \
-  --arg target_sec "$NMAP_MIN_ARRIVAL" \
-  --arg sts "$(date +%s)" \
-  --arg siso "$(date -Iseconds)" \
-  --arg ip "$NMAP_REAL_IP" \
-  --arg path "$LOG_REL_PATH" \
-  --arg fport "$NMAP_FRIDA_PORT" \
-  --arg mport "$NMAP_MITM_PORT" \
-  '{task_id: $lid, dest_name: $dname, status: "INITIALIZING", target_range: ($tmin + "~" + $tmax), target_sec: ($target_sec|tonumber), total_dist_km: ($dist|tonumber / 1000), avg_speed_kmh: ($speed|tonumber), start_ts: ($sts|tonumber), start_iso: $siso, real_ip: $ip, session_path: $path, ports: {frida: $fport, mitm: $mport}}' \
-  > "$CURRENT_TASK_JSON" 2>/dev/null
-
-# 2. Cleanup, Screen Wakeup & Popup Clear
-echo "[$DEV_ID] Waking up screen and clearing system popups..."
-# 화면 켜기 (224) 및 잠금 해제 (82)
-adb -s "$DEV_ID" shell input keyevent 224
-adb -s "$DEV_ID" shell input keyevent 82
-# 혹시 모를 팝업(배터리, 시스템 알림)을 치우기 위해 뒤로가기(4) 후 홈(3)으로 이동
-adb -s "$DEV_ID" shell input keyevent 4
-adb -s "$DEV_ID" shell input keyevent 3
-
-adb -s "$DEV_ID" shell am force-stop $PKG_NAME
-adb -s "$DEV_ID" shell am force-stop $GPS_PKG
-adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
-pkill -9 -f "mitmdump.*-p[[:space:]]+$NMAP_MITM_PORT" 2>/dev/null
-
-ADB_KB_PKG="com.android.adbkeyboard"
-adb -s "$DEV_ID" shell ime enable $ADB_KB_PKG/.AdbIME >/dev/null 2>&1
-adb -s "$DEV_ID" shell ime set $ADB_KB_PKG/.AdbIME >/dev/null 2>&1
-
-# 3. Golden Template Injection
-if [ "$RESET_MODE" = true ]; then
-    APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U $PKG_NAME" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
-    [ -z "$APP_UID" ] && APP_UID="root"
-    chmod +x lib/inject_template.sh
-    ./lib/inject_template.sh "$DEV_ID" "$PKG_NAME" "$APP_UID" "$NMAP_ORIG_SSAID"
-fi
-
-# 4. Networking & Proxy
-echo "[$DEV_ID] Setting up Proxy Tunnel (MITM:$NMAP_MITM_PORT)..."
-fuser -k -n tcp "$NMAP_FRIDA_PORT" >/dev/null 2>&1
-fuser -k -n tcp "$NMAP_MITM_PORT" >/dev/null 2>&1
+# 4. Proxy & Workers
 adb -s "$DEV_ID" reverse tcp:"$NMAP_FRIDA_PORT" tcp:"$NMAP_FRIDA_PORT" >/dev/null 2>&1
 adb -s "$DEV_ID" reverse tcp:"$NMAP_MITM_PORT" tcp:"$NMAP_MITM_PORT" >/dev/null 2>&1
 adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT"
 
-# 5. Workers
 nohup mitmdump -p "$NMAP_MITM_PORT" -s mitm/addon.py --ssl-insecure --listen-host 0.0.0.0 --set flow_detail=0 > "$CAPTURE_LOG_DIR/mitm.log" 2>&1 &
 MITM_PID=$!
-chmod +x macro/monitor.sh
-nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" &
-MONITOR_PID=$!
 setsid python3 gps/auto_reloader.py "$CAPTURE_LOG_DIR" "$DEV_ID" >> "$EXEC_LOG" 2>&1 &
 RELOAD_PID=$!
 
-# 6. Launch & Frida
-echo "[$DEV_ID] Launching Optimized Session via Frida Attach..."
-FRIDA_LOG="$CAPTURE_LOG_DIR/frida.log"
-adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1
+# 5. Launch
+./gps/static.sh "$DEV_ID" "$NMAP_DEST_LAT" "$NMAP_DEST_LNG"
+adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
 
-# [V3 STYLE] Start at API-provided location
-./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
-
-# Start the application first
-adb -s "$DEV_ID" shell monkey -p "$PKG_NAME" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
-
-# Poll for the PID of the app
 PID=""
 for i in {1..10}; do
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | tr -d '\r\n')
+    PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap | tr -d '\r\n')
     [ -n "$PID" ] && break
     sleep 1
 done
-
-if [ -z "$PID" ]; then
-    adb -s "$DEV_ID" shell monkey -p "$PKG_NAME" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
-    sleep 3
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | tr -d '\r\n')
-fi
-
-if [ -z "$PID" ]; then
-    cleanup "App failed to launch"
-fi
+[ -z "$PID" ] && cleanup "App Launch Timeout"
 
 nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \
     -l lib/hooks/_core_survival.js \
-    --no-auto-reload > "$FRIDA_LOG" 2>&1 &
+    --no-auto-reload > "$CAPTURE_LOG_DIR/frida.log" 2>&1 &
 FRIDA_PID=$!
 
-sleep 3
-
-# Trap is already configured at the top
-
 while true; do
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null)
-    [ -z "$PID" ] && cleanup "App process missing (Crash or killed by OS)"
-    
-    if ! kill -0 $FRIDA_PID 2>/dev/null; then
-        cleanup "Frida disconnected or crashed"
-    fi
-
+    kill -0 $FRIDA_PID 2>/dev/null || cleanup "Frida Crash"
+    adb -s "$DEV_ID" shell pidof com.nhn.android.nmap >/dev/null 2>&1 || cleanup "App Closed"
     sleep 5
 done
