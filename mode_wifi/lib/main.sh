@@ -12,9 +12,6 @@ ENGINE_ROOT="$(dirname "$LIB_DIR")"
 PROJECT_ROOT="$(dirname "$ENGINE_ROOT")"
 cd "$ENGINE_ROOT" || exit 1
 
-# Load Network Utils
-source "$PROJECT_ROOT/device_init/modules/network_utils.sh"
-
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 

@@ -10,9 +10,6 @@ export MODE_WIFI_ROOT="$SCRIPT_DIR"
 export MODE_WIFI_LOGS="$SCRIPT_DIR/logs"
 export MODE_WIFI_LIB="$SCRIPT_DIR/lib"
 
-# Load Network Utils (Standardized path)
-source "$PROJECT_ROOT/device_init/modules/network_utils.sh"
-
 export API_SERVER="121.173.150.103:5003"
 
 pkill -9 -f "main.sh"
@@ -29,11 +26,7 @@ while true; do
     for DEV_ID in $DEVICES; do
         if pgrep -f "main.sh $DEV_ID" > /dev/null; then continue; fi
 
-        # Bypassed per-device binding to route through default route (lowest metric: lte11)
-        BIND_IFACE=""
-        CURL_OPT=""
-
-        RESPONSE=$(curl $CURL_OPT -s "http://$API_SERVER/api/v1/request?device_id=$DEV_ID")
+        RESPONSE=$(curl -s "http://$API_SERVER/api/v1/request?device_id=$DEV_ID")
         
         [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ] && continue
 
@@ -41,7 +34,7 @@ while true; do
         DEST_NAME=$(echo "$RESPONSE" | jq -r '.destination.name')
         FRIDA_PORT=$(echo "$RESPONSE" | jq -r '.port')
         
-        echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Log:$LOG_ID) via $BIND_IFACE"
+        echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Log:$LOG_ID)"
 
         # Pass ALL variables to the engine
         NMAP_API_RESPONSE="$RESPONSE" \
