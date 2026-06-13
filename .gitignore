@@ -8,3 +8,5 @@ venv/
 .idea/
 .vscode/
 install/
+wifi_multi/tmp/
+wifi_multi/logs/
