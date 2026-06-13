@@ -109,6 +109,10 @@ export NMAP_START_LAT="$(echo "$RESPONSE" | jq -r '.start_pos.lat')"
 export NMAP_START_LNG="$(echo "$RESPONSE" | jq -r '.start_pos.lng')"
 export NMAP_FRIDA_PORT="$FRIDA_PORT"
 export NMAP_ORIG_SSAID="$(echo "$RESPONSE" | jq -r '.identity.original.ssaid')"
+export NMAP_ID_ADID="$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid')"
+export NMAP_ID_SSAID="$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid')"
+export NMAP_ID_IDFV="$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv')"
+export NMAP_ID_NI="$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni')"
 EOF
 
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "${DEV_LOG_DIR}/main_debug.log" 2>&1 &
