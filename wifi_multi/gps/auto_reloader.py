@@ -133,13 +133,22 @@ def update_current_task_badge(device_id, data):
 
 def main(log_dir, device_id):
     try:
-        # API now provides arrival_time in seconds, not minutes.
-        min_arr_sec = int(float(os.environ.get("NMAP_MIN_ARRIVAL", 300)))
-        max_arr_sec = int(float(os.environ.get("NMAP_MAX_ARRIVAL", 480)))
+        api_arrival_time = int(float(os.environ.get("NMAP_ARRIVAL_TIME", 0)))
     except:
-        min_arr_sec, max_arr_sec = 300, 480
-    
-    total_target_sec = random.randint(min_arr_sec, max_arr_sec)
+        api_arrival_time = 0
+
+    if api_arrival_time > 0:
+        total_target_sec = api_arrival_time
+        log_print(f"[*] Using Server Arrival Time: {total_target_sec}s")
+    else:
+        try:
+            min_arr_sec = int(float(os.environ.get("NMAP_MIN_ARRIVAL", 300)))
+            max_arr_sec = int(float(os.environ.get("NMAP_MAX_ARRIVAL", 480)))
+        except:
+            min_arr_sec, max_arr_sec = 300, 480
+        total_target_sec = random.randint(min_arr_sec, max_arr_sec)
+        log_print(f"[*] Using Random Local Time: {total_target_sec}s")
+        
     session_start_ts = time.time()
     
     drive_state = "INIT"
