@@ -62,8 +62,8 @@ check_app_survival() {
     # 1. Global Timeout
     if [ $ELAPSED -gt "$GLOBAL_TIMEOUT" ]; then
         echo "[$(NOW)] [🚨] GLOBAL TIMEOUT EXCEEDED (${ELAPSED}s / ${GLOBAL_TIMEOUT}s). Force killing..."
-        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GLOBAL_TIMEOUT\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
+        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GLOBAL_TIMEOUT\"}" > /dev/null
         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
     fi
 
@@ -84,8 +84,8 @@ check_app_survival() {
         # 5초 주기로 체크하므로 18번(90초) 정체 시 종료
         if [ $STUCK_COUNT -ge 18 ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED (90s). No new packet JSONs. Killing session."
-            curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-                 -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_PACKET_STUCK\", \"device_id\": \"$DEV_ID\"}" > /dev/null
+            curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+                 -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"PACKET_STUCK\"}" > /dev/null
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
     fi
@@ -173,8 +173,8 @@ while true; do
                     echo "[$(NOW)] [Action] Selecting Address: $NMAP_DEST_ADDR"
                     $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
                     if [ $? -ne 0 ]; then
-                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_ADDRESS_NOT_FOUND\", \"device_id\": \"$DEV_ID\"}" > /dev/null
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ADDRESS_NOT_FOUND\"}" > /dev/null
                         break # 강제종료 없이 루프를 깨고 재시도
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
@@ -185,8 +185,8 @@ while true; do
                     echo "[$(NOW)] [Action] Clicking '안내시작' (Guidance Start)..."
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
-                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GUIDANCE_NOT_FOUND\", \"device_id\": \"$DEV_ID\"}" > /dev/null
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_NOT_FOUND\"}" > /dev/null
                         break # 강제종료 없이 루프를 깨고 재시도
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
@@ -224,18 +224,18 @@ while true; do
                     if [ "$IDENTITY_VALID" = true ]; then
                         echo "[$(NOW)] [✓] Identity Validation Passed. All target values matched."
                         
-                        # [NEW] Calculate final average speed to report to server
+                        # Calculate final average speed to report to server
                         FINAL_CALC_SPEED=0
                         if [ "$ACTUAL_TIME" -gt 0 ]; then
                             FINAL_CALC_SPEED=$(awk "BEGIN {printf \"%.2f\", ($ACTUAL_DIST / 1000) / ($ACTUAL_TIME / 3600)}")
                         fi
                         
-                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": \"$ACTUAL_DIST\", \"drive_time\": \"$ACTUAL_TIME\", \"calc_speed\": \"$FINAL_CALC_SPEED\"}" > /dev/null
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"message\": \"작업 완료. Dist: ${ACTUAL_DIST}m, Time: ${ACTUAL_TIME}s, Speed: ${FINAL_CALC_SPEED}m/s\"}" > /dev/null
                     else
                         echo "[$(NOW)] [🚨] IDENTITY VALIDATION FAILED: $IDENTITY_ERROR"
-                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
-                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_IDENTITY_MISMATCH\", \"device_id\": \"$DEV_ID\", \"error_msg\": \"$IDENTITY_ERROR\"}" > /dev/null
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/report_result" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"IDENTITY_MISMATCH: $IDENTITY_ERROR\"}" > /dev/null
                     fi
 
                     SLEEP_SEC=$(( RANDOM % 11 + 20 ))
