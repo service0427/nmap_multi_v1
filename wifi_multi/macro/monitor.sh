@@ -169,7 +169,7 @@ while true; do
                 "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
                 "STEP_07_2_DRIVING_STARTED") update_live_status "DRIVING" ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
-                "STEP_09_FINISH") update_live_status "FINISHING" ;;
+                "STEP_09_FINISH") update_live_status "SUCCESS" ;;
             esac
 
             # 주행 시작 시점 마킹
@@ -237,17 +237,15 @@ while true; do
                             FINAL_CALC_SPEED=$(awk "BEGIN {printf \"%.2f\", ($ACTUAL_DIST / 1000) / ($ACTUAL_TIME / 3600)}")
                         fi
                         
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"message\": \"작업 완료. Dist: ${ACTUAL_DIST}m, Time: ${ACTUAL_TIME}s, Speed: ${FINAL_CALC_SPEED}m/s\"}"
+                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED, \"message\": \"정상 도착 및 클릭 완료\"}"
                     else
                         echo "[$(NOW)] [🚨] IDENTITY VALIDATION FAILED: $IDENTITY_ERROR"
                         send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"IDENTITY_MISMATCH: $IDENTITY_ERROR\"}"
                     fi
 
-                    SLEEP_SEC=$(( RANDOM % 11 + 20 ))
-                    echo "[$(NOW)] [*] Waiting ${SLEEP_SEC}s for app to auto-return to home..."
-                    sleep "$SLEEP_SEC"
-                    adb -s "$DEV_ID" shell input keyevent 3
-                    sleep 2; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 0
+                    # [V18.5] Exit immediately. No sleep, no wait. main.sh will catch the exit and clean up perfectly.
+                    echo "[$(NOW)] [*] Immediate Exit for SUCCESS. Letting main.sh handle cleanup."
+                    exit 0
                 else
                     [ "$ID" == "STEP_02_HOME" ] && human_random_sleep
                     echo "[$(NOW)] [Action] Executing: $ACTION"
