@@ -246,11 +246,12 @@ def main(log_dir, device_id):
                             if log_id:
                                 try:
                                     import urllib.request
-                                    url = f"http://{api_server}/api/v1/update_status"
+                                    url = f"http://{api_server}/api/v1/report_result"
                                     req_data = json.dumps({
                                         "task_id": int(log_id),
                                         "log_id": int(log_id),
-                                        "status": "FAIL_DRIVING_STUCK",
+                                        "status": "FAIL",
+                                        "message": "DRIVING_STUCK",
                                         "device_id": device_id
                                     }).encode('utf-8')
                                     req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
@@ -342,11 +343,12 @@ def main(log_dir, device_id):
                             if log_id:
                                 try:
                                     import urllib.request
-                                    url = f"http://{api_server}/api/v1/update_status"
+                                    url = f"http://{api_server}/api/v1/report_result"
                                     req_data = json.dumps({
                                         "task_id": int(log_id),
                                         "log_id": int(log_id),
-                                        "status": "FAIL_DRIVING_STUCK",
+                                        "status": "FAIL",
+                                        "message": "DRIVING_STUCK",
                                         "device_id": device_id
                                     }).encode('utf-8')
                                     req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
