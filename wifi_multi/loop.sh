@@ -1,5 +1,12 @@
 #!/bin/bash
-# Smart Multi-Device Orchestrator (V2.9.9 - Standardized)
+# Smart Multi-Device Orchestrator (V3.0 - Standardized)
+# Supports Manual ADB-order Mapping
+
+# --- [CONFIGURATION] ---
+# 수동 배분 모드 (SSID를 읽지 않고 ADB 연결 순서대로 강제 배분)
+# 예: (5 5 5 5) -> lte11에 5대, lte12에 5대...
+# 예: (4 4 4 3) -> lte11에 4대, lte12에 4대, lte13에 4대, lte14에 3대
+MANUAL_COUNTS=(5 5 5 5)
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -20,50 +27,48 @@ get_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep inet | awk '{print $2}' | cut -d/ -f1 | head -n 1
 }
 
-# 폰이 현재 잡고 있는 Wi-Fi SSID를 기반으로 LTE 모뎀 번호 추출
-get_modem_idx_from_ssid() {
-    local dev_id=$1
-    local ssid=""
-    
-    # 1. dumpsys netstats 방식 시도
-    ssid=$(adb -s "$dev_id" shell dumpsys netstats 2>/dev/null | grep -E 'iface=wlan0' | grep -oE 'networkId="[^"]+"' | head -n 1 | cut -d'"' -f2)
-    
-    # 2. 실패 시 cmd wifi status 방식 시도
-    if [ -z "$ssid" ]; then
-        ssid=$(adb -s "$dev_id" shell "cmd wifi status" 2>/dev/null | grep -oE 'SSID: "[^"]+"' | head -n 1 | cut -d'"' -f2)
-    fi
-
-    # 끝의 숫자 2자리 이상 추출 (예: U26-K01-11 -> 11)
-    local idx=$(echo "$ssid" | grep -oE '[0-9]+$' | sed 's/^0//')
-    echo "$idx"
-}
-
 while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
+    IP11=$(get_ip lte11); IP12=$(get_ip lte12); IP13=$(get_ip lte13); IP14=$(get_ip lte14)
+    IP_LIST=("$IP11" "$IP12" "$IP13" "$IP14")
+
     echo "------------------------------------------------------------"
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
+    echo "Current Modems: lte11:$IP11, lte12:$IP12, lte13:$IP13, lte14:$IP14"
 
+    DEV_INDEX=0
     for DEV_ID in $DEVICES; do
-        # Enhanced process check to prevent double allocation
         if pgrep -f "main.sh $DEV_ID" > /dev/null; then 
+            DEV_INDEX=$((DEV_INDEX + 1))
             continue
         fi
 
-        # SSID 기반 모뎀 번호 추출
-        MODEM_IDX=$(get_modem_idx_from_ssid "$DEV_ID")
+        # --- Manual Assignment Logic ---
+        MODEM_IDX=11
+        BIND_IP=""
         
-        if [ -n "$MODEM_IDX" ] && [ "$MODEM_IDX" -ge 11 ]; then
-            BIND_IP=$(get_ip "lte$MODEM_IDX")
-            # echo "[#] [$DEV_ID] SSID matches lte$MODEM_IDX -> IP: $BIND_IP"
-        else
-            echo "[!] [$DEV_ID] Failed to determine modem from SSID. Check Wi-Fi."
-            continue
+        # Calculate which modem this device belongs to based on MANUAL_COUNTS
+        current_sum=0
+        for i in "${!MANUAL_COUNTS[@]}"; do
+            current_sum=$((current_sum + MANUAL_COUNTS[i]))
+            if [ "$DEV_INDEX" -lt "$current_sum" ]; then
+                MODEM_IDX=$((11 + i))
+                BIND_IP="${IP_LIST[$i]}"
+                break
+            fi
+        done
+
+        # Fallback if device index exceeds manual counts (put in last modem)
+        if [ -z "$BIND_IP" ]; then
+            MODEM_IDX=14
+            BIND_IP="${IP_LIST[3]}"
         fi
 
         if [ -z "$BIND_IP" ]; then
             echo "[!] Skipping $DEV_ID: Modem lte$MODEM_IDX not ready (No IP)."
+            DEV_INDEX=$((DEV_INDEX + 1))
             continue
         fi
 
@@ -72,6 +77,7 @@ while true; do
              -d "{\"device_id\":\"$DEV_ID\"}")
         
         if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
+            DEV_INDEX=$((DEV_INDEX + 1))
             continue
         fi
 
@@ -84,7 +90,6 @@ while true; do
         DEV_LOG_DIR="$WIFI_MULTI_LOGS/${DEV_ID}/tmp"
         mkdir -p "$DEV_LOG_DIR"
         
-        # Safer environment variable writing using double quotes and escaping
         ENV_FILE="${DEV_LOG_DIR}/env_vars"
         cat <<EOF > "$ENV_FILE"
 export WIFI_MULTI_ROOT="$WIFI_MULTI_ROOT"
@@ -106,9 +111,9 @@ export NMAP_FRIDA_PORT="$FRIDA_PORT"
 export NMAP_ORIG_SSAID="$(echo "$RESPONSE" | jq -r '.identity.original.ssaid')"
 EOF
 
-        # Added a small delay before next launch to prevent CPU spikes
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "${DEV_LOG_DIR}/main_debug.log" 2>&1 &
         
+        DEV_INDEX=$((DEV_INDEX + 1))
         sleep 5
     done
     sleep 30
