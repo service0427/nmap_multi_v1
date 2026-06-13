@@ -28,23 +28,27 @@ HOST_SHARE_DIR="/home/$SUDO_USER/nmap_mini"
 echo -e "${YELLOW}[2/4] Preparing host share directory: $HOST_SHARE_DIR...${NC}"
 mkdir -p "$HOST_SHARE_DIR"
 
-# 3. Create 4 Virtual Machines (vnode-1 to vnode-4)
-echo -e "${YELLOW}[3/4] Creating 4 Virtual Machines (Ubuntu 24.04)...${NC}"
+# 3. Create 4 Virtual Machines
+echo -e "${YELLOW}[3/4] Creating 4 Virtual Machines (Ubuntu 26.04)...${NC}"
 for i in {1..4}; do
     VM_NAME="vnode-$i"
     
     if lxc info "$VM_NAME" &> /dev/null; then
         echo "   > $VM_NAME already exists. Skipping creation."
     else
-        echo "   > Launching $VM_NAME..."
-        # Launch as a full Virtual Machine
-        lxc launch ubuntu:24.04 "$VM_NAME" --vm -c limits.cpu=2 -c limits.memory=2GiB
+        echo "   > Initializing $VM_NAME..."
+        # Init without starting
+        lxc init ubuntu:26.04 "$VM_NAME" --vm -c limits.cpu=2 -c limits.memory=2GiB
         
         # Share the project directory
         lxc config device add "$VM_NAME" project_disk disk source="$HOST_SHARE_DIR" path=/root/nmap_mini
         
         # Grant USB permissions inside the VM
         lxc config set "$VM_NAME" raw.apparmor "mount fstype=cgroup -> /sys/fs/cgroup/**,"
+        
+        # Start the VM
+        echo "   > Starting $VM_NAME..."
+        lxc start "$VM_NAME"
     fi
 done
 
