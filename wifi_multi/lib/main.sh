@@ -45,7 +45,7 @@ cleanup() {
     
     # Check if the task already finished successfully
     local IS_SUCCESS=false
-    if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHED" "$CURRENT_TASK_JSON" 2>/dev/null; then
+    if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHED" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHING" "$CURRENT_TASK_JSON" 2>/dev/null; then
         IS_SUCCESS=true
     fi
 
