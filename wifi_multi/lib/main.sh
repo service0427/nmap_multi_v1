@@ -43,10 +43,20 @@ cleanup() {
     local REASON=$1
     echo -e "\n[$DEV_ID] Terminating. Reason: $REASON"
     
-    # Report using designated LTE
-    curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
-         -H "Content-Type: application/json" \
-         -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\"}" > /dev/null
+    # Check if the task already finished successfully
+    local IS_SUCCESS=false
+    if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHED" "$CURRENT_TASK_JSON" 2>/dev/null; then
+        IS_SUCCESS=true
+    fi
+
+    if [ "$IS_SUCCESS" = false ]; then
+        # Report FAIL only if it wasn't a success
+        curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
+             -H "Content-Type: application/json" \
+             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\"}" > /dev/null
+    else
+        echo "[$DEV_ID] Task was SUCCESSFUL. Skipping FAIL report."
+    fi
 
     kill -9 $MITM_PID $FRIDA_PID $MONITOR_PID $RELOAD_PID $HEARTBEAT_PID 2>/dev/null
     adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap
