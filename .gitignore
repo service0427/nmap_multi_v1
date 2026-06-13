@@ -1,37 +1,10 @@
-# Environments
-.env
+__pycache__/
+*.pyc
+*.log
+wifi_multi/logs/*
+logs/
 .venv/
 venv/
-ENV/
-env/
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Node
-node_modules/
-npm-debug.log*
-
-# OS Files
-.DS_Store
-Thumbs.db
-
-# Project Specifics
+.idea/
+.vscode/
 install/
-
-# Logs
-logs/
-*.log
-test_nmap_v1/logs/
-test_nmap_v2/logs/
-api_server/logs/
-nohup.out
-install.tar.gz
-
-# Temporary folders
-tmp/
-mode_wifi/tmp/
-test_nmap_v2/tmp/
-

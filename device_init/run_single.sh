@@ -156,7 +156,7 @@ adb -s "$DEV_ID" shell monkey -p "$PKG_NAME" -c android.intent.category.LAUNCHER
 # Poll for the PID of the app
 PID=""
 for i in {1..10}; do
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | tr -d '\r\n')
+    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | awk '{print $1}' | tr -d '\r\n')
     [ -n "$PID" ] && break
     sleep 1
 done
@@ -164,7 +164,7 @@ done
 if [ -z "$PID" ]; then
     adb -s "$DEV_ID" shell monkey -p "$PKG_NAME" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
     sleep 3
-    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | tr -d '\r\n')
+    PID=$(adb -s "$DEV_ID" shell pidof "$PKG_NAME" 2>/dev/null | awk '{print $1}' | tr -d '\r\n')
 fi
 
 if [ -z "$PID" ]; then
