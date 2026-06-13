@@ -18,7 +18,7 @@ fi
 # 2. Dependency Installation
 echo -e "\n${YELLOW}[1/5] Installing essential packages...${NC}"
 apt-get update -y > /dev/null
-apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client 2>/dev/null
+apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager 2>/dev/null
 pip3 install mitmproxy frida-tools --break-system-packages 2>/dev/null || pip3 install mitmproxy frida-tools
 
 # 3. Kernel Optimization (ARP Hardening)
@@ -39,8 +39,15 @@ WIRED_GW=$(ip route show default dev "$WIRED_IFACE" | awk '{print $3}' | head -n
 
 if [ -n "$WIRED_IFACE" ]; then
     echo -e "   > Wired Interface: $WIRED_IFACE (Priority: 50)"
+    # NetworkManager가 있을 경우 영구적으로 메트릭 50 설정
+    NM_CONN=$(nmcli -t -f NAME,DEVICE connection show active 2>/dev/null | grep ":$WIRED_IFACE$" | cut -d: -f1 || true)
+    if [ -n "$NM_CONN" ]; then
+        nmcli connection modify "$NM_CONN" ipv4.route-metric 50 2>/dev/null || true
+        nmcli connection up "$NM_CONN" 2>/dev/null || true
+    fi
+    # 즉시 적용
     ip route del default dev "$WIRED_IFACE" 2>/dev/null || true
-    ip route add default via "$WIRED_GW" dev "$WIRED_IFACE" metric 50
+    ip route add default via "$WIRED_GW" dev "$WIRED_IFACE" metric 50 2>/dev/null || true
 fi
 
 # Create the Power Sync Script
@@ -75,10 +82,14 @@ for iface in interfaces:
 
             gw = f"192.168.{subnet}.1"
             table = 200 + subnet
+            # Remove any existing low-metric default routes created by DHCP
+            subprocess.run(f"ip route del default via {gw} dev {iface} 2>/dev/null", shell=True)
+            
+            # Add isolated PBR routes
             subprocess.run(f"ip route add default via {gw} dev {iface} metric {table} 2>/dev/null || true", shell=True)
             subprocess.run(f"ip rule add from 192.168.{subnet}.0/24 table {table} 2>/dev/null || true", shell=True)
             subprocess.run(f"ip route replace default via {gw} dev {iface} table {table}", shell=True)
-            print(f"✅ {iface} Synced")
+            print(f"✅ {iface} Synced and Isolated")
 EOF
 chmod +x /usr/local/bin/lte-sync
 
@@ -99,7 +110,7 @@ chown -R $SUDO_USER:$SUDO_USER wifi_multi/ 2>/dev/null || true
 echo -e "\n${GREEN}============================================================${NC}"
 echo -e "${GREEN} ✅ Installation Completed Successfully! (V1.1)${NC}"
 echo -e "${GREEN}============================================================${NC}"
-echo -e " 🌐 Default Route: $WIRED_IFACE (High Priority)"
+echo -e " 🌐 Default Route: $WIRED_IFACE (High Priority 50)"
 echo -e " 📡 LTE Modems   : Auto-recognized as lte11 ~ lte30"
 echo -e " 🛠️  Auto-Sync   : Enabled via udev rule"
 echo -e " 📂 Workspace    : /home/tech/nmap_mini/wifi_multi"
