@@ -20,30 +20,50 @@ get_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep inet | awk '{print $2}' | cut -d/ -f1 | head -n 1
 }
 
+# 폰이 현재 잡고 있는 Wi-Fi SSID를 기반으로 LTE 모뎀 번호 추출
+get_modem_idx_from_ssid() {
+    local dev_id=$1
+    local ssid=""
+    
+    # 1. dumpsys netstats 방식 시도
+    ssid=$(adb -s "$dev_id" shell dumpsys netstats 2>/dev/null | grep -E 'iface=wlan0' | grep -oE 'networkId="[^"]+"' | head -n 1 | cut -d'"' -f2)
+    
+    # 2. 실패 시 cmd wifi status 방식 시도
+    if [ -z "$ssid" ]; then
+        ssid=$(adb -s "$dev_id" shell "cmd wifi status" 2>/dev/null | grep -oE 'SSID: "[^"]+"' | head -n 1 | cut -d'"' -f2)
+    fi
+
+    # 끝의 숫자 2자리 이상 추출 (예: U26-K01-11 -> 11)
+    local idx=$(echo "$ssid" | grep -oE '[0-9]+$' | sed 's/^0//')
+    echo "$idx"
+}
+
 while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
-    IP11=$(get_ip lte11); IP12=$(get_ip lte12); IP13=$(get_ip lte13); IP14=$(get_ip lte14)
-
     echo "------------------------------------------------------------"
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
 
-    IDX=0
     for DEV_ID in $DEVICES; do
         # Enhanced process check to prevent double allocation
         if pgrep -f "main.sh $DEV_ID" > /dev/null; then 
-            IDX=$((IDX + 1))
             continue
         fi
 
-        if [ $IDX -lt 5 ]; then BIND_IP="$IP11"
-        elif [ $IDX -lt 10 ]; then BIND_IP="$IP12"
-        elif [ $IDX -lt 15 ]; then BIND_IP="$IP13"
-        else BIND_IP="$IP14"; fi
+        # SSID 기반 모뎀 번호 추출
+        MODEM_IDX=$(get_modem_idx_from_ssid "$DEV_ID")
+        
+        if [ -n "$MODEM_IDX" ] && [ "$MODEM_IDX" -ge 11 ]; then
+            BIND_IP=$(get_ip "lte$MODEM_IDX")
+            # echo "[#] [$DEV_ID] SSID matches lte$MODEM_IDX -> IP: $BIND_IP"
+        else
+            echo "[!] [$DEV_ID] Failed to determine modem from SSID. Check Wi-Fi."
+            continue
+        fi
 
         if [ -z "$BIND_IP" ]; then
-            IDX=$((IDX + 1))
+            echo "[!] Skipping $DEV_ID: Modem lte$MODEM_IDX not ready (No IP)."
             continue
         fi
 
@@ -52,7 +72,6 @@ while true; do
              -d "{\"device_id\":\"$DEV_ID\"}")
         
         if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
-            IDX=$((IDX + 1))
             continue
         fi
 
@@ -60,7 +79,7 @@ while true; do
         DEST_NAME=$(echo "$RESPONSE" | jq -r '.destination.target_name')
         FRIDA_PORT=$((6000 + $(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')))
         
-        echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem:$BIND_IP"
+        echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
 
         DEV_LOG_DIR="$WIFI_MULTI_LOGS/${DEV_ID}/tmp"
         mkdir -p "$DEV_LOG_DIR"
@@ -90,7 +109,6 @@ EOF
         # Added a small delay before next launch to prevent CPU spikes
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "${DEV_LOG_DIR}/main_debug.log" 2>&1 &
         
-        IDX=$((IDX + 1))
         sleep 5
     done
     sleep 30
