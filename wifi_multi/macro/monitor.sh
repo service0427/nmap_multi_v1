@@ -35,6 +35,9 @@ update_live_status() {
         tmp_file=$(mktemp)
         jq --arg status "$msg" '.status = $status' "$CURRENT_TASK_JSON" > "$tmp_file" && mv "$tmp_file" "$CURRENT_TASK_JSON"
     fi
+    # Send live status to API server
+    curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+         -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"$msg\", \"device_id\": \"$DEV_ID\"}" > /dev/null
 }
 START_TS=$(date +%s)
 GLOBAL_TIMEOUT=$(jq -r '.config.global_timeout // 1200' "$SCHEDULE_JSON")
@@ -153,14 +156,14 @@ while true; do
 
             # [STATUS UPDATE] Update current_task.json based on ID
             case "$ID" in
-                "STEP_02_HOME") update_live_status "HOME (Ready)" ;;
-                "STEP_03_TYPING") update_live_status "SEARCHING..." ;;
-                "STEP_04_SELECT_ADDR") update_live_status "SELECTING DEST" ;;
-                "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM ARRIVAL" ;;
-                "STEP_07_NAVI_START") update_live_status "STARTING NAVI" ;;
+                "STEP_02_HOME") update_live_status "HOME_READY" ;;
+                "STEP_03_TYPING") update_live_status "SEARCHING" ;;
+                "STEP_04_SELECT_ADDR") update_live_status "SELECTING_DEST" ;;
+                "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM_ARRIVAL" ;;
+                "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
                 "STEP_07_2_DRIVING_STARTED") update_live_status "DRIVING" ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
-                "STEP_09_FINISH") update_live_status "FINISHED" ;;
+                "STEP_09_FINISH") update_live_status "FINISHING" ;;
             esac
 
             # 주행 시작 시점 마킹
