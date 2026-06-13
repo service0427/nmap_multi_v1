@@ -136,9 +136,6 @@ for i in {1..20}; do
 done
 [ -z "$PID" ] && cleanup "App Launch Timeout"
 
-# Add a safety delay for device initialization before Frida attaches
-sleep 2
-
 nohup frida -H "localhost:$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \
     -l lib/hooks/_core_survival.js \
