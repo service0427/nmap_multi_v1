@@ -39,6 +39,7 @@ adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
 
 DEV_TMP_DIR="logs/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
+rm -f "${DEV_TMP_DIR}/guidance_started" 2>/dev/null
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
 
 ( while true; do touch "$LOCK_FILE"; sleep 10; done ) &
@@ -68,7 +69,7 @@ cleanup() {
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
-    rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON"
+    rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON" "${DEV_TMP_DIR}/guidance_started"
     exit 0
 }
 trap "cleanup 'SigTerm'" INT TERM
@@ -110,6 +111,15 @@ for i in {1..15}; do
         IP_READY=true
         break
     fi
+    
+    # [NEW] Backup check: If 8.8.8.8 is reachable, allow session passage to prevent NETWORK_TIMEOUT under proxy load
+    if adb -s "$DEV_ID" shell "ping -c 1 -W 2 8.8.8.8" >/dev/null 2>&1; then
+        echo " [$DEV_ID] [⚠️] ifconfig.me timed out, but 8.8.8.8 ping succeeded. Proceeding with active connection."
+        REAL_IP="8.8.8.8"
+        IP_READY=true
+        break
+    fi
+    
     echo " [$DEV_ID] Waiting for IP (Toggle Recovery)... ($i/15)"
     sleep 2
 done

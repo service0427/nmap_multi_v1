@@ -104,16 +104,7 @@ check_app_survival() {
     fi
     
     # [NEW] Fail-Fast: Guidance Transition Timeout (e.g. Toast message blocked routing)
-    if [[ "${STATE_FLAGS[STEP_07_NAVI_START]}" == "1" ]] && [[ "${STATE_FLAGS[STEP_07_2_DRIVING_STARTED]}" != "1" ]]; then
-        if [ "$NAVI_START_TS" -gt 0 ]; then
-            local TRANS_ELAPSED=$(( $(date +%s) - NAVI_START_TS ))
-            if [ $TRANS_ELAPSED -gt 25 ]; then
-                echo "[$(NOW)] [🚨] GUIDANCE TRANSITION TIMEOUT (25s). Toast error likely occurred. Force killing..."
-                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_TRANSITION_TIMEOUT\"}"
-                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
-            fi
-        fi
-    fi
+    # Transition timeout removed to emulate stable main branch behavior
 
     # 3. Packet-File Silence Kill (Global Check for Frida/App Health)
     # 개별 요청 JSON 파일들이 새로 생성되고 있는지 숫자로 체크
@@ -236,6 +227,8 @@ while true; do
                         exit 0
                     else
                         NAVI_START_TS=$(date +%s)
+                        # Signal auto_reloader.py to start GPS
+                        touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."

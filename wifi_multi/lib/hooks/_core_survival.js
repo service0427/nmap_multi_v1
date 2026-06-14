@@ -60,6 +60,17 @@ function hook_stealth() {
                 return this.getInt(cr, name, def);
             };
 
+            // [🛡️ Mock Location Detection Bypass]
+            try {
+                var Location = Java.use("android.location.Location");
+                Location.isFromMockProvider.implementation = function() {
+                    return false;
+                };
+                console.log("[✓] Location.isFromMockProvider bypass applied successfully");
+            } catch (err) {
+                console.log("[-] Location.isFromMockProvider Hook Error: " + err);
+            }
+
             // [핵심 생존 방어] WebView Sandbox (libmonochrome) Seccomp-BPF 충돌 원천 차단
             // ExoPlayer가 TTS 엔진 혹은 알림음을 위해 MediaCodec을 초기화할 때, libstagefright가 
             // WebView 샌드박스의 검열을 받아 SIGBUS를 유발합니다. 이를 막기 위해 MediaCodec 객체 생성을 Java 단에서 차단합니다.

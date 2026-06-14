@@ -100,6 +100,7 @@ def check_and_dismiss_popups(device_id, xml_file, category):
                         print(f" [✓] Dismissed popup by clicking '{text}'")
                         time.sleep(2)
                         return get_ui_dump_pair(device_id, category)
+                        
     except: pass
     return xml_file, None
 

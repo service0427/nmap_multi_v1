@@ -12,12 +12,12 @@ MACRO_MAP = {
         "desc": "메인 화면 검색창 진입"
     },
     "btn_start_guidance": {
-        "queries": ["text:안내시작"],
+        "queries": ["exact:안내시작"],
         "padding": 15,
         "desc": "자동차 길찾기 시작"
     },
     "btn_start_guidance_modal": {
-        "queries": ["text:안내시작"],
+        "queries": ["exact:안내시작"],
         "padding": 10,
         "desc": "영업시간 알림 모달 내 안내시작"
     },

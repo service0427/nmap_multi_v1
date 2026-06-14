@@ -202,14 +202,31 @@ def main(log_dir, device_id):
                                 "avg_speed_kmh": final_badge_speed
                             })
                             
-                            script_dir = os.path.dirname(os.path.abspath(__file__))
-                            env = os.environ.copy()
-                            env["NMAP_TARGET_TOTAL_SEC"] = str(total_target_sec)
-                            env["NMAP_SESSION_START_TS"] = str(session_start_ts)
-                            env["NMAP_INITIAL_DIST_KM"] = str(dist)
-                            subprocess.run(["python3", os.path.join(script_dir, "reload_path.py"), latest_file, device_id], check=True, env=env)
-                            drive_state = "MONITORING"
-                            log_print(f"[🛰️] State Transition: MONITORING")
+                            # Wait for monitor.sh to click 'Guidance Start' and create the flag file
+                            flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
+                            log_print(f"[⏳] Waiting for Guidance Start click (checking flag: {flag_path})...")
+                            
+                            # Timeout to prevent infinite hang if click fails (max 20s)
+                            wait_start = time.time()
+                            while not os.path.exists(flag_path):
+                                time.sleep(0.5)
+                                if time.time() - wait_start > 20.0:
+                                    log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
+                                    break
+                            
+                            if os.path.exists(flag_path):
+                                log_print("[🚀] Guidance Start click detected! Starting road simulation immediately...")
+                                script_dir = os.path.dirname(os.path.abspath(__file__))
+                                env = os.environ.copy()
+                                env["NMAP_TARGET_TOTAL_SEC"] = str(total_target_sec)
+                                env["NMAP_SESSION_START_TS"] = str(session_start_ts)
+                                env["NMAP_INITIAL_DIST_KM"] = str(dist)
+                                subprocess.run(["python3", os.path.join(script_dir, "reload_path.py"), latest_file, device_id], check=True, env=env)
+                                drive_state = "MONITORING"
+                                log_print(f"[🛰️] State Transition: MONITORING")
+                            else:
+                                log_print("[🚨] Failed to detect Guidance Start click. Exiting auto_reloader.")
+                                sys.exit(1)
  
             elif drive_state == "MONITORING":
                 cur_lat, cur_lng = get_current_mock_location(device_id)
