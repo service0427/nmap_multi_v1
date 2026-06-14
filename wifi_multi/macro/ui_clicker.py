@@ -61,7 +61,8 @@ def check_fatal_errors(xml_file):
             "결과를 제공할 수 없습니다",
             "검색 결과가 없어요",
             "장소를 찾을 수 없습니다",
-            "길찾기 결과를 제공할 수 없습니다"
+            "길찾기 결과를 제공할 수 없습니다",
+            "길찾기 결과가 없습니다"
         ]
         for node in root.iter():
             text = (node.get('text') or "").strip()
