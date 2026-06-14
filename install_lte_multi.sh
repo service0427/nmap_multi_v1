@@ -72,15 +72,17 @@ PRIMARY_IFACE = "$WIRED_IFACE"
 
 def get_gateway_ip(iface):
     try:
+        # Robust DHCP check and IP isolation
         subprocess.run(["dhclient", "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
-        for line in res.split("\n"):
-            if "link" in line and "src" in line:
-                return line.split()[0].replace("/24", ".1")
+        res = subprocess.check_output(f"ip -4 addr show {iface} | grep inet", shell=True).decode()
+        if 'inet' in res:
+            ip_base = res.split()[1].split('/')[0]
+            # Construct gateway by replacing last octet with .1
+            return ip_base.rsplit('.', 1)[0] + '.1'
     except: return None
 
 def main():
-    interfaces = os.listdir("/sys/class/net")
+    interfaces = os.listdir('/sys/class/net')
     for iface in interfaces:
         # 안전장치: 메인 유선망은 절대 건드리지 않음
         if iface == PRIMARY_IFACE:
@@ -108,8 +110,8 @@ def main():
             subprocess.run(["ip", "route", "add", "default", "via", gw, "dev", new_name, "table", str(table_id)])
             
             ip_out = subprocess.check_output(f"ip -4 addr show {new_name} | grep inet", shell=True).decode()
-            if "inet" in ip_out:
-                local_ip = ip_out.split()[1].split("/")[0]
+            if 'inet' in ip_out:
+                local_ip = ip_out.split()[1].split('/')[0]
                 subprocess.run(["ip", "rule", "del", "from", local_ip, "table", str(table_id)], stderr=subprocess.DEVNULL)
                 subprocess.run(["ip", "rule", "add", "from", local_ip, "table", str(table_id)])
             print(f"✅ {new_name} Synced and Isolated")
