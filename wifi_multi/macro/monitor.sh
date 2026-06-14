@@ -207,12 +207,27 @@ while true; do
             if [ -n "$ACTION" ]; then
                 if [ "$ACTION" == "TYPE_DESTINATION" ]; then type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
-                    echo "[$(NOW)] [Action] Selecting Address: $NMAP_DEST_ADDR"
-                    $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
+                    # Clean the address (remove detail suite/floor/room numbers)
+                    CLEANED_ADDR=""
+                    for word in $NMAP_DEST_ADDR; do
+                        if [[ "$word" =~ [0-9]+층$ || "$word" =~ [0-9]+호$ || "$word" =~ [0-9]+실$ || "$word" =~ [0-9]+동$ || "$word" =~ ^\( ]]; then
+                            break
+                        fi
+                        CLEANED_ADDR="$CLEANED_ADDR $word"
+                    done
+                    CLEANED_ADDR=$(echo "$CLEANED_ADDR" | xargs)
+
+                    echo "[$(NOW)] [Action] Selecting Address: $CLEANED_ADDR (Original: $NMAP_DEST_ADDR)"
+                    $MACRO_EXEC "$DEV_ID" "contains:$CLEANED_ADDR" "$CAT"
                     if [ $? -ne 0 ]; then
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ADDRESS_NOT_FOUND\"}"
-                        echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
-                        exit 0
+                        # Fallback to original address just in case
+                        echo "[$(NOW)] [Action] Cleaned address not found. Retrying with original: $NMAP_DEST_ADDR"
+                        $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
+                        if [ $? -ne 0 ]; then
+                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ADDRESS_NOT_FOUND\"}"
+                            echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
+                            exit 0
+                        fi
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
                     echo "[$(NOW)] [Action] Clicking '도착' (Arrival)..."
