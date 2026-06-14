@@ -78,6 +78,9 @@ mkdir -p "$CAPTURE_LOG_DIR"
 EXEC_LOG="$CAPTURE_LOG_DIR/execution.log"
 exec > >(tee -a "$EXEC_LOG") 2>&1
 
+# Save the original API task response for debugging
+echo "$NMAP_API_RESPONSE" > "$CAPTURE_LOG_DIR/api_response.json"
+
 echo "============================================================"
 echo " [$DEV_ID] TASK STARTED via $BIND_IP"
 echo "------------------------------------------------------------"
