@@ -41,7 +41,13 @@ update_live_status() {
     if [ -f "$CURRENT_TASK_JSON" ]; then
         # Use jq to update only the status field
         tmp_file=$(mktemp)
-        jq --arg status "$msg" '.status = $status' "$CURRENT_TASK_JSON" > "$tmp_file" && mv "$tmp_file" "$CURRENT_TASK_JSON"
+        if jq --arg status "$msg" '.status = $status' "$CURRENT_TASK_JSON" > "$tmp_file" 2>/dev/null; then
+            mv "$tmp_file" "$CURRENT_TASK_JSON"
+        else
+            echo "{\"status\": \"$msg\"}" > "$CURRENT_TASK_JSON"
+        fi
+    else
+        echo "{\"status\": \"$msg\"}" > "$CURRENT_TASK_JSON"
     fi
     # Send live status to API server
     send_api_request "/api/v1/update_status" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"$msg\", \"device_id\": \"$DEV_ID\"}"
@@ -252,7 +258,7 @@ while true; do
 
                     # Exit immediately to avoid crashes overwriting status
                     echo "[$(NOW)] [*] Immediate Exit for SUCCESS. Letting main.sh handle cleanup."
-                    echo "SUCCESS" > "$CURRENT_TASK_JSON"
+                    echo "{\"status\":\"SUCCESS\"}" > "$CURRENT_TASK_JSON"
                     exit 0
                 else
                     [ "$ID" == "STEP_02_HOME" ] && human_random_sleep
