@@ -59,6 +59,7 @@ GLOBAL_TIMEOUT=$(jq -r '.config.global_timeout // 1200' "$SCHEDULE_JSON")
 LAST_JSON_COUNT=0
 STUCK_COUNT=0
 IS_DRIVING=false
+POPUP_CHECKED=false
 
 declare -A STATE_FLAGS
 
@@ -86,6 +87,16 @@ check_app_survival() {
     if [ $ELAPSED -gt 30 ]; then
         if ! adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
             echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
+        fi
+    fi
+
+    # [NEW] Proactive Popup Killer if Home Screen is delayed (e.g. Cache Clear Popup)
+    if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
+        if [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
+            echo "[$(NOW)] [?] Home screen delayed. Proactively checking for blocking popups..."
+            # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
+            python3 macro/ui_clicker.py "$DEV_ID" "exact:DUMMY_POPUP_CHECK" "PopupCheck" >/dev/null 2>&1
+            POPUP_CHECKED=true
         fi
     fi
 
