@@ -69,6 +69,16 @@ else
     echo "[!] utils/send_lte_usage.py not found. Skipping."
 fi
 
+# 4.6 Register Multi-Modem LTE IP Rotator
+if [ -f "wifi_multi/utils/lte_ip_rotator.py" ]; then
+    echo "[*] Registering Multi-Modem LTE IP Rotator..."
+    chmod +x wifi_multi/utils/lte_ip_rotator.py
+    pm2 delete lte-ip-rotator 2>/dev/null
+    pm2 start wifi_multi/utils/lte_ip_rotator.py --name "lte-ip-rotator" --interpreter python3
+else
+    echo "[!] wifi_multi/utils/lte_ip_rotator.py not found. Skipping."
+fi
+
 # 5. Save & Setup Startup
 echo "[*] Finalizing PM2 configuration..."
 pm2 save
