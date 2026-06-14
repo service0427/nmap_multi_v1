@@ -161,7 +161,7 @@ def click_element(device_id, query, padding=10, category="default"):
     log_id = os.environ.get("NMAP_LOG_ID")
     last_actual_text = "Not Found"
     
-    for attempt in range(7):
+    for attempt in range(3):
         xml_path, png_path = get_ui_dump_pair(device_id, category)
         if not xml_path: time.sleep(2); continue
 
@@ -203,7 +203,7 @@ def click_element(device_id, query, padding=10, category="default"):
 
 def chain_click(device_id, queries, padding=10, category="default", delay_range=(1.5, 3.5)):
     """Executes a sequence of clicks with all robust logic"""
-    for attempt in range(7):
+    for attempt in range(3):
         xml_path, png_path = get_ui_dump_pair(device_id, category)
         if not xml_path: time.sleep(2); continue
         

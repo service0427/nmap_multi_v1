@@ -21,7 +21,7 @@ def get_device_diagnostics(serial):
     
     # 1. Check Working Status (Lightweight)
     try:
-        # Changed from "wifi_multi/lib/main.sh {serial}" to "main.sh {serial}" to match the absolute path execution
+        # Changed from "mode_wifi/lib/main.sh {serial}" to "main.sh {serial}" to match the absolute path execution
         subprocess.check_output(["pgrep", "-f", f"main.sh {serial}"])
         info["status"] = "WORKING"
     except:

@@ -1,22 +1,17 @@
 #!/bin/bash
-# Smart Multi-Device Orchestrator (V3.0 - Standardized)
+# Smart Multi-Device Orchestrator (Reverted to stable mode_wifi base + PBR)
 # Supports Manual ADB-order Mapping
 
 # --- [CONFIGURATION] ---
-# 수동 배분 모드 (SSID를 읽지 않고 ADB 연결 순서대로 강제 배분)
-# 예: (5 5 5 5) -> lte11에 5대, lte12에 5대...
-# 예: (4 4 4 3) -> lte11에 4대, lte12에 4대, lte13에 4대, lte14에 3대
 MANUAL_COUNTS=(5 5 5 5)
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$SCRIPT_DIR" || exit 1
 
 export WIFI_MULTI_ROOT="$SCRIPT_DIR"
 export WIFI_MULTI_LOGS="$SCRIPT_DIR/logs"
 export WIFI_MULTI_LIB="$SCRIPT_DIR/lib"
-
 export API_SERVER="114.207.112.245:8000"
 
 pkill -9 -f "main.sh"
@@ -49,7 +44,6 @@ while true; do
         MODEM_IDX=11
         BIND_IP=""
         
-        # Calculate which modem this device belongs to based on MANUAL_COUNTS
         current_sum=0
         for i in "${!MANUAL_COUNTS[@]}"; do
             current_sum=$((current_sum + MANUAL_COUNTS[i]))
@@ -60,7 +54,6 @@ while true; do
             fi
         done
 
-        # Fallback if device index exceeds manual counts (put in last modem)
         if [ -z "$BIND_IP" ]; then
             MODEM_IDX=14
             BIND_IP="${IP_LIST[3]}"
@@ -87,43 +80,32 @@ while true; do
         
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
 
-        DEV_LOG_DIR="$WIFI_MULTI_LOGS/${DEV_ID}/tmp"
-        mkdir -p "$DEV_LOG_DIR"
-        
-        ENV_FILE="${DEV_LOG_DIR}/env_vars"
-        cat <<EOF > "$ENV_FILE"
-export WIFI_MULTI_ROOT="$WIFI_MULTI_ROOT"
-export WIFI_MULTI_LOGS="$WIFI_MULTI_LOGS"
-export WIFI_MULTI_LIB="$WIFI_MULTI_LIB"
-export API_SERVER="$API_SERVER"
-export NMAP_BIND_IP="$BIND_IP"
-export NMAP_API_RESPONSE='$(echo "$RESPONSE" | sed "s/'/'\\\\''/g")'
-export NMAP_TASK_ID="$TASK_ID"
-export NMAP_LOG_ID="$TASK_ID"
-export NMAP_DEST_ID="$(echo "$RESPONSE" | jq -r '.destination.id')"
-export NMAP_DEST_LAT="$(echo "$RESPONSE" | jq -r '.destination.lat')"
-export NMAP_DEST_LNG="$(echo "$RESPONSE" | jq -r '.destination.lng')"
-export NMAP_DEST_NAME="$(echo "$DEST_NAME" | sed "s/\"/\\\"/g")"
-export NMAP_DEST_ADDR="$(echo "$RESPONSE" | jq -r '.destination.address' | sed "s/\"/\\\"/g")"
-export NMAP_START_LAT="$(echo "$RESPONSE" | jq -r '.start_pos.lat')"
-export NMAP_START_LNG="$(echo "$RESPONSE" | jq -r '.start_pos.lng')"
-export NMAP_START_SPEED="$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh')"
-export NMAP_ARRIVAL_TIME="$(echo "$RESPONSE" | jq -r '.arrival_time')"
-export NMAP_FRIDA_PORT="$FRIDA_PORT"
-export NMAP_ORIG_SSAID="$(echo "$RESPONSE" | jq -r '.identity.original.ssaid')"
-export NMAP_ORIG_ADID="$(echo "$RESPONSE" | jq -r '.identity.original.adid')"
-export NMAP_ORIG_IDFV="$(echo "$RESPONSE" | jq -r '.identity.original.idfv')"
-export NMAP_ORIG_NI="$(echo "$RESPONSE" | jq -r '.identity.original.ni')"
-export NMAP_ID_ADID="$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid')"
-export NMAP_ID_SSAID="$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid')"
-export NMAP_ID_IDFV="$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv')"
-export NMAP_ID_NI="$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni')"
-EOF
-
-        setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "${DEV_LOG_DIR}/main_debug.log" 2>&1 &
+        # Pass ALL variables directly to the engine
+        NMAP_BIND_IP="$BIND_IP" \
+        NMAP_API_RESPONSE="$RESPONSE" \
+        NMAP_TASK_ID="$TASK_ID" \
+        NMAP_LOG_ID="$TASK_ID" \
+        NMAP_DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id') \
+        NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
+        NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
+        NMAP_DEST_NAME="$DEST_NAME" \
+        NMAP_START_LAT=$(echo "$RESPONSE" | jq -r '.start_pos.lat') \
+        NMAP_START_LNG=$(echo "$RESPONSE" | jq -r '.start_pos.lng') \
+        NMAP_START_SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh') \
+        NMAP_ARRIVAL_TIME=$(echo "$RESPONSE" | jq -r '.arrival_time') \
+        NMAP_FRIDA_PORT="$FRIDA_PORT" \
+        NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid') \
+        NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
+        NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
+        NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
+        NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
+        NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
+        NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
+        NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
+        setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
         
         DEV_INDEX=$((DEV_INDEX + 1))
-        sleep 5
+        sleep 2
     done
-    sleep 30
+    sleep 20
 done

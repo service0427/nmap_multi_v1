@@ -133,22 +133,13 @@ def update_current_task_badge(device_id, data):
 
 def main(log_dir, device_id):
     try:
-        api_arrival_time = int(float(os.environ.get("NMAP_ARRIVAL_TIME", 0)))
+        # API now provides arrival_time in seconds, not minutes.
+        min_arr_sec = int(float(os.environ.get("NMAP_MIN_ARRIVAL", 600)))
+        max_arr_sec = int(float(os.environ.get("NMAP_MAX_ARRIVAL", min_arr_sec + 60)))
     except:
-        api_arrival_time = 0
-
-    if api_arrival_time > 0:
-        total_target_sec = api_arrival_time
-        log_print(f"[*] Using Server Arrival Time: {total_target_sec}s")
-    else:
-        try:
-            min_arr_sec = int(float(os.environ.get("NMAP_MIN_ARRIVAL", 300)))
-            max_arr_sec = int(float(os.environ.get("NMAP_MAX_ARRIVAL", 480)))
-        except:
-            min_arr_sec, max_arr_sec = 300, 480
-        total_target_sec = random.randint(min_arr_sec, max_arr_sec)
-        log_print(f"[*] Using Random Local Time: {total_target_sec}s")
-        
+        min_arr_sec, max_arr_sec = 600, 660
+    
+    total_target_sec = random.randint(min_arr_sec, max_arr_sec)
     session_start_ts = time.time()
     
     drive_state = "INIT"
@@ -255,12 +246,11 @@ def main(log_dir, device_id):
                             if log_id:
                                 try:
                                     import urllib.request
-                                    url = f"http://{api_server}/api/v1/report_result"
+                                    url = f"http://{api_server}/api/v1/update_status"
                                     req_data = json.dumps({
                                         "task_id": int(log_id),
                                         "log_id": int(log_id),
-                                        "status": "FAIL",
-                                        "message": "DRIVING_STUCK",
+                                        "status": "FAIL_DRIVING_STUCK",
                                         "device_id": device_id
                                     }).encode('utf-8')
                                     req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')
@@ -352,12 +342,11 @@ def main(log_dir, device_id):
                             if log_id:
                                 try:
                                     import urllib.request
-                                    url = f"http://{api_server}/api/v1/report_result"
+                                    url = f"http://{api_server}/api/v1/update_status"
                                     req_data = json.dumps({
                                         "task_id": int(log_id),
                                         "log_id": int(log_id),
-                                        "status": "FAIL",
-                                        "message": "DRIVING_STUCK",
+                                        "status": "FAIL_DRIVING_STUCK",
                                         "device_id": device_id
                                     }).encode('utf-8')
                                     req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'}, method='POST')

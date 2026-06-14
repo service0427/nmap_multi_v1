@@ -28,15 +28,6 @@ CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
-send_api_request() {
-    local endpoint=$1
-    local payload=$2
-    echo "[$(NOW)] [API_REQ] $endpoint -> $payload"
-    local response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER:-localhost:8000}${endpoint}" \
-         -H "Content-Type: application/json" -d "$payload")
-    echo "[$(NOW)] [API_RES] $response"
-}
-
 update_live_status() {
     local msg=$1
     if [ -f "$CURRENT_TASK_JSON" ]; then
@@ -44,8 +35,6 @@ update_live_status() {
         tmp_file=$(mktemp)
         jq --arg status "$msg" '.status = $status' "$CURRENT_TASK_JSON" > "$tmp_file" && mv "$tmp_file" "$CURRENT_TASK_JSON"
     fi
-    # Send live status to API server
-    send_api_request "/api/v1/update_status" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"$msg\", \"device_id\": \"$DEV_ID\"}"
 }
 START_TS=$(date +%s)
 GLOBAL_TIMEOUT=$(jq -r '.config.global_timeout // 1200' "$SCHEDULE_JSON")
@@ -73,7 +62,8 @@ check_app_survival() {
     # 1. Global Timeout
     if [ $ELAPSED -gt "$GLOBAL_TIMEOUT" ]; then
         echo "[$(NOW)] [🚨] GLOBAL TIMEOUT EXCEEDED (${ELAPSED}s / ${GLOBAL_TIMEOUT}s). Force killing..."
-        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GLOBAL_TIMEOUT\"}"
+        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+             -d "{\"log_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GLOBAL_TIMEOUT\", \"device_id\": \"$DEV_ID\", \"log_path\": \"$CAPTURE_LOG_DIR\"}" > /dev/null
         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
     fi
 
@@ -94,7 +84,8 @@ check_app_survival() {
         # 5초 주기로 체크하므로 18번(90초) 정체 시 종료
         if [ $STUCK_COUNT -ge 18 ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED (90s). No new packet JSONs. Killing session."
-            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"PACKET_STUCK\"}"
+            curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+                 -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_PACKET_STUCK\", \"device_id\": \"$DEV_ID\"}" > /dev/null
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
     fi
@@ -149,7 +140,7 @@ while true; do
         if [ "$MATCHED_IDX" != "BYPASS" ]; then
             MATCHED_IDX=""
             if [ -n "$T_PAT" ] && [ -n "$N_PAT" ]; then
-                grep -q -E "\[.*\] $N_PAT" "$ABS_LOG_DIR/events.log" 2>/dev/null && MATCHED_IDX="events.log"
+                grep -F -q "[$T_PAT] $N_PAT" "$ABS_LOG_DIR/events.log" 2>/dev/null && MATCHED_IDX="events.log"
             elif [ -n "$U_PAT" ]; then
                 grep -q "$U_PAT" "$ABS_LOG_DIR/events.log" 2>/dev/null && MATCHED_IDX="events.log"
             else
@@ -162,14 +153,14 @@ while true; do
 
             # [STATUS UPDATE] Update current_task.json based on ID
             case "$ID" in
-                "STEP_02_HOME") update_live_status "HOME_READY" ;;
-                "STEP_03_TYPING") update_live_status "SEARCHING" ;;
-                "STEP_04_SELECT_ADDR") update_live_status "SELECTING_DEST" ;;
-                "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM_ARRIVAL" ;;
-                "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
+                "STEP_02_HOME") update_live_status "HOME (Ready)" ;;
+                "STEP_03_TYPING") update_live_status "SEARCHING..." ;;
+                "STEP_04_SELECT_ADDR") update_live_status "SELECTING DEST" ;;
+                "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM ARRIVAL" ;;
+                "STEP_07_NAVI_START") update_live_status "STARTING NAVI" ;;
                 "STEP_07_2_DRIVING_STARTED") update_live_status "DRIVING" ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
-                "STEP_09_FINISH") update_live_status "SUCCESS" ;;
+                "STEP_09_FINISH") update_live_status "FINISHED" ;;
             esac
 
             # 주행 시작 시점 마킹
@@ -182,7 +173,8 @@ while true; do
                     echo "[$(NOW)] [Action] Selecting Address: $NMAP_DEST_ADDR"
                     $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
                     if [ $? -ne 0 ]; then
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ADDRESS_NOT_FOUND\"}"
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_ADDRESS_NOT_FOUND\", \"device_id\": \"$DEV_ID\"}" > /dev/null
                         break # 강제종료 없이 루프를 깨고 재시도
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
@@ -193,7 +185,8 @@ while true; do
                     echo "[$(NOW)] [Action] Clicking '안내시작' (Guidance Start)..."
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_NOT_FOUND\"}"
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_GUIDANCE_NOT_FOUND\", \"device_id\": \"$DEV_ID\"}" > /dev/null
                         break # 강제종료 없이 루프를 깨고 재시도
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
@@ -231,21 +224,25 @@ while true; do
                     if [ "$IDENTITY_VALID" = true ]; then
                         echo "[$(NOW)] [✓] Identity Validation Passed. All target values matched."
                         
-                        # Calculate final average speed to report to server
+                        # [NEW] Calculate final average speed to report to server
                         FINAL_CALC_SPEED=0
                         if [ "$ACTUAL_TIME" -gt 0 ]; then
                             FINAL_CALC_SPEED=$(awk "BEGIN {printf \"%.2f\", ($ACTUAL_DIST / 1000) / ($ACTUAL_TIME / 3600)}")
                         fi
                         
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED, \"message\": \"정상 도착 및 클릭 완료\"}"
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": \"$ACTUAL_DIST\", \"drive_time\": \"$ACTUAL_TIME\", \"calc_speed\": \"$FINAL_CALC_SPEED\"}" > /dev/null
                     else
                         echo "[$(NOW)] [🚨] IDENTITY VALIDATION FAILED: $IDENTITY_ERROR"
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"IDENTITY_MISMATCH: $IDENTITY_ERROR\"}"
+                        curl -s -X POST "http://${API_SERVER:-localhost:8000}/api/v1/update_status" -H "Content-Type: application/json" \
+                             -d "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL_IDENTITY_MISMATCH\", \"device_id\": \"$DEV_ID\", \"error_msg\": \"$IDENTITY_ERROR\"}" > /dev/null
                     fi
 
-                    # [V18.5] Exit immediately. No sleep, no wait. main.sh will catch the exit and clean up perfectly.
-                    echo "[$(NOW)] [*] Immediate Exit for SUCCESS. Letting main.sh handle cleanup."
-                    exit 0
+                    SLEEP_SEC=$(( RANDOM % 11 + 20 ))
+                    echo "[$(NOW)] [*] Waiting ${SLEEP_SEC}s for app to auto-return to home..."
+                    sleep "$SLEEP_SEC"
+                    adb -s "$DEV_ID" shell input keyevent 3
+                    sleep 2; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 0
                 else
                     [ "$ID" == "STEP_02_HOME" ] && human_random_sleep
                     echo "[$(NOW)] [Action] Executing: $ACTION"

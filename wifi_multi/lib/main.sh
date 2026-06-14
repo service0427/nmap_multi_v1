@@ -1,33 +1,23 @@
 #!/bin/bash
-# Unified Task Execution Engine (V4.5 - Standardized)
+# Unified Task Execution Engine (Reverted to stable mode_wifi base + PBR)
 export PATH="$HOME/.local/bin:$PATH"
 
 # --- [ADB TIMEOUT WRAPPER] ---
 adb() { timeout 10 /usr/bin/adb "$@"; }
 export -f adb
 
+# Setup Paths
+LIB_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ENGINE_ROOT="$(dirname "$LIB_DIR")"
+PROJECT_ROOT="$(dirname "$ENGINE_ROOT")"
+cd "$ENGINE_ROOT" || exit 1
+
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
-# Sourcing failsafe environment vars IMMEDIATELY
-# We use an absolute path or relative to the script location
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ENGINE_ROOT="$(dirname "$SCRIPT_DIR")"
-ENV_FILE="$ENGINE_ROOT/logs/${DEV_ID}/tmp/env_vars"
-
-if [ -f "$ENV_FILE" ]; then
-    source "$ENV_FILE"
-else
-    echo "CRITICAL: Env file not found at $ENV_FILE"
-    exit 1
-fi
-
-cd "$ENGINE_ROOT" || exit 1
-
 # Bypassed per-device binding to route through default route (lowest metric: lte11)
 BIND_IFACE=""
-BIND_IP=""
-# NMAP_BIND_IP is now passed via sourced ENV_FILE
+BIND_IP="$NMAP_BIND_IP"
 CURL_OPT=""
 
 NMAP_MITM_PORT=$((NMAP_FRIDA_PORT + 10000))
@@ -45,7 +35,7 @@ cleanup() {
     
     # Check if the task already finished successfully
     local IS_SUCCESS=false
-    if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHED" "$CURRENT_TASK_JSON" 2>/dev/null || grep -q "FINISHING" "$CURRENT_TASK_JSON" 2>/dev/null; then
+    if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null; then
         IS_SUCCESS=true
     fi
 
@@ -53,7 +43,7 @@ cleanup() {
         # Report FAIL only if it wasn't a success
         curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
              -H "Content-Type: application/json" \
-             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\"}" > /dev/null
+             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\", \"message\": \"$REASON\"}" > /dev/null
     else
         echo "[$DEV_ID] Task was SUCCESSFUL. Skipping FAIL report."
     fi
@@ -76,7 +66,7 @@ EXEC_LOG="$CAPTURE_LOG_DIR/execution.log"
 exec > >(tee -a "$EXEC_LOG") 2>&1
 
 echo "============================================================"
-echo " [$DEV_ID] TASK STARTED via $BIND_IFACE"
+echo " [$DEV_ID] TASK STARTED via $BIND_IP"
 echo "------------------------------------------------------------"
 
 # 2. IP Verification
@@ -109,34 +99,19 @@ chmod +x macro/monitor.sh
 nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" > "$CAPTURE_LOG_DIR/monitor.log" 2>&1 &
 MONITOR_PID=$!
 
-# 4.5 Force Stop App before clean launch
-adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
-sleep 1
-
-# 5. Launch (Wake & Unlock Screen Conditionally)
-if adb -s "$DEV_ID" shell dumpsys power | grep -q "mWakefulness=Asleep"; then
-    adb -s "$DEV_ID" shell input keyevent 224
-    sleep 0.5
-fi
-if adb -s "$DEV_ID" shell "dumpsys window policy" | grep -q "isKeyguardShowing=true"; then
-    adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
-    adb -s "$DEV_ID" shell input swipe 500 1500 500 200 300
-    sleep 0.5
-fi
-
-# Fixed: Use START coordinates for initial position
+# 5. Launch
 ./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
 adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
 
 PID=""
-for i in {1..20}; do
-    PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap | awk '{print $1}' | tr -d '\r\n')
+for i in {1..10}; do
+    PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap | tr -d '\r\n')
     [ -n "$PID" ] && break
     sleep 1
 done
 [ -z "$PID" ] && cleanup "App Launch Timeout"
 
-nohup frida -H "localhost:$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
+nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \
     -l lib/hooks/_core_survival.js \
     --no-auto-reload > "$CAPTURE_LOG_DIR/frida.log" 2>&1 &
