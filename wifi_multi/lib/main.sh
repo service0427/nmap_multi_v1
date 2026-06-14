@@ -159,6 +159,7 @@ FRIDA_PID=$!
 
 while true; do
     kill -0 $FRIDA_PID 2>/dev/null || cleanup "Frida Crash"
+    kill -0 $MONITOR_PID 2>/dev/null || cleanup "Task Completed"
     adb -s "$DEV_ID" shell pidof com.nhn.android.nmap >/dev/null 2>&1 || cleanup "App Closed"
     sleep 5
 done
