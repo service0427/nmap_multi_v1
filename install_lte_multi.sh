@@ -1,28 +1,20 @@
-#!/usr/bin/env bash
-# LTE Multi-Proxy Infrastructure Master Installer (V1.1)
-# Optimized for high-performance servers with multiple identical-MAC LTE modems.
+#!/bin/bash
+# LTE Multi-Proxy Infrastructure Master Installer (V1.2 - Dynamic Server Ready)
+echo -e "\033[0;34m   🚀 LTE Multi-Proxy Infrastructure Master Installer\033[0m"
 
-set -e
-
-NC="\e[0m"; GREEN="\e[1;32m"; RED="\e[1;31m"; YELLOW="\e[1;33m"; BLUE="\e[1;34m"
-echo -e "${BLUE}============================================================${NC}"
-echo -e "${BLUE}   🚀 LTE Multi-Proxy Infrastructure Master Installer${NC}"
-echo -e "${BLUE}============================================================${NC}"
-
-# 1. Root Check
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}❌ Please run as root (sudo bash install_lte_multi.sh)${NC}"
-    exit 1
+if [ "$EUID" -ne 0 ]; then
+  echo -e "\033[1;33m[!] Please run as root (sudo ./install_lte_multi.sh)\033[0m"
+  exit 1
 fi
 
-# 2. Dependency Installation
-echo -e "\n${YELLOW}[1/5] Installing essential packages...${NC}"
-apt-get update -y > /dev/null
+# 1. Install Dependencies
+echo -e "\033[1;33m[1/6] Installing core dependencies...\033[0m"
+apt-get update > /dev/null
 apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager 2>/dev/null
 pip3 install mitmproxy frida-tools --break-system-packages 2>/dev/null || pip3 install mitmproxy frida-tools
 
-# 3. Kernel Optimization (ARP Hardening)
-echo -e "${YELLOW}[2/5] Optimizing kernel for identical MAC devices...${NC}"
+# 2. Kernel Tuning
+echo -e "\033[1;33m[2/6] Optimizing kernel for identical MAC devices...\033[0m"
 cat <<EOF > /etc/sysctl.d/99-lte-proxy.conf
 net.ipv4.conf.all.arp_ignore=1
 net.ipv4.conf.all.arp_announce=2
@@ -30,89 +22,117 @@ net.ipv4.conf.all.rp_filter=2
 EOF
 sysctl -p /etc/sysctl.d/99-lte-proxy.conf > /dev/null
 
-# 4. Network Interface & Routing Setup
-echo -e "${YELLOW}[3/5] Configuring network interfaces and PBR tables...${NC}"
+# 3. DNS Blackhole Prevention (Tailscale Survival)
+echo -e "\033[1;33m[3/6] Locking Global DNS to prevent Tailscale drops...\033[0m"
+cat << EOF > /etc/systemd/resolved.conf
+[Resolve]
+DNS=8.8.8.8 8.8.4.4
+FallbackDNS=1.1.1.1 1.0.0.1
+Domains=~.
+EOF
+mkdir -p /etc/NetworkManager/conf.d
+cat << EOF > /etc/NetworkManager/conf.d/dns.conf
+[main]
+dns=systemd-resolved
+EOF
+systemctl restart systemd-resolved
+systemctl restart NetworkManager
+sleep 3
 
-# Identify Wired Interface
-WIRED_IFACE=$(ip route show default | grep -v "lte" | awk '{print $5}' | head -n 1)
-WIRED_GW=$(ip route show default dev "$WIRED_IFACE" | awk '{print $3}' | head -n 1)
+# 4. Dynamic Primary Interface Detection
+echo -e "\033[1;33m[4/6] Dynamically detecting primary wired interface...\033[0m"
+# Find the active, physical ethernet connection managed by NetworkManager
+WIRED_IFACE=$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | grep ethernet | grep connected | cut -d: -f1 | head -n 1)
+
+# Fallback if nmcli fails
+if [ -z "$WIRED_IFACE" ]; then
+    WIRED_IFACE=$(ip route show default | grep -vE "lte|usb|enx" | awk '{print $5}' | head -n 1)
+fi
+WIRED_GW=$(ip route show default dev "$WIRED_IFACE" 2>/dev/null | awk '{print $3}' | head -n 1)
 
 if [ -n "$WIRED_IFACE" ]; then
-    echo -e "   > Wired Interface: $WIRED_IFACE (Priority: 50)"
-    # NetworkManager가 있을 경우 영구적으로 메트릭 50 설정
+    echo -e "   > Primary Wired Interface detected: $WIRED_IFACE"
     NM_CONN=$(nmcli -t -f NAME,DEVICE connection show active 2>/dev/null | grep ":$WIRED_IFACE$" | cut -d: -f1 || true)
     if [ -n "$NM_CONN" ]; then
         nmcli connection modify "$NM_CONN" ipv4.route-metric 50 2>/dev/null || true
         nmcli connection up "$NM_CONN" 2>/dev/null || true
     fi
-    # 즉시 적용
-    ip route del default dev "$WIRED_IFACE" 2>/dev/null || true
-    ip route add default via "$WIRED_GW" dev "$WIRED_IFACE" metric 50 2>/dev/null || true
+else
+    echo -e "\033[1;31m[!] Could not detect primary wired interface. Proceeding with caution.\033[0m"
+    WIRED_IFACE="UNKNOWN_IFACE"
 fi
 
-# Create the Power Sync Script
-cat <<'EOF' > /usr/local/bin/lte-sync
+# 5. Create the Safe Power Sync Script
+echo -e "\033[1;33m[5/6] Generating dynamic lte-sync daemon...\033[0m"
+cat <<EOF > /usr/local/bin/lte-sync
 #!/usr/bin/env python3
 import os, subprocess, re, time
 
-def run(cmd): return subprocess.getoutput(cmd)
+PRIMARY_IFACE = "$WIRED_IFACE"
 
-# Wait for potential DHCP session
-time.sleep(3)
+def get_gateway_ip(iface):
+    try:
+        subprocess.run(["dhclient", "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
+        for line in res.split("\n"):
+            if "link" in line and "src" in line:
+                return line.split()[0].replace("/24", ".1")
+    except: return None
 
-interfaces = os.listdir('/sys/class/net')
-for iface in interfaces:
-    if iface in ['lo', 'tailscale0', 'lxdbr0'] or 'enp' in iface or 'veth' in iface: continue
-    
-    # Try to bring interface up
-    subprocess.run(f"ip link set {iface} up", shell=True)
-    
-    addr_info = run(f"ip -4 addr show {iface}")
-    match = re.search(r'inet 192\.168\.(\d+)\.', addr_info)
-    
-    if match:
-        subnet = int(match.group(1))
-        if 11 <= subnet <= 30: # Support up to 20 modems
-            target = f"lte{subnet}"
-            if iface != target:
-                subprocess.run(f"ip link set {iface} down", shell=True)
-                subprocess.run(f"ip link set {iface} name {target}", shell=True)
-                subprocess.run(f"ip link set {target} up", shell=True)
-                iface = target
-
-            gw = f"192.168.{subnet}.1"
-            table = 200 + subnet
-            # Remove any existing low-metric default routes created by DHCP
-            subprocess.run(f"ip route del default via {gw} dev {iface} 2>/dev/null", shell=True)
+def main():
+    interfaces = os.listdir("/sys/class/net")
+    for iface in interfaces:
+        # 안전장치: 메인 유선망은 절대 건드리지 않음
+        if iface == PRIMARY_IFACE:
+            continue
             
-            # Add isolated PBR routes
-            subprocess.run(f"ip route add default via {gw} dev {iface} metric {table} 2>/dev/null || true", shell=True)
-            subprocess.run(f"ip rule add from 192.168.{subnet}.0/24 table {table} 2>/dev/null || true", shell=True)
-            subprocess.run(f"ip route replace default via {gw} dev {iface} table {table}", shell=True)
-            print(f"✅ {iface} Synced and Isolated")
+        if re.match(r"^(enx|usb|eth\d+)", iface):
+            gw = get_gateway_ip(iface)
+            if not gw: continue
+            
+            try:
+                subnet = gw.split(".")[2]
+                new_name = f"lte{subnet}"
+            except: continue
+            
+            print(f"Renaming {iface} to {new_name}")
+            subprocess.run(["ip", "link", "set", iface, "down"])
+            subprocess.run(["ip", "link", "set", iface, "name", new_name])
+            subprocess.run(["ip", "link", "set", new_name, "up"])
+            
+            subprocess.run(["dhclient", "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            table_id = subnet
+            subprocess.run(f"grep -q \"^{table_id} lte{table_id}\" /etc/iproute2/rt_tables || echo \"{table_id} lte{table_id}\" >> /etc/iproute2/rt_tables", shell=True)
+            subprocess.run(["ip", "route", "flush", "table", str(table_id)])
+            subprocess.run(["ip", "route", "add", "default", "via", gw, "dev", new_name, "table", str(table_id)])
+            
+            ip_out = subprocess.check_output(f"ip -4 addr show {new_name} | grep inet", shell=True).decode()
+            if "inet" in ip_out:
+                local_ip = ip_out.split()[1].split("/")[0]
+                subprocess.run(["ip", "rule", "del", "from", local_ip, "table", str(table_id)], stderr=subprocess.DEVNULL)
+                subprocess.run(["ip", "rule", "add", "from", local_ip, "table", str(table_id)])
+            print(f"✅ {new_name} Synced and Isolated")
+
+if __name__ == "__main__":
+    time.sleep(2)
+    main()
 EOF
 chmod +x /usr/local/bin/lte-sync
 
-# Register Hotplug Rule
-echo 'ACTION=="add", SUBSYSTEM=="net", KERNEL=="eth*|usb*", RUN+="/usr/local/bin/lte-sync"' > /etc/udev/rules.d/99-lte-auto-sync.rules
+# 6. Apply Udev Rules
+echo -e "\033[1;33m[6/6] Applying Udev rules and starting isolation...\033[0m"
+echo 'ACTION=="add", SUBSYSTEM=="net", KERNEL=="eth*|usb*|enx*", RUN+="/usr/local/bin/lte-sync"' > /etc/udev/rules.d/99-lte-auto-sync.rules
 udevadm control --reload-rules
+udevadm trigger
 
-# Run first sync
+# Sync any already plugged in devices
 /usr/local/bin/lte-sync
 
-# 5. Directory & Permission Setup
-echo -e "${YELLOW}[4/5] Setting up workspace permissions...${NC}"
-mkdir -p wifi_multi/logs
-chmod -R 775 wifi_multi/logs
-chown -R $SUDO_USER:$SUDO_USER wifi_multi/ 2>/dev/null || true
-
-# 6. Final Report
-echo -e "\n${GREEN}============================================================${NC}"
-echo -e "${GREEN} ✅ Installation Completed Successfully! (V1.1)${NC}"
-echo -e "${GREEN}============================================================${NC}"
-echo -e " 🌐 Default Route: $WIRED_IFACE (High Priority 50)"
+echo -e "\n============================================================"
+echo -e "\033[0;32m ✅ Dynamic Installation Completed Successfully! (V1.2)\033[0m"
+echo -e "============================================================"
+echo -e " 🌐 Primary Route: $WIRED_IFACE (Protected, Metric 50)"
+echo -e " 🛡️  DNS Status   : Locked to 8.8.8.8 (Tailscale safe)"
 echo -e " 📡 LTE Modems   : Auto-recognized as lte11 ~ lte30"
-echo -e " 🛠️  Auto-Sync   : Enabled via udev rule"
-echo -e " 📂 Workspace    : /home/tech/nmap_mini/wifi_multi"
-echo -e "\n To start: ${YELLOW}cd wifi_multi && ./loop.sh${NC}"
-echo -e "${GREEN}============================================================${NC}"
+echo -e "============================================================"
