@@ -124,7 +124,22 @@ chmod +x macro/monitor.sh
 nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" > "$CAPTURE_LOG_DIR/monitor.log" 2>&1 &
 MONITOR_PID=$!
 
-# 5. Launch
+# 5. Launch (Wake & Unlock Screen Robustly)
+if adb -s "$DEV_ID" shell dumpsys power | grep -q "mWakefulness=Asleep"; then
+    echo " [$DEV_ID] Screen is Asleep. Waking up..."
+    adb -s "$DEV_ID" shell input keyevent 224
+    sleep 0.5
+fi
+if adb -s "$DEV_ID" shell dumpsys window | grep -qE "mShowingLockscreen=true|isKeyguardShowing=true|mDreamingLockscreen=true"; then
+    echo " [$DEV_ID] Lock screen detected. Force unlocking..."
+    adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
+    sleep 0.5
+    # Force a long upward swipe to clear the lock screen just in case dismiss-keyguard fails
+    adb -s "$DEV_ID" shell input swipe 500 2000 500 200 300
+    sleep 0.5
+fi
+
+# Fixed: Use START coordinates for initial position
 ./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
 adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
 
