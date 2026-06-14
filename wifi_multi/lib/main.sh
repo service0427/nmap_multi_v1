@@ -81,9 +81,18 @@ exec > >(tee -a "$EXEC_LOG") 2>&1
 # Save the original API task response for debugging
 echo "$NMAP_API_RESPONSE" > "$CAPTURE_LOG_DIR/api_response.json"
 
+# Get Environment Snapshot
+BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep level | awk '{print $2}')
+TEMP_RAW=$(adb -s "$DEV_ID" shell dumpsys battery | grep temperature | awk '{print $2}')
+TEMP_C=$(echo "scale=1; $TEMP_RAW / 10" | bc 2>/dev/null || echo "N/A")
+FREE_RAM=$(adb -s "$DEV_ID" shell cat /proc/meminfo | grep MemFree | awk '{print $2$3}')
+
 echo "============================================================"
-echo " [$DEV_ID] TASK STARTED via $BIND_IP"
+echo " [$DEV_ID] TASK STARTED (LogID: $NMAP_LOG_ID)"
+echo " Destination: $NMAP_DEST_NAME (ID: $NMAP_DEST_ID)"
+echo " FRIDA:$NMAP_FRIDA_PORT | MITM:$NMAP_MITM_PORT | BIND_IP:$BIND_IP"
 echo "------------------------------------------------------------"
+echo " [$DEV_ID] [📊] Environment Snapshot: Temp=${TEMP_C}°C | Batt=${BATT_LEVEL}% | Free RAM=${FREE_RAM}"
 
 # 2. IP Verification
 REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s -4 http://ifconfig.me || curl -s -4 http://ifconfig.me" | tr -d '\r\n')
