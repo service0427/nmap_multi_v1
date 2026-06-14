@@ -32,6 +32,42 @@ get_device_ssid() {
 }
 
 while true; do
+    # --- [STALE PROCESS SELF-HEALING CLEANER] ---
+    # 20분(1200초) 이상 구동 중인 main.sh 프로세스가 있다면 15분 안전장치가 정상 동작하지 못한 좀비 상태로 판정하여 강제 킬 및 락 초기화 진행
+    while read -r pid etime args; do
+        [ -z "$pid" ] && continue
+        # args에서 DEV_ID 추출 (예: 'bash /home/tech/.../main.sh R3CN807BQXA')
+        DEV_ID=$(echo "$args" | awk '{print $NF}')
+        if [ "$etime" -gt 1200 ] && [ -n "$DEV_ID" ]; then
+            echo "[⚠️] [$(date +%T)] [$DEV_ID] DETECTED STALE PROCESS (PID: $pid, Elapsed: ${etime}s). Force killing..."
+            
+            # 프로세스 강제 종료
+            pkill -9 -f "main.sh $DEV_ID"
+            pkill -9 -f "monitor.sh $DEV_ID"
+            pkill -9 -f "auto_reloader.py .* $DEV_ID"
+            
+            # 포트 파싱 및 미트덤프/프리다 정리
+            FRIDA_PORT=$((6000 + $(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')))
+            MITM_PORT=$((FRIDA_PORT + 10000))
+            pkill -9 -f "mitmdump -p $MITM_PORT"
+            pkill -9 -f "frida -H localhost:$FRIDA_PORT"
+            
+            # ADB 터널 및 프록시 설정 원복, 앱 강제종료
+            timeout 10 adb -s "$DEV_ID" forward --remove tcp:"$FRIDA_PORT" 2>/dev/null
+            timeout 10 adb -s "$DEV_ID" reverse --remove tcp:"$MITM_PORT" 2>/dev/null
+            timeout 10 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
+            timeout 10 adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
+            
+            # 락 파일 및 태스크 메타파일 정리
+            rm -f "logs/${DEV_ID}/tmp/nmap_lock" "logs/${DEV_ID}/current_task.json" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+            
+            # API 서버에 실패 결과 보고
+            curl -s -X POST "http://${API_SERVER}/api/v1/report_result" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"task_id\": \"stale_kill\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\", \"message\": \"STALE_PROCESS_KILLED_ELAPSED_${etime}s\"}" > /dev/null
+        fi
+    done < <(ps -eo pid,etimes,args | grep -E "bash .*/main\.sh " | grep -v grep)
+
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 

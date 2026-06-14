@@ -42,7 +42,7 @@ mkdir -p "$DEV_TMP_DIR"
 rm -f "${DEV_TMP_DIR}/guidance_started" 2>/dev/null
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
 
-( while true; do touch "$LOCK_FILE"; sleep 10; done ) &
+( while true; do touch "$LOCK_FILE"; sleep 10; done ) >/dev/null 2>&1 &
 HEARTBEAT_PID=$!
 
 cleanup() {
@@ -152,7 +152,7 @@ adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT
         fi
         sleep 10
     done
-) &
+) >/dev/null 2>&1 &
 WATCHDOG_PID=$!
 
 BIND_OPT=""
