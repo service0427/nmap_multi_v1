@@ -72,6 +72,37 @@ def check_fatal_errors(xml_file):
     except:
         return False, None
 
+def check_and_dismiss_popups(device_id, xml_file, category):
+    """Check for known blocking popups like cache clearing and dismiss them"""
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        is_popup_present = False
+        
+        for node in root.iter():
+            text = (node.get('text') or "").strip()
+            if "캐시" in text and "삭제" in text:
+                is_popup_present = True
+                break
+                
+        if is_popup_present:
+            print(f" [!] Interstitial Popup Detected (Cache Delete). Dismissing...")
+            # Look for confirm button
+            for node in root.iter():
+                text = (node.get('text') or "").strip()
+                if text in ["확인", "예", "삭제"]:
+                    bounds_str = node.get('bounds')
+                    if bounds_str:
+                        coords = [int(c) for c in bounds_str.replace('][', ',').replace('[', '').replace(']', '').split(',')]
+                        tx = (coords[0] + coords[2]) // 2
+                        ty = (coords[1] + coords[3]) // 2
+                        subprocess.run(["adb", "-s", device_id, "shell", "input", "tap", str(tx), str(ty)])
+                        print(f" [✓] Dismissed popup by clicking '{text}'")
+                        time.sleep(2)
+                        return get_ui_dump_pair(device_id, category)
+    except: pass
+    return xml_file, None
+
 def find_element(xml_file, query):
     """Pure dynamic discovery with Flexible Address Matching"""
     try:
@@ -165,6 +196,10 @@ def click_element(device_id, query, padding=10, category="default"):
         xml_path, png_path = get_ui_dump_pair(device_id, category)
         if not xml_path: time.sleep(2); continue
 
+        # [NEW] Check and dismiss blocking popups
+        xml_path, _ = check_and_dismiss_popups(device_id, xml_path, category)
+        if not xml_path: time.sleep(2); continue
+
         # [V2.6] Early Exit if Fatal Error Message is detected on screen
         is_fatal, fatal_msg = check_fatal_errors(xml_path)
         if is_fatal:
@@ -207,6 +242,10 @@ def chain_click(device_id, queries, padding=10, category="default", delay_range=
         xml_path, png_path = get_ui_dump_pair(device_id, category)
         if not xml_path: time.sleep(2); continue
         
+        # [NEW] Check and dismiss blocking popups
+        xml_path, _ = check_and_dismiss_popups(device_id, xml_path, category)
+        if not xml_path: time.sleep(2); continue
+
         # [V2.6] Early Exit if Fatal Error Message is detected on screen
         is_fatal, fatal_msg = check_fatal_errors(xml_path)
         if is_fatal:
