@@ -89,6 +89,7 @@ while true; do
         NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
         NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
         NMAP_DEST_NAME="$DEST_NAME" \
+        NMAP_DEST_ADDR="$(echo "$RESPONSE" | jq -r '.destination.address' | sed "s/\"/\\\"/g")" \
         NMAP_START_LAT=$(echo "$RESPONSE" | jq -r '.start_pos.lat') \
         NMAP_START_LNG=$(echo "$RESPONSE" | jq -r '.start_pos.lng') \
         NMAP_START_SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh') \
