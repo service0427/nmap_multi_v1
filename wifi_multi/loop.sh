@@ -1,6 +1,6 @@
 #!/bin/bash
-# Smart Multi-Device Orchestrator (Reverted to stable mode_wifi base + PBR)
-# Supports Manual ADB-order Mapping
+# Smart Multi-Device Orchestrator (V19.1 - Dynamic SSID Mapping)
+# Automatically maps devices to modems based on current Wi-Fi SSID suffix
 
 # --- [CONFIGURATION] ---
 MANUAL_COUNTS=(5 5 5 5)
@@ -22,6 +22,15 @@ get_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep inet | awk '{print $2}' | cut -d/ -f1 | head -n 1
 }
 
+get_device_ssid() {
+    local SERIAL=$1
+    local SSID=$(timeout 3 adb -s "$SERIAL" shell "cmd wifi status | grep -i 'SSID:' | head -n 1" | awk -F': ' '{print $2}' | tr -d '\"\r\n')
+    if [ -z "$SSID" ]; then
+        SSID=$(timeout 3 adb -s "$SERIAL" shell "dumpsys connectivity | grep 'extra: ' | head -n 1" | awk -F'extra: ' '{print $2}' | awk -F',' '{print $1}' | tr -d '\"\r\n')
+    fi
+    echo "$SSID"
+}
+
 while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
@@ -40,23 +49,38 @@ while true; do
             continue
         fi
 
-        # --- Manual Assignment Logic ---
-        MODEM_IDX=11
+        # --- [NEW] Dynamic SSID-to-Modem Mapping ---
         BIND_IP=""
+        MODEM_IDX=""
         
-        current_sum=0
-        for i in "${!MANUAL_COUNTS[@]}"; do
-            current_sum=$((current_sum + MANUAL_COUNTS[i]))
-            if [ "$DEV_INDEX" -lt "$current_sum" ]; then
-                MODEM_IDX=$((11 + i))
-                BIND_IP="${IP_LIST[$i]}"
-                break
+        SSID=$(get_device_ssid "$DEV_ID")
+        SSID_SUFFIX=$(echo "$SSID" | grep -oE "[0-9]{2}$")
+        
+        if [ -n "$SSID_SUFFIX" ]; then
+            MODEM_IDX=$SSID_SUFFIX
+            case "$MODEM_IDX" in
+                "11") BIND_IP="$IP11" ;;
+                "12") BIND_IP="$IP12" ;;
+                "13") BIND_IP="$IP13" ;;
+                "14") BIND_IP="$IP14" ;;
+            esac
+            if [ -n "$BIND_IP" ]; then
+                echo "[DYNAMICS] [$DEV_ID] Matched SSID '$SSID' to Modem lte$MODEM_IDX"
             fi
-        done
+        fi
 
+        # --- Fallback to Manual Assignment Logic ---
         if [ -z "$BIND_IP" ]; then
-            MODEM_IDX=14
-            BIND_IP="${IP_LIST[3]}"
+            current_sum=0
+            for i in "${!MANUAL_COUNTS[@]}"; do
+                current_sum=$((current_sum + MANUAL_COUNTS[i]))
+                if [ "$DEV_INDEX" -lt "$current_sum" ]; then
+                    MODEM_IDX=$((11 + i))
+                    BIND_IP="${IP_LIST[$i]}"
+                    break
+                fi
+            done
+            echo "[FALLBACK] [$DEV_ID] No SSID match. Using index-based Modem lte$MODEM_IDX"
         fi
 
         if [ -z "$BIND_IP" ]; then
