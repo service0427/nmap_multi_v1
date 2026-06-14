@@ -78,8 +78,8 @@ mkdir -p "$CAPTURE_LOG_DIR"
 EXEC_LOG="$CAPTURE_LOG_DIR/execution.log"
 exec > >(tee -a "$EXEC_LOG") 2>&1
 
-# Save the original API task response for debugging
-echo "$NMAP_API_RESPONSE" > "$CAPTURE_LOG_DIR/api_response.json"
+# Save the original API task response for debugging (pretty printed for humans)
+echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 
 # Get Environment Snapshot
 BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep level | awk '{print $2}')
