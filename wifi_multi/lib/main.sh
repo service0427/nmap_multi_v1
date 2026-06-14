@@ -21,6 +21,19 @@ BIND_IP="$NMAP_BIND_IP"
 CURL_OPT=""
 
 NMAP_MITM_PORT=$((NMAP_FRIDA_PORT + 10000))
+
+# --- [ZOMBIE PURGE] ---
+# Ensure no orphaned processes from previous crashed runs are fighting over this device/port
+echo "[$DEV_ID] Purging any lingering zombie processes..."
+pkill -9 -f "monitor.sh $DEV_ID"
+pkill -9 -f "auto_reloader.py .* $DEV_ID"
+pkill -9 -f "mitmdump -p $NMAP_MITM_PORT"
+pkill -9 -f "frida -H localhost:$NMAP_FRIDA_PORT"
+# Also clean up any lingering adb forwards just in case
+adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
+adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
+adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
+
 DEV_TMP_DIR="logs/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
