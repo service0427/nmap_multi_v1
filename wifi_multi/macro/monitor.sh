@@ -61,6 +61,9 @@ STUCK_COUNT=0
 IS_DRIVING=false
 POPUP_CHECKED=false
 
+# [NEW] Transition Timeout Variables
+NAVI_START_TS=0
+
 declare -A STATE_FLAGS
 
 stop_gps() {
@@ -97,6 +100,18 @@ check_app_survival() {
             # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
             python3 macro/ui_clicker.py "$DEV_ID" "exact:DUMMY_POPUP_CHECK" "PopupCheck" >/dev/null 2>&1
             POPUP_CHECKED=true
+        fi
+    fi
+    
+    # [NEW] Fail-Fast: Guidance Transition Timeout (e.g. Toast message blocked routing)
+    if [[ "${STATE_FLAGS[STEP_07_NAVI_START]}" == "1" ]] && [[ "${STATE_FLAGS[STEP_07_2_DRIVING_STARTED]}" != "1" ]]; then
+        if [ "$NAVI_START_TS" -gt 0 ]; then
+            local TRANS_ELAPSED=$(( $(date +%s) - NAVI_START_TS ))
+            if [ $TRANS_ELAPSED -gt 25 ]; then
+                echo "[$(NOW)] [🚨] GUIDANCE TRANSITION TIMEOUT (25s). Toast error likely occurred. Force killing..."
+                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_TRANSITION_TIMEOUT\"}"
+                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+            fi
         fi
     fi
 
@@ -219,6 +234,8 @@ while true; do
                         send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_NOT_FOUND\"}"
                         echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                         exit 0
+                    else
+                        NAVI_START_TS=$(date +%s)
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."

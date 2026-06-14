@@ -212,11 +212,21 @@ def click_element(device_id, query, padding=10, category="default"):
         
         if bounds:
             x1, y1, x2, y2 = bounds
-            rx_start, rx_end = sorted([x1 + padding, x2 - padding]); ry_start, ry_end = sorted([y1 + padding, y2 - padding])
+            
+            # [FIX] Prevent padding from expanding the clickable area outside the bounds
+            pad_x = padding if x2 - x1 >= padding * 2 else 0
+            pad_y = padding if y2 - y1 >= padding * 2 else 0
+            
+            rx_start = x1 + pad_x
+            rx_end = x2 - pad_x
+            ry_start = y1 + pad_y
+            ry_end = y2 - pad_y
+            
             if rx_start >= rx_end: rx_end = rx_start + 1
             if ry_start >= ry_end: ry_end = ry_start + 1
             
-            target_x = random.randrange(rx_start, rx_end); target_y = random.randrange(ry_start, ry_end)
+            target_x = random.randrange(rx_start, rx_end)
+            target_y = random.randrange(ry_start, ry_end)
             try:
                 subprocess.run(["adb", "-s", device_id, "shell", "input", "tap", str(target_x), str(target_y)], timeout=10)
                 print(f" [✓] Clicked {query} at ({target_x}, {target_y})")
@@ -266,9 +276,21 @@ def chain_click(device_id, queries, padding=10, category="default", delay_range=
 
         for i, target in enumerate(targets):
             x1, y1, x2, y2 = target['bounds']
-            rx_start, rx_end = sorted([x1+padding, x2-padding]); ry_start, ry_end = sorted([y1+padding, y2-padding])
-            tx = random.randrange(rx_start, rx_end if rx_end > rx_start else rx_start+1)
-            ty = random.randrange(ry_start, ry_end if ry_end > rx_start else ry_start+1)
+            
+            # [FIX] Prevent padding from expanding the clickable area outside the bounds
+            pad_x = padding if x2 - x1 >= padding * 2 else 0
+            pad_y = padding if y2 - y1 >= padding * 2 else 0
+            
+            rx_start = x1 + pad_x
+            rx_end = x2 - pad_x
+            ry_start = y1 + pad_y
+            ry_end = y2 - pad_y
+            
+            if rx_start >= rx_end: rx_end = rx_start + 1
+            if ry_start >= ry_end: ry_end = ry_start + 1
+            
+            tx = random.randrange(rx_start, rx_end)
+            ty = random.randrange(ry_start, ry_end)
             try:
                 subprocess.run(["adb", "-s", device_id, "shell", "input", "tap", str(tx), str(ty)], timeout=10)
             except subprocess.TimeoutExpired:
