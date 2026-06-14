@@ -15,6 +15,9 @@ cd "$ENGINE_ROOT" || exit 1
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
+CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
+rm -f "$CURRENT_TASK_JSON" 2>/dev/null
+
 # Bypassed per-device binding to route through default route (lowest metric: lte11)
 BIND_IFACE=""
 BIND_IP="$NMAP_BIND_IP"
@@ -37,7 +40,6 @@ adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
 DEV_TMP_DIR="logs/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
-CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
 
 ( while true; do touch "$LOCK_FILE"; sleep 10; done ) &
 HEARTBEAT_PID=$!
@@ -182,6 +184,8 @@ for i in {1..10}; do
     sleep 1
 done
 [ -z "$PID" ] && cleanup "App Launch Timeout"
+
+sleep 3
 
 nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \
