@@ -61,7 +61,7 @@ cleanup() {
         echo "[$DEV_ID] Task was SUCCESSFUL. Skipping FAIL report."
     fi
 
-    kill -9 $MITM_PID $FRIDA_PID $MONITOR_PID $RELOAD_PID $HEARTBEAT_PID 2>/dev/null
+    kill -9 $MITM_PID $FRIDA_PID $MONITOR_PID $RELOAD_PID $HEARTBEAT_PID $WATCHDOG_PID 2>/dev/null
     adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
@@ -81,10 +81,14 @@ exec > >(tee -a "$EXEC_LOG") 2>&1
 # Save the original API task response for debugging (pretty printed for humans)
 echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 
-# Get Environment Snapshot
+# Get Environment Snapshot (No bc package requirement)
 BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep level | awk '{print $2}')
 TEMP_RAW=$(adb -s "$DEV_ID" shell dumpsys battery | grep temperature | awk '{print $2}')
-TEMP_C=$(echo "scale=1; $TEMP_RAW / 10" | bc 2>/dev/null || echo "N/A")
+if [ -n "$TEMP_RAW" ] && [ "$TEMP_RAW" -eq "$TEMP_RAW" ] 2>/dev/null; then
+    TEMP_C="$((TEMP_RAW / 10)).$((TEMP_RAW % 10))"
+else
+    TEMP_C="N/A"
+fi
 FREE_RAM=$(adb -s "$DEV_ID" shell cat /proc/meminfo | grep MemFree | awk '{print $2$3}')
 
 echo "============================================================"
@@ -110,6 +114,19 @@ APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | gr
 adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1
 adb -s "$DEV_ID" reverse tcp:"$NMAP_MITM_PORT" tcp:"$NMAP_MITM_PORT" >/dev/null 2>&1
 adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT"
+
+# --- [NEW] ADB Tunnel Watchdog ---
+# Prevents network drops during long drives by ensuring the proxy reverse tunnel stays alive
+(
+    while true; do
+        if ! adb -s "$DEV_ID" reverse --list 2>/dev/null | grep -q "tcp:$NMAP_MITM_PORT"; then
+            echo " [$DEV_ID] [⚠️] ADB Reverse Tunnel dropped! Restoring..." >> "$EXEC_LOG"
+            adb -s "$DEV_ID" reverse tcp:"$NMAP_MITM_PORT" tcp:"$NMAP_MITM_PORT" >/dev/null 2>&1
+        fi
+        sleep 10
+    done
+) &
+WATCHDOG_PID=$!
 
 BIND_OPT=""
 if [ -n "$NMAP_BIND_IP" ]; then
