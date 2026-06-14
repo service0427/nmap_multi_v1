@@ -273,9 +273,9 @@ def main(log_dir, device_id):
                         time.sleep(30)
                 else:
                     gps_fail_count += 1
-                    log_print(f"[?] Waiting for GPS update... ({gps_fail_count}/12)")
-                    if gps_fail_count >= 12:
-                        log_print("[🚨] GPS UPDATE TIMEOUT (120s). Aborting session...")
+                    log_print(f"[?] Waiting for GPS update... ({gps_fail_count}/30)")
+                    if gps_fail_count >= 30:
+                        log_print("[🚨] GPS UPDATE TIMEOUT (300s). Aborting session...")
                         log_id = os.environ.get("NMAP_LOG_ID")
                         api_server = os.environ.get("API_SERVER", "localhost:8000")
                         if log_id:

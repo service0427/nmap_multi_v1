@@ -90,9 +90,15 @@ check_app_survival() {
         STUCK_COUNT=0; LAST_JSON_COUNT=$CUR_JSON_COUNT
     else
         ((STUCK_COUNT++))
-        # 5초 주기로 체크하므로 18번(90초) 정체 시 종료
-        if [ $STUCK_COUNT -ge 18 ]; then
-            echo "[$(NOW)] [🚨] SILENCE DETECTED (90s). No new packet JSONs. Killing session."
+        
+        # [NEW] Dynamic Silence Tolerance: Give driving cars much more time to recover from drops
+        local MAX_STUCK=18 # Default 90s (18 * 5s)
+        if [ "$IS_DRIVING" = true ]; then
+            MAX_STUCK=60 # 300s (5 minutes) resilience during driving
+        fi
+        
+        if [ $STUCK_COUNT -ge $MAX_STUCK ]; then
+            echo "[$(NOW)] [🚨] SILENCE DETECTED ($((MAX_STUCK * 5))s). No new packet JSONs. Killing session."
             send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"PACKET_STUCK\"}"
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
@@ -172,7 +178,7 @@ while true; do
             esac
 
             # 주행 시작 시점 마킹
-            if [ "$ID" == "STEP_08_DRIVING" ]; then IS_DRIVING=true; fi
+            if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ] || [ "$ID" == "STEP_08_DRIVING" ]; then IS_DRIVING=true; fi
 
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
@@ -252,7 +258,15 @@ while true; do
                     [ "$ID" == "STEP_02_HOME" ] && human_random_sleep
                     echo "[$(NOW)] [Action] Executing: $ACTION"
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
-                    [ $? -ne 0 ] && break
+                    if [ $? -ne 0 ]; then
+                        if [ "$ACTION" == "entry_search_field" ]; then
+                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"SEARCH_FIELD_NOT_FOUND\"}"
+                            echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
+                            exit 0
+                        else
+                            break
+                        fi
+                    fi
                 fi
             fi
             STATE_FLAGS[$ID]=1; PREV_STEP_DONE=true; continue 
