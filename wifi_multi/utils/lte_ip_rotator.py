@@ -26,15 +26,23 @@ def log(msg):
 def get_lte_interfaces():
     interfaces = []
     try:
-        output = subprocess.check_output(["ip", "-br", "addr", "show"]).decode()
-        for line in output.splitlines():
-            parts = line.split()
-            if not parts: continue
-            name = parts[0]
-            match = re.match(r'^lte(\d+)$', name)
-            if match:
-                subnet = int(match.group(1))
-                interfaces.append((name, subnet))
+        for name in os.listdir('/sys/class/net'):
+            addr_file = f"/sys/class/net/{name}/address"
+            if os.path.exists(addr_file):
+                with open(addr_file, 'r') as f:
+                    mac = f.read().strip()
+                if mac.startswith("00:1e:10"):
+                    subnet = None
+                    if name.startswith("lte") and name[3:].isdigit():
+                        subnet = int(name[3:])
+                    else:
+                        addr_info = subprocess.getoutput(f"ip -4 addr show {name}")
+                        match = re.search(r'inet 192\.168\.(\d+)\.', addr_info)
+                        if match:
+                            subnet = int(match.group(1))
+                    
+                    if subnet and 11 <= subnet <= 20:
+                        interfaces.append((name, subnet))
     except Exception as e:
         log(f"Error listing interfaces: {e}")
     return sorted(interfaces)

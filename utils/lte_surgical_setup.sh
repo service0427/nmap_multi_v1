@@ -3,8 +3,18 @@
 # Use this after plugging in LTE modems.
 
 echo "--- [1] Identifying New Interfaces ---"
-# Find any interface that starts with eth, usb, or enx (default names for USB modems) but not lte
-NEW_IFACES=$(ls /sys/class/net/ | grep -E "^(eth|usb|enx)" | grep -vE "lte")
+# Find any interface that is NOT named lte* but has MAC starting with 00:1e:10
+NEW_IFACES=""
+for dev in /sys/class/net/*; do
+    [ -f "$dev/address" ] || continue
+    mac=$(cat "$dev/address")
+    if [[ "$mac" == "00:1e:10:"* ]]; then
+        iface=$(basename "$dev")
+        if [[ "$iface" != lte* ]]; then
+            NEW_IFACES="$NEW_IFACES $iface"
+        fi
+    fi
+done
 
 if [ -z "$NEW_IFACES" ]; then
     echo "No new LTE modems detected."
@@ -16,19 +26,37 @@ else
 fi
 
 echo "--- [2] Requesting IPs (Background) ---"
-# Using a loop to request IP without systemctl restart (modem patterns only)
-for iface in $(ls /sys/class/net/ | grep -E "^(lte|eth|usb|enx)"); do
+# Collect all modem interfaces by MAC address
+MODEM_IFACES=""
+for dev in /sys/class/net/*; do
+    [ -f "$dev/address" ] || continue
+    mac=$(cat "$dev/address")
+    if [[ "$mac" == "00:1e:10:"* ]]; then
+        MODEM_IFACES="$MODEM_IFACES $(basename "$dev")"
+    fi
+done
+
+for iface in $MODEM_IFACES; do
     # Only if it doesn't have an IP yet
     if ! ip -4 addr show "$iface" | grep -q "inet "; then
         echo "Requesting IP for $iface..."
-        # If dhclient is missing, we rely on networkd's auto-config via link up
     fi
 done
 
 sleep 5
 
 echo "--- [3] Renaming & Routing Orchestration ---"
-for iface in $(ls /sys/class/net/ | grep -E "^(lte|eth|usb|enx)"); do
+# Re-evaluate interfaces after potential DHCP lease
+MODEM_IFACES=""
+for dev in /sys/class/net/*; do
+    [ -f "$dev/address" ] || continue
+    mac=$(cat "$dev/address")
+    if [[ "$mac" == "00:1e:10:"* ]]; then
+        MODEM_IFACES="$MODEM_IFACES $(basename "$dev")"
+    fi
+done
+
+for iface in $MODEM_IFACES; do
     IP=$(ip -4 addr show "$iface" | grep -oP '(?<=inet\s)192\.168\.[0-9]+\.[0-9]+' | head -n 1)
     [ -z "$IP" ] && continue
     
