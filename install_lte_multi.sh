@@ -74,15 +74,19 @@ def get_gateway_ip(iface):
     try:
         # Robust DHCP check and IP isolation
         subprocess.run(["dhclient", "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        res = subprocess.check_output(f"ip -4 addr show {iface} | grep inet", shell=True).decode()
-        if 'inet' in res:
-            ip_base = res.split()[1].split('/')[0]
-            # Construct gateway by replacing last octet with .1
-            return ip_base.rsplit('.', 1)[0] + '.1'
+        res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
+        # Expecting output like: 192.168.11.0/24 dev lte11 ...
+        first_line = res.split('\n')[0]
+        if '/' in first_line:
+            network_part = first_line.split()[0].split('/')[0]
+            gateway = network_part.rsplit('.', 1)[0] + '.1'
+            return gateway
     except: return None
 
 def main():
     interfaces = os.listdir('/sys/class/net')
+    # Ensure iproute2 directory exists
+    os.makedirs('/etc/iproute2', exist_ok=True)
     for iface in interfaces:
         # 안전장치: 메인 유선망은 절대 건드리지 않음
         if iface == PRIMARY_IFACE:
