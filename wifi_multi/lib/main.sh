@@ -98,9 +98,24 @@ echo " FRIDA:$NMAP_FRIDA_PORT | MITM:$NMAP_MITM_PORT | BIND_IP:$BIND_IP"
 echo "------------------------------------------------------------"
 echo " [$DEV_ID] [📊] Environment Snapshot: Temp=${TEMP_C}°C | Batt=${BATT_LEVEL}% | Free RAM=${FREE_RAM}"
 
-# 2. IP Verification
-REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s -4 http://ifconfig.me || curl -s -4 http://ifconfig.me" | tr -d '\r\n')
-echo " [✓] Real IPv4: $REAL_IP"
+# 2. IP Verification (Robust 30s Wait for IP Toggles)
+echo " [$DEV_ID] [🌐] Verifying External Network..."
+IP_READY=false
+for i in {1..15}; do
+    REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout 2 -4 http://ifconfig.me || curl -s --connect-timeout 2 -4 http://ifconfig.me" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    if [ -n "$REAL_IP" ]; then
+        echo " [$DEV_ID] [✓] Real IPv4: $REAL_IP"
+        IP_READY=true
+        break
+    fi
+    echo " [$DEV_ID] Waiting for IP (Toggle Recovery)... ($i/15)"
+    sleep 2
+done
+
+if [ "$IP_READY" = false ]; then
+    cleanup "NETWORK_TIMEOUT"
+fi
+
 curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/update_status" \
      -H "Content-Type: application/json" \
      -d "{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
