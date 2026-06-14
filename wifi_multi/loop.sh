@@ -80,6 +80,9 @@ while true; do
         
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
 
+        # Ensure log directory exists before redirecting output
+        mkdir -p "logs/${DEV_ID}/tmp"
+
         # Pass ALL variables directly to the engine
         NMAP_BIND_IP="$BIND_IP" \
         NMAP_API_RESPONSE="$RESPONSE" \
