@@ -199,12 +199,24 @@ def main():
             if re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+|tmp_\w+)", iface):
                 force_route = False
                 if iface.startswith('lte'):
-                    subnet = iface.replace('lte', '')
-                    if not is_table_valid(subnet):
-                        print(f"[*] Interface {iface} routing table is invalid or empty.")
-                        force_route = True
-                    else:
-                        continue
+                    gw = get_gateway_ip(iface)
+                    if gw:
+                        try:
+                            actual_subnet = gw.split(".")[2]
+                            new_name = f"lte{actual_subnet}"
+                            if iface != new_name:
+                                print(f"[*] Interface {iface} has subnet {actual_subnet} but is named {iface}. Renaming needed.")
+                                force_route = True
+                        except Exception:
+                            pass
+                    
+                    if not force_route:
+                        subnet = iface.replace('lte', '')
+                        if not is_table_valid(subnet):
+                            print(f"[*] Interface {iface} routing table is invalid or empty.")
+                            force_route = True
+                        else:
+                            continue
                 
                 if fix_interface(iface, force_route=force_route):
                     fixed_any = True
