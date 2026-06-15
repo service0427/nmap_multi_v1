@@ -124,8 +124,10 @@ def fix_interface(iface):
     print(f"[*] Starting dhclient on {new_name}...")
     subprocess.run(["sudo", "dhclient", "-v", new_name], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    # Clean up default route from main table to prevent metric override
+    # Clean up default route and add with proper metric (200 + subnet)
     subprocess.run(["sudo", "ip", "route", "del", "default", "dev", new_name], stderr=subprocess.DEVNULL)
+    metric_val = 200 + int(subnet)
+    subprocess.run(["sudo", "ip", "route", "add", "default", "via", gw, "dev", new_name, "metric", str(metric_val)], stderr=subprocess.DEVNULL)
     
     # 6. Setup Policy Routing
     table_id = subnet

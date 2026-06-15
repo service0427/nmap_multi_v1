@@ -133,6 +133,11 @@ def main():
             subprocess.run(["ip", "route", "flush", "table", str(table_id)])
             subprocess.run(["ip", "route", "add", "default", "via", gw, "dev", new_name, "table", str(table_id)])
             
+            # Add fallback default route to main table with metric (200 + subnet)
+            subprocess.run(["ip", "route", "del", "default", "dev", new_name], stderr=subprocess.DEVNULL)
+            metric_val = 200 + int(table_id)
+            subprocess.run(["ip", "route", "add", "default", "via", gw, "dev", new_name, "metric", str(metric_val)], stderr=subprocess.DEVNULL)
+            
             ip_out = subprocess.check_output(f"ip -4 addr show {new_name} | grep inet", shell=True).decode()
             if 'inet' in ip_out:
                 local_ip = ip_out.split()[1].split('/')[0]
