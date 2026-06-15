@@ -200,7 +200,8 @@ sleep 3
 nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \
     -l lib/hooks/_core_survival.js \
-    --no-auto-reload > "$CAPTURE_LOG_DIR/frida.log" 2>&1 &
+    --no-auto-reload \
+    -q -t inf > "$CAPTURE_LOG_DIR/frida.log" 2>&1 &
 FRIDA_PID=$!
 
 while true; do
