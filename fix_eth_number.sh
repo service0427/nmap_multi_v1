@@ -86,6 +86,19 @@ def kill_dhclient(iface):
 
 def fix_interface(iface, force_route=False):
     print(f"\n[*] Processing interface: {iface}")
+    # Ensure interface is UP
+    try:
+        operstate = ""
+        if os.path.exists(f"/sys/class/net/{iface}/operstate"):
+            with open(f"/sys/class/net/{iface}/operstate", "r") as f:
+                operstate = f.read().strip().lower()
+        if operstate == "down":
+            print(f"[*] Interface {iface} is down. Bringing it up...")
+            subprocess.run(["sudo", "ip", "link", "set", iface, "up"])
+            time.sleep(2)
+    except Exception as e:
+        print(f"[!] Error bringing up {iface}: {e}")
+
     gw = get_gateway_ip(iface)
     if not gw:
         # Try running dhclient once to get an IP/gateway
@@ -195,8 +208,16 @@ def main():
             if iface == PRIMARY_IFACE:
                 continue
                 
-            # Match eth*, usb*, enx*, lte*, and tmp_*
-            if re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+|tmp_\w+)", iface):
+            mac = ""
+            try:
+                with open(f'/sys/class/net/{iface}/address', 'r') as f:
+                    mac = f.read().strip().lower()
+            except:
+                pass
+                
+            # Match by MAC address or Name pattern (including z_*)
+            is_target = (mac == "00:1e:10:1f:00:00") or bool(re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+|tmp_\w+|z_\w+)", iface))
+            if is_target:
                 force_route = False
                 if iface.startswith('lte'):
                     gw = get_gateway_ip(iface)
@@ -227,7 +248,21 @@ def main():
             
     # Final check
     interfaces = os.listdir('/sys/class/net')
-    misnamed = [i for i in interfaces if re.match(r"^(eth\d+|usb\d+|enx\w+|tmp_\w+)", i) and i != PRIMARY_IFACE]
+    misnamed = []
+    for i in interfaces:
+        if i == PRIMARY_IFACE:
+            continue
+        mac = ""
+        try:
+            with open(f'/sys/class/net/{i}/address', 'r') as f:
+                mac = f.read().strip().lower()
+        except:
+            pass
+        if mac == "00:1e:10:1f:00:00" and not i.startswith("lte"):
+            misnamed.append(i)
+        elif re.match(r"^(eth\d+|usb\d+|enx\w+|tmp_\w+|z_\w+)", i):
+            misnamed.append(i)
+            
     if misnamed:
         print(f"[!] Some interfaces could not be fully resolved: {misnamed}")
     else:

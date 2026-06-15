@@ -111,7 +111,26 @@ def main():
         if iface == PRIMARY_IFACE:
             continue
             
-        if re.match(r"^(enx|usb|eth\d+|lte\d+)", iface):
+        mac = ""
+        try:
+            with open(f'/sys/class/net/{iface}/address', 'r') as f:
+                mac = f.read().strip().lower()
+        except:
+            pass
+        if mac == "00:1e:10:1f:00:00" or re.match(r"^(enx|usb|eth\d+|lte\d+|z_\w+)", iface):
+            # Ensure the interface is UP before getting gateway
+            try:
+                operstate = ""
+                if os.path.exists(f"/sys/class/net/{iface}/operstate"):
+                    with open(f"/sys/class/net/{iface}/operstate", "r") as f:
+                        operstate = f.read().strip().lower()
+                if operstate == "down":
+                    print(f"Bringing up {iface}...")
+                    subprocess.run(["ip", "link", "set", iface, "up"])
+                    time.sleep(2)
+            except Exception as e:
+                print(f"Error bringing up {iface}: {e}")
+
             gw = get_gateway_ip(iface)
             if not gw: continue
             
@@ -121,6 +140,18 @@ def main():
             except: continue
             
             if iface != new_name:
+                if os.path.exists(f"/sys/class/net/{new_name}"):
+                    tmp_name = f"tmp_{new_name}"
+                    counter = 1
+                    while os.path.exists(f"/sys/class/net/{tmp_name}"):
+                        tmp_name = f"tmp_{new_name}_{counter}"
+                        counter += 1
+                    print(f"Collision! Renaming existing {new_name} -> {tmp_name}")
+                    subprocess.run(["ip", "link", "set", new_name, "down"])
+                    subprocess.run(["ip", "link", "set", new_name, "name", tmp_name])
+                    subprocess.run(["ip", "link", "set", tmp_name, "up"])
+                    time.sleep(1)
+
                 print(f"Renaming {iface} to {new_name}")
                 subprocess.run(["ip", "link", "set", iface, "down"])
                 subprocess.run(["ip", "link", "set", iface, "name", new_name])
@@ -154,6 +185,7 @@ chmod +x /usr/local/bin/lte-sync
 # 6. Apply Udev Rules
 echo -e "\033[1;33m[6/6] Applying Udev rules and starting isolation...\033[0m"
 echo 'ACTION=="add", SUBSYSTEM=="net", KERNEL=="eth*|usb*|enx*", RUN+="/usr/local/bin/lte-sync"' > /etc/udev/rules.d/99-lte-auto-sync.rules
+echo 'ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="00:1e:10:1f:00:00", RUN+="/usr/local/bin/lte-sync"' >> /etc/udev/rules.d/99-lte-auto-sync.rules
 udevadm control --reload-rules
 udevadm trigger
 
