@@ -72,16 +72,35 @@ PRIMARY_IFACE = "$WIRED_IFACE"
 
 def get_gateway_ip(iface):
     try:
-        # Robust DHCP check and IP isolation
+        res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
+        # 1. Look for default route first
+        match_default = re.search(r'default via (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', res)
+        if match_default:
+            return match_default.group(1)
+        # 2. Look for subnet route (e.g. 192.168.14.0/24)
+        for line in res.splitlines():
+            if '/' in line:
+                network_part = line.split()[0].split('/')[0]
+                gateway = network_part.rsplit('.', 1)[0] + '.1'
+                return gateway
+    except Exception:
+        pass
+
+    try:
+        # 3. If no route, run dhclient
         subprocess.run(["dhclient", "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
-        # Expecting output like: 192.168.11.0/24 dev lte11 ...
-        first_line = res.split('\n')[0]
-        if '/' in first_line:
-            network_part = first_line.split()[0].split('/')[0]
-            gateway = network_part.rsplit('.', 1)[0] + '.1'
-            return gateway
-    except: return None
+        match_default = re.search(r'default via (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', res)
+        if match_default:
+            return match_default.group(1)
+        for line in res.splitlines():
+            if '/' in line:
+                network_part = line.split()[0].split('/')[0]
+                gateway = network_part.rsplit('.', 1)[0] + '.1'
+                return gateway
+    except Exception:
+        pass
+    return None
 
 def main():
     interfaces = os.listdir('/sys/class/net')
@@ -92,7 +111,7 @@ def main():
         if iface == PRIMARY_IFACE:
             continue
             
-        if re.match(r"^(enx|usb|eth\d+)", iface):
+        if re.match(r"^(enx|usb|eth\d+|lte\d+)", iface):
             gw = get_gateway_ip(iface)
             if not gw: continue
             
@@ -101,10 +120,11 @@ def main():
                 new_name = f"lte{subnet}"
             except: continue
             
-            print(f"Renaming {iface} to {new_name}")
-            subprocess.run(["ip", "link", "set", iface, "down"])
-            subprocess.run(["ip", "link", "set", iface, "name", new_name])
-            subprocess.run(["ip", "link", "set", new_name, "up"])
+            if iface != new_name:
+                print(f"Renaming {iface} to {new_name}")
+                subprocess.run(["ip", "link", "set", iface, "down"])
+                subprocess.run(["ip", "link", "set", iface, "name", new_name])
+                subprocess.run(["ip", "link", "set", new_name, "up"])
             
             subprocess.run(["dhclient", "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
