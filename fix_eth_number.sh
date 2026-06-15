@@ -62,6 +62,16 @@ def get_gateway_ip(iface):
         pass
     return None
 
+def is_table_valid(subnet):
+    """Check if policy routing table exists and has a default route."""
+    try:
+        res = subprocess.check_output(f"ip route show table {subnet}", shell=True).decode()
+        if "default via" in res:
+            return True
+    except Exception:
+        pass
+    return False
+
 def kill_dhclient(iface):
     """Kill any running dhclient process for the given interface."""
     try:
@@ -74,7 +84,7 @@ def kill_dhclient(iface):
     except Exception:
         pass
 
-def fix_interface(iface):
+def fix_interface(iface, force_route=False):
     print(f"\n[*] Processing interface: {iface}")
     gw = get_gateway_ip(iface)
     if not gw:
@@ -94,35 +104,39 @@ def fix_interface(iface):
         print(f"[!] Error parsing subnet for gateway {gw}: {e}")
         return False
         
-    if iface == new_name:
-        print(f"[*] Interface {iface} is already named correctly.")
+    table_id = subnet
+    table_valid = is_table_valid(table_id)
+    
+    if iface == new_name and table_valid and not force_route:
+        print(f"[*] Interface {iface} is already named correctly and routing is valid.")
         return True
         
-    print(f"[*] Renaming {iface} -> {new_name} (Subnet: {subnet})")
-    
-    # 1. Kill dhclient and delete default route from main table
-    kill_dhclient(iface)
-    subprocess.run(["sudo", "ip", "route", "del", "default", "dev", iface], stderr=subprocess.DEVNULL)
-    
-    # 2. Down interface
-    subprocess.run(["sudo", "ip", "link", "set", iface, "down"])
-    time.sleep(1)
-    
-    # 3. Rename interface
-    res = subprocess.run(["sudo", "ip", "link", "set", iface, "name", new_name], capture_output=True, text=True)
-    if res.returncode != 0:
-        print(f"[!] Rename failed: {res.stderr.strip()}")
-        # Bring it back up just in case
-        subprocess.run(["sudo", "ip", "link", "set", iface, "up"])
-        return False
+    if iface != new_name:
+        print(f"[*] Renaming {iface} -> {new_name} (Subnet: {subnet})")
         
-    # 4. Up interface
-    subprocess.run(["sudo", "ip", "link", "set", new_name, "up"])
-    time.sleep(1)
-    
-    # 5. Run dhclient on new interface
-    print(f"[*] Starting dhclient on {new_name}...")
-    subprocess.run(["sudo", "dhclient", "-v", new_name], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # 1. Kill dhclient and delete default route from main table
+        kill_dhclient(iface)
+        subprocess.run(["sudo", "ip", "route", "del", "default", "dev", iface], stderr=subprocess.DEVNULL)
+        
+        # 2. Down interface
+        subprocess.run(["sudo", "ip", "link", "set", iface, "down"])
+        time.sleep(1)
+        
+        # 3. Rename interface
+        res = subprocess.run(["sudo", "ip", "link", "set", iface, "name", new_name], capture_output=True, text=True)
+        if res.returncode != 0:
+            print(f"[!] Rename failed: {res.stderr.strip()}")
+            # Bring it back up just in case
+            subprocess.run(["sudo", "ip", "link", "set", iface, "up"])
+            return False
+            
+        # 4. Up interface
+        subprocess.run(["sudo", "ip", "link", "set", new_name, "up"])
+        time.sleep(1)
+        
+        # 5. Run dhclient on new interface
+        print(f"[*] Starting dhclient on {new_name}...")
+        subprocess.run(["sudo", "dhclient", "-v", new_name], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     # Clean up default route and add with proper metric (200 + subnet)
     subprocess.run(["sudo", "ip", "route", "del", "default", "dev", new_name], stderr=subprocess.DEVNULL)
@@ -130,7 +144,7 @@ def fix_interface(iface):
     subprocess.run(["sudo", "ip", "route", "add", "default", "via", gw, "dev", new_name, "metric", str(metric_val)], stderr=subprocess.DEVNULL)
     
     # 6. Setup Policy Routing
-    table_id = subnet
+    print(f"[*] Configuring policy routing for {new_name}...")
     subprocess.run(f"grep -q \"^{table_id} lte{table_id}\" /etc/iproute2/rt_tables || echo \"{table_id} lte{table_id}\" | sudo tee -a /etc/iproute2/rt_tables", shell=True, stdout=subprocess.DEVNULL)
     subprocess.run(["sudo", "ip", "route", "flush", "table", str(table_id)])
     subprocess.run(["sudo", "ip", "route", "add", "default", "via", gw, "dev", new_name, "table", str(table_id)])
@@ -157,13 +171,22 @@ def main():
         if iface == PRIMARY_IFACE:
             continue
             
-        # Match eth*, usb*, enx* that are NOT named correctly
-        if re.match(r"^(eth\d+|usb\d+|enx\w+)", iface):
-            if fix_interface(iface):
+        # Match eth*, usb*, enx*, and lte*
+        if re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+)", iface):
+            force_route = False
+            if iface.startswith('lte'):
+                subnet = iface.replace('lte', '')
+                if not is_table_valid(subnet):
+                    print(f"[*] Interface {iface} routing table is invalid or empty.")
+                    force_route = True
+                else:
+                    continue
+            
+            if fix_interface(iface, force_route=force_route):
                 fixed_any = True
                 
     if not fixed_any:
-        print("[*] No misnamed interfaces (eth*, usb*, enx*) detected.")
+        print("[*] All interfaces are named correctly and routing is valid.")
 
 if __name__ == "__main__":
     main()
