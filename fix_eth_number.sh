@@ -4,6 +4,15 @@ import re
 import subprocess
 import time
 
+def is_lte_subnet(iface):
+    try:
+        ip_out = subprocess.check_output(f"ip -4 addr show {iface}", shell=True).decode()
+        if "inet 192.168." in ip_out:
+            return True
+    except Exception:
+        pass
+    return False
+
 # 1. Dynamically detect primary wired interface
 def get_primary_interface():
     try:
@@ -12,7 +21,9 @@ def get_primary_interface():
         for line in nm_out.splitlines():
             parts = line.split(':')
             if len(parts) >= 3 and parts[1] == 'ethernet' and parts[2] == 'connected':
-                return parts[0]
+                dev = parts[0]
+                if not is_lte_subnet(dev):
+                    return dev
     except Exception:
         pass
     
@@ -25,7 +36,8 @@ def get_primary_interface():
                 dev_idx = parts.index('dev')
                 dev = parts[dev_idx + 1]
                 if not any(x in dev for x in ['lte', 'usb', 'enx']):
-                    return dev
+                    if not is_lte_subnet(dev):
+                        return dev
     except Exception:
         pass
     return "eth0"
