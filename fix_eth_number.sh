@@ -112,6 +112,27 @@ def fix_interface(iface, force_route=False):
         return True
         
     if iface != new_name:
+        # Check for name collision
+        if os.path.exists(f"/sys/class/net/{new_name}"):
+            tmp_name = f"tmp_{new_name}"
+            counter = 1
+            while os.path.exists(f"/sys/class/net/{tmp_name}"):
+                tmp_name = f"tmp_{new_name}_{counter}"
+                counter += 1
+            print(f"[*] Name collision! Temporarily renaming existing {new_name} -> {tmp_name}")
+            
+            kill_dhclient(new_name)
+            subprocess.run(["sudo", "ip", "route", "del", "default", "dev", new_name], stderr=subprocess.DEVNULL)
+            subprocess.run(["sudo", "ip", "link", "set", new_name, "down"])
+            time.sleep(1)
+            res = subprocess.run(["sudo", "ip", "link", "set", new_name, "name", tmp_name], capture_output=True, text=True)
+            if res.returncode != 0:
+                print(f"[!] Collision rename failed: {res.stderr.strip()}")
+                subprocess.run(["sudo", "ip", "link", "set", new_name, "up"])
+                return False
+            subprocess.run(["sudo", "ip", "link", "set", tmp_name, "up"])
+            time.sleep(1)
+
         print(f"[*] Renaming {iface} -> {new_name} (Subnet: {subnet})")
         
         # 1. Kill dhclient and delete default route from main table
@@ -163,29 +184,41 @@ def fix_interface(iface, force_route=False):
     return True
 
 def main():
-    interfaces = os.listdir('/sys/class/net')
     os.makedirs('/etc/iproute2', exist_ok=True)
     
-    fixed_any = False
-    for iface in interfaces:
-        if iface == PRIMARY_IFACE:
-            continue
-            
-        # Match eth*, usb*, enx*, and lte*
-        if re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+)", iface):
-            force_route = False
-            if iface.startswith('lte'):
-                subnet = iface.replace('lte', '')
-                if not is_table_valid(subnet):
-                    print(f"[*] Interface {iface} routing table is invalid or empty.")
-                    force_route = True
-                else:
-                    continue
-            
-            if fix_interface(iface, force_route=force_route):
-                fixed_any = True
+    max_passes = 4
+    for pass_num in range(max_passes):
+        interfaces = os.listdir('/sys/class/net')
+        fixed_any = False
+        
+        for iface in interfaces:
+            if iface == PRIMARY_IFACE:
+                continue
                 
-    if not fixed_any:
+            # Match eth*, usb*, enx*, lte*, and tmp_*
+            if re.match(r"^(eth\d+|usb\d+|enx\w+|lte\d+|tmp_\w+)", iface):
+                force_route = False
+                if iface.startswith('lte'):
+                    subnet = iface.replace('lte', '')
+                    if not is_table_valid(subnet):
+                        print(f"[*] Interface {iface} routing table is invalid or empty.")
+                        force_route = True
+                    else:
+                        continue
+                
+                if fix_interface(iface, force_route=force_route):
+                    fixed_any = True
+                    break # Restart loop pass
+                    
+        if not fixed_any:
+            break
+            
+    # Final check
+    interfaces = os.listdir('/sys/class/net')
+    misnamed = [i for i in interfaces if re.match(r"^(eth\d+|usb\d+|enx\w+|tmp_\w+)", i) and i != PRIMARY_IFACE]
+    if misnamed:
+        print(f"[!] Some interfaces could not be fully resolved: {misnamed}")
+    else:
         print("[*] All interfaces are named correctly and routing is valid.")
 
 if __name__ == "__main__":
