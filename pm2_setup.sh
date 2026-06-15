@@ -11,6 +11,24 @@ echo "   Nmap Production Service Registration (PM2)"
 echo "   Root: $PROJECT_ROOT"
 echo "============================================================"
 
+# 1.5 Back up current running status of schedulers
+WIFI_STATUS=""
+NMAP_STATUS=""
+if command -v pm2 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    WIFI_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="wifi-scheduler") | .pm2_env.status' 2>/dev/null)
+    NMAP_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="nmap-scheduler") | .pm2_env.status' 2>/dev/null)
+fi
+
+
+# Default to active wifi-scheduler if both are empty/unset but wifi_multi exists
+if [ -z "$WIFI_STATUS" ] && [ -z "$NMAP_STATUS" ]; then
+    if [ -d "wifi_multi" ]; then
+        WIFI_STATUS="online"
+    else
+        NMAP_STATUS="online"
+    fi
+fi
+
 # 1. Ensure PM2 is installed
 if ! command -v pm2 >/dev/null 2>&1; then
     echo "[*] PM2 not found. Installing..."
@@ -77,6 +95,17 @@ if [ -f "wifi_multi/utils/lte_ip_rotator.py" ]; then
     pm2 start wifi_multi/utils/lte_ip_rotator.py --name "lte-ip-rotator" --interpreter python3
 else
     echo "[!] wifi_multi/utils/lte_ip_rotator.py not found. Skipping."
+fi
+
+# 4.7 Restore Running Status
+if [ "$WIFI_STATUS" = "online" ]; then
+    echo "[*] Restoring Wi-Fi Scheduler to online..."
+    pm2 start wifi-scheduler
+fi
+
+if [ "$NMAP_STATUS" = "online" ]; then
+    echo "[*] Restoring Nmap Scheduler to online..."
+    pm2 start nmap-scheduler
 fi
 
 # 5. Save & Setup Startup
