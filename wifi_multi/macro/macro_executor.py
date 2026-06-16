@@ -50,7 +50,12 @@ def run_step(device_id, step_id, category="default"):
 if __name__ == "__main__":
     if len(sys.argv) < 3: sys.exit(1)
     dev_id = sys.argv[1]
-    steps = sys.argv[2].split(',')
+    raw_step_arg = sys.argv[2]
+    query_prefixes = ["text:", "exact:", "id:", "desc:", "contains:"]
+    if any(raw_step_arg.startswith(prefix) for prefix in query_prefixes):
+        steps = [raw_step_arg]
+    else:
+        steps = raw_step_arg.split(',')
     cat = sys.argv[3] if len(sys.argv) >= 4 else "default"
     
     success = True

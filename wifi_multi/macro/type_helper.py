@@ -4,7 +4,6 @@ import time
 import random
 import base64
 import subprocess
-
 def type_humanized(device_id, text):
     if not text:
         return

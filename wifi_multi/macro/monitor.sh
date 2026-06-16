@@ -215,7 +215,7 @@ while true; do
                         fi
                         CLEANED_ADDR="$CLEANED_ADDR $word"
                     done
-                    CLEANED_ADDR=$(echo "$CLEANED_ADDR" | xargs)
+                    CLEANED_ADDR=$(echo "$CLEANED_ADDR" | sed 's/,$//' | xargs)
 
                     echo "[$(NOW)] [Action] Selecting Address: $CLEANED_ADDR (Original: $NMAP_DEST_ADDR)"
                     $MACRO_EXEC "$DEV_ID" "contains:$CLEANED_ADDR" "$CAT"
