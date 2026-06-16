@@ -104,6 +104,11 @@ init_app_installation() {
         fi
     done
 
+    # 3.5. Ensure ADBKeyboard is enabled and set as default IME
+    echo -e "    - Setting ADBKeyboard as default input method..."
+    adb -s "$serial" shell ime enable com.android.adbkeyboard/.AdbIME >/dev/null 2>&1
+    adb -s "$serial" shell ime set com.android.adbkeyboard/.AdbIME >/dev/null 2>&1
+
     # 4. Push Magisk Modules to Download directory
     echo -e "    - Syncing Magisk modules to /sdcard/Download/..."
     if [ -d "$INSTALL_DIR/Magisk_Module" ]; then

@@ -85,6 +85,14 @@ while true; do
             continue
         fi
 
+        # Ensure ADBKeyboard is enabled and set as default IME
+        CURRENT_IME=$(timeout 3 adb -s "$DEV_ID" shell settings get secure default_input_method 2>/dev/null | tr -d '\r\n')
+        if [ "$CURRENT_IME" != "com.android.adbkeyboard/.AdbIME" ]; then
+            echo "[*] [$DEV_ID] Setting ADBKeyboard as default input method..."
+            timeout 3 adb -s "$DEV_ID" shell ime enable com.android.adbkeyboard/.AdbIME >/dev/null 2>&1
+            timeout 3 adb -s "$DEV_ID" shell ime set com.android.adbkeyboard/.AdbIME >/dev/null 2>&1
+        fi
+
         # --- [NEW] Dynamic SSID-to-Modem Mapping ---
         BIND_IP=""
         MODEM_IDX=""
