@@ -19,7 +19,7 @@ from datetime import datetime
 CHECK_INTERVAL = 300  # 5 minutes
 MIN_ROTATION_MINUTES = 120  # 2 hours
 MAX_ROTATION_MINUTES = 180  # 3 hours
-PROJECT_ROOT = "/home/tech/nmap_mini"
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATE_FILE = os.path.join(PROJECT_ROOT, "wifi_multi", "logs", "lte_rotator_state.json")
 
 def log(msg):
