@@ -3,7 +3,7 @@
 # Automatically maps devices to modems based on current Wi-Fi SSID suffix
 
 # --- [CONFIGURATION] ---
-MANUAL_COUNTS=(5 5)
+MANUAL_COUNTS=(5 5 5 5)
 
 # --- [CACHING] ---
 declare -A SSID_CACHE
