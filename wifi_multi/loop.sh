@@ -28,9 +28,9 @@ get_ip() {
 
 get_device_ssid() {
     local SERIAL=$1
-    local SSID=$(timeout 3 adb -s "$SERIAL" shell "cmd wifi status | grep -i 'SSID:' | head -n 1" | awk -F': ' '{print $2}' | tr -d '\"\r\n')
-    if [ -z "$SSID" ]; then
-        SSID=$(timeout 3 adb -s "$SERIAL" shell "dumpsys connectivity | grep 'extra: ' | head -n 1" | awk -F'extra: ' '{print $2}' | awk -F',' '{print $1}' | tr -d '\"\r\n')
+    local SSID=$(timeout 3 adb -s "$SERIAL" shell "cmd wifi status | grep -oE 'SSID: [^,]+' | head -n 1" | sed 's/SSID: //g' | tr -d '\"\r\n')
+    if [ -z "$SSID" ] || [ "$SSID" = "SSID" ]; then
+        SSID=$(timeout 3 adb -s "$SERIAL" shell "dumpsys connectivity | grep -oE 'SSID: \"[^\"]+\"' | head -n 1" | cut -d'"' -f2 | tr -d '\r\n')
     fi
     echo "$SSID"
 }
@@ -160,8 +160,11 @@ while true; do
         fi
 
         if [ -z "$BIND_IP" ]; then
-            echo "[!] Skipping $DEV_ID: Modem lte$MODEM_IDX not ready (No IP)."
-            DEV_INDEX=$((DEV_INDEX + 1))
+            if [ -n "$MODEM_IDX" ]; then
+                echo "[!] Skipping $DEV_ID: Modem lte$MODEM_IDX not ready (No IP)."
+            else
+                echo "[!] Skipping $DEV_ID: All modem slots are full (Active count: $DEV_INDEX)."
+            fi
             continue
         fi
 
@@ -170,7 +173,6 @@ while true; do
              -d "{\"device_id\":\"$DEV_ID\"}")
         
         if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
-            DEV_INDEX=$((DEV_INDEX + 1))
             continue
         fi
 
