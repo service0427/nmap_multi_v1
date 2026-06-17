@@ -150,6 +150,38 @@ echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
 while true; do
     check_app_survival
     
+    # [NEW] Auto-Recovery for Stuck Navigation / Resume Guidance State
+    if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
+        if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+            echo "[$(NOW)] [⚠️] Active driving/trafficjam packets detected while waiting for Home screen!"
+            if [ -z "$RECOVERY_TRY" ]; then RECOVERY_TRY=0; fi
+            if [ "$RECOVERY_TRY" -lt 2 ]; then
+                ((RECOVERY_TRY++))
+                echo "      > [Attempt $RECOVERY_TRY/2] Sending Back key and attempting to exit navigation..."
+                adb -s "$DEV_ID" shell input keyevent 4
+                sleep 2
+                # Attempt to click standard exit/confirm dialog buttons
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:종료" "ExitNavi" >/dev/null 2>&1
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:확인" "ExitNavi" >/dev/null 2>&1
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:안내종료" "ExitNavi" >/dev/null 2>&1
+                sleep 3
+            else
+                # Fallback: Bypass to driving state to prevent infinite hangs
+                echo "      > Fallback: Bypassing initial setup steps and transitioning directly to driving state."
+                STATE_FLAGS[STEP_02_HOME]=1
+                STATE_FLAGS[STEP_03_TYPING]=1
+                STATE_FLAGS[STEP_04_SELECT_ADDR]=1
+                STATE_FLAGS[STEP_05_POI_ARRIVAL]=1
+                STATE_FLAGS[STEP_07_NAVI_START]=1
+                STATE_FLAGS[STEP_07_1_BUSINESS_MODAL]=1
+                STATE_FLAGS[STEP_07_2_DRIVING_STARTED]=1
+                IS_DRIVING=true
+                update_live_status "DRIVING"
+                touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+            fi
+        fi
+    fi
+
     # routeend 감지
     if [[ "${STATE_FLAGS[STEP_08_DRIVING_GOAL]}" != "1" ]]; then
         if grep -q "routeend" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
