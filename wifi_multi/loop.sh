@@ -3,7 +3,7 @@
 # Automatically maps devices to modems based on current Wi-Fi SSID suffix
 
 # --- [CONFIGURATION] ---
-MANUAL_COUNTS=(5 5 5 5)
+MANUAL_COUNTS=(5 5)
 
 # --- [CACHING] ---
 declare -A SSID_CACHE
@@ -75,12 +75,19 @@ while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
-    IP11=$(get_ip lte11); IP12=$(get_ip lte12); IP13=$(get_ip lte13); IP14=$(get_ip lte14)
-    IP_LIST=("$IP11" "$IP12" "$IP13" "$IP14")
+    IP_LIST=()
+    MODEM_STR=""
+    for i in "${!MANUAL_COUNTS[@]}"; do
+        modem_num=$((11 + i))
+        ip_val=$(get_ip "lte$modem_num")
+        IP_LIST+=("$ip_val")
+        MODEM_STR="$MODEM_STR lte$modem_num:$ip_val,"
+    done
+    MODEM_STR=${MODEM_STR%,}
 
     echo "------------------------------------------------------------"
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
-    echo "Current Modems: lte11:$IP11, lte12:$IP12, lte13:$IP13, lte14:$IP14"
+    echo "Current Modems:$MODEM_STR"
 
     DEV_INDEX=0
     for DEV_ID in $DEVICES; do
@@ -129,14 +136,12 @@ while true; do
         SSID_SUFFIX=$(echo "$SSID" | grep -oE "[0-9]{2}$")
         if [ -n "$SSID_SUFFIX" ]; then
             MODEM_IDX=$SSID_SUFFIX
-            case "$MODEM_IDX" in
-                "11") BIND_IP="$IP11" ;;
-                "12") BIND_IP="$IP12" ;;
-                "13") BIND_IP="$IP13" ;;
-                "14") BIND_IP="$IP14" ;;
-            esac
-            if [ -n "$BIND_IP" ]; then
-                echo "[DYNAMICS] [$DEV_ID] Matched SSID '$SSID' to Modem lte$MODEM_IDX"
+            modem_idx_offset=$((MODEM_IDX - 11))
+            if [ "$modem_idx_offset" -ge 0 ] && [ "$modem_idx_offset" -lt "${#MANUAL_COUNTS[@]}" ]; then
+                BIND_IP="${IP_LIST[$modem_idx_offset]}"
+                if [ -n "$BIND_IP" ]; then
+                    echo "[DYNAMICS] [$DEV_ID] Matched SSID '$SSID' to Modem lte$MODEM_IDX"
+                fi
             fi
         fi
 
