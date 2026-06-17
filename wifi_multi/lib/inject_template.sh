@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_nmap_v2/lib/inject_template.sh: Surgical Golden Template Injection
+# wifi_multi/lib/inject_template.sh: Surgical Golden Template Injection
 
 DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ORIG_SSAID=$4
 [ -z "$DEV_ID" ] || [ -z "$PKG_NAME" ] && exit 1

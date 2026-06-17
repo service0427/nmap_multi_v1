@@ -45,15 +45,15 @@ else
 fi
 
 # 3. Register Scheduler (Runner)
-if [ -f "test_nmap_v2/run_scheduler.sh" ]; then
+if [ -f "wifi_multi/run_scheduler.sh" ]; then
     echo "[*] Registering Nmap Scheduler (STOPPED state)..."
-    chmod +x test_nmap_v2/run_scheduler.sh
+    chmod +x wifi_multi/run_scheduler.sh
     pm2 delete nmap-scheduler 2>/dev/null
     # 일단 등록한 뒤 바로 중지 상태로 만듦
-    pm2 start test_nmap_v2/run_scheduler.sh --name "nmap-scheduler"
+    pm2 start wifi_multi/run_scheduler.sh --name "nmap-scheduler"
     pm2 stop nmap-scheduler
 else
-    echo "[!] test_nmap_v2/run_scheduler.sh not found. Skipping."
+    echo "[!] wifi_multi/run_scheduler.sh not found. Skipping."
 fi
 
 # 3.5 Register Wi-Fi Scheduler (STOPPED state)

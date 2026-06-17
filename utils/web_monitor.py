@@ -23,7 +23,7 @@ def get_connected_devices_count():
         return 10
 
 MAX_SLOTS = get_connected_devices_count()
-LOG_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_nmap_v2", "logs")
+LOG_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "logs")
 
 # 기기 위치 고정 및 진단 캐시
 device_slots = [None] * MAX_SLOTS

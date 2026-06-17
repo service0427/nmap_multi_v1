@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_nmap_v2/macro/monitor.sh: V18.4 Packet-File Based Silence Kill
+# wifi_multi/macro/monitor.sh: V18.4 Packet-File Based Silence Kill
 
 # --- [ADB TIMEOUT WRAPPER] ---
 adb() {

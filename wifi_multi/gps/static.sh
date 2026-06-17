@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_nmap_v2/gps/static.sh: Multi-device Static GPS Initializer
+# wifi_multi/gps/static.sh: Multi-device Static GPS Initializer
 
 # --- [ADB TIMEOUT WRAPPER] ---
 # 'command' 대신 실제 경로를 사용하여 timeout이 정상적으로 실행되도록 합니다.

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# test_nmap_v2/run_scheduler.sh: Optimized runner for PM2 management
+# wifi_multi/run_scheduler.sh: Optimized runner for PM2 management
 # This wrapper ensures the correct working directory and environment for the loop.
 
-# 1. 고정 경로 이동 (test_nmap_v2 폴더 내에서 실행 보장)
+# 1. 고정 경로 이동 (wifi_multi 폴더 내에서 실행 보장)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR" || exit 1
 
