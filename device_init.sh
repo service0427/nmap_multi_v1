@@ -114,59 +114,62 @@ if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/com.nhn.android.nmap_6.6.1/ba
 fi
 
 for serial in $DEVICES; do
-    echo -e "${CYAN}============================================================${NC}"
-    echo -e "Initializing device: ${GREEN}$serial${NC}"
-    echo -e "${CYAN}============================================================${NC}"
+    (
+        echo -e "${CYAN}============================================================${NC}"
+        echo -e "Initializing device: ${GREEN}$serial${NC}"
+        echo -e "${CYAN}============================================================${NC}"
 
-    # 0. Root Check
-    HAS_SU=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
-    if [ -z "$HAS_SU" ]; then
-        HAS_SU=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
-    fi
+        # 0. Root Check
+        HAS_SU=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
+        if [ -z "$HAS_SU" ]; then
+            HAS_SU=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
+        fi
 
-    if [ -n "$HAS_SU" ]; then
-        echo -e "[*] Checking root shell authorization..."
-        # Verify su execution
-        SU_TEST=$(adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
-        if [[ "$SU_TEST" == *"uid=0"* ]]; then
-            echo -e "[✓] Root shell authorization: ${GREEN}OK (uid=0)${NC}"
+        if [ -n "$HAS_SU" ]; then
+            echo -e "[*] Checking root shell authorization..."
+            # Verify su execution
+            SU_TEST=$(adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
+            if [[ "$SU_TEST" == *"uid=0"* ]]; then
+                echo -e "[✓] Root shell authorization: ${GREEN}OK (uid=0)${NC}"
+            else
+                echo -e "\n\e[1;31m[⚠️] 디바이스 $serial 의 Root 권한(su) 승인이 필요합니다.\e[0m"
+                echo -e "    - 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭해주세요."
+                echo -e "    - 승인 완료 후 이 스크립트를 다시 구동해주시기 바랍니다."
+                exit 1
+            fi
         else
-            echo -e "\n\e[1;31m[⚠️] 디바이스 $serial 의 Root 권한(su) 승인이 필요합니다.\e[0m"
-            echo -e "    - 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭해주세요."
-            echo -e "    - 승인 완료 후 이 스크립트를 다시 구동해주시기 바랍니다."
+            echo -e "\n\e[1;31m[⚠️] 에러: 디바이스 $serial 에서 'su' 명령어를 찾을 수 없습니다.\e[0m"
+            echo -e "    - 기기가 정상적으로 루팅(Magisk)되어 있는지 확인해주세요."
             exit 1
         fi
-    else
-        echo -e "\n\e[1;31m[⚠️] 에러: 디바이스 $serial 에서 'su' 명령어를 찾을 수 없습니다.\e[0m"
-        echo -e "    - 기기가 정상적으로 루팅(Magisk)되어 있는지 확인해주세요."
-        exit 1
-    fi
 
-    # 0.5. Run modular application installation & base provisioning
-    init_app_installation "$serial" "$HAS_SU"
+        # 0.5. Run modular application installation & base provisioning
+        init_app_installation "$serial" "$HAS_SU"
 
-    # Run individual initialization modules
-    init_bluetooth "$serial" "$HAS_SU"
-    init_scanning_settings "$serial" "$HAS_SU"
-    init_disaster_alerts "$serial" "$HAS_SU"
-    init_gps_emulator "$serial" "$HAS_SU"
-    init_naver_map "$serial" "$HAS_SU"         # Starts and closes Naver Map
-    init_magisk_setup "$serial" "$HAS_SU"
-    magisk_reboot_status=$?
-    
-    # Run these at the very end to override/correct any volume/portrait changes caused by the apps
-    init_sound "$serial" "$HAS_SU"
-    init_screen_orientation "$serial" "$HAS_SU"
-    init_touch_protection "$serial" "$HAS_SU"
+        # Run individual initialization modules
+        init_bluetooth "$serial" "$HAS_SU"
+        init_scanning_settings "$serial" "$HAS_SU"
+        init_disaster_alerts "$serial" "$HAS_SU"
+        init_gps_emulator "$serial" "$HAS_SU"
+        init_naver_map "$serial" "$HAS_SU"         # Starts and closes Naver Map
+        init_magisk_setup "$serial" "$HAS_SU"
+        magisk_reboot_status=$?
+        
+        # Run these at the very end to override/correct any volume/portrait changes caused by the apps
+        init_sound "$serial" "$HAS_SU"
+        init_screen_orientation "$serial" "$HAS_SU"
+        init_touch_protection "$serial" "$HAS_SU"
 
-    # Apply MITM certificate recovery and reboot
-    force_reboot_flag="false"
-    if [ "$magisk_reboot_status" -eq 2 ]; then
-        force_reboot_flag="true"
-    fi
-    init_mitm_recovery "$serial" "$HAS_SU" "$force_reboot_flag"
+        # Apply MITM certificate recovery and reboot
+        force_reboot_flag="false"
+        if [ "$magisk_reboot_status" -eq 2 ]; then
+            force_reboot_flag="true"
+        fi
+        init_mitm_recovery "$serial" "$HAS_SU" "$force_reboot_flag"
 
-    echo -e "${CYAN}------------------------------------------------------------${NC}\n"
+        echo -e "${CYAN}------------------------------------------------------------${NC}\n"
+    ) 2>&1 | sed "s/^/[${serial}] /" &
 done
 
+wait
 echo -e "${GREEN}[✓] Device Initialization Complete.${NC}"
