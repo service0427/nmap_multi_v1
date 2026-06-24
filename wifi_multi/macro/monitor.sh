@@ -119,6 +119,35 @@ check_app_survival() {
         fi
     fi
 
+    # [NEW] Links-to-Driving Watchdog (Check if driving route response is missing after links response)
+    if [ "$IS_DRIVING" = false ]; then
+        local LINKS_FILE
+        LINKS_FILE=$(ls -1 "$ABS_LOG_DIR"/*_global_links.json 2>/dev/null | head -n 1)
+        if [ -n "$LINKS_FILE" ]; then
+            local LINKS_TIME
+            LINKS_TIME=$(stat -c %Y "$LINKS_FILE" 2>/dev/null)
+            if [ -n "$LINKS_TIME" ]; then
+                local NOW_SEC
+                NOW_SEC=$(date +%s)
+                local AGE=$(( NOW_SEC - LINKS_TIME ))
+                if [ $AGE -gt 30 ]; then
+                    local DRIVING_FILE
+                    DRIVING_FILE=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | head -n 1)
+                    local DRIVING_SIZE=0
+                    if [ -n "$DRIVING_FILE" ]; then
+                        DRIVING_SIZE=$(stat -c %s "$DRIVING_FILE" 2>/dev/null || echo 0)
+                    fi
+                    if [ $DRIVING_SIZE -lt 5000 ]; then
+                        echo "[$(NOW)] [🚨] Route calculation failed/hung! links.json exists for ${AGE}s but driving.json is missing or invalid (Size: ${DRIVING_SIZE}B). Fail-fast."
+                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ROUTE_CALCULATION_FAILED_OR_HUNG\"}"
+                        echo "[$(NOW)] [*] Immediate Exit for FAIL due to Route Calculation Fail/Hang. Letting main.sh handle cleanup."
+                        exit 0
+                    fi
+                fi
+            fi
+        fi
+    fi
+
     # [NEW] Proactive Popup Killer if Home Screen is delayed (e.g. Cache Clear Popup)
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         if [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
