@@ -135,8 +135,25 @@ else
         echo -e "Target devices for Wi-Fi SSID: \e[1;32m$chosen_ssid\e[0m"
         echo -e "========================================================================="
         echo "  0) All Devices (Default)"
+
+        # Fetch current SSIDs in parallel
+        tmp_ssids=$(mktemp)
+        for s in "${all_devices[@]}"; do
+            (
+                curr_s=$(get_current_ssid "$s")
+                echo "$s:$curr_s" >> "$tmp_ssids"
+            ) &
+        done
+        wait
+
+        declare -A dev_ssids
+        while IFS=: read -r serial_key ssid_val; do
+            dev_ssids["$serial_key"]="$ssid_val"
+        done < "$tmp_ssids"
+        rm -f "$tmp_ssids"
+
         for i in "${!all_devices[@]}"; do
-            current_s=$(get_current_ssid "${all_devices[$i]}")
+            current_s="${dev_ssids[${all_devices[$i]}]}"
             
             # Display current SSID if it exists, otherwise 'Disconnected'
             display_ssid=$current_s
@@ -170,8 +187,23 @@ fi
 
 # Final list of devices, skipping those already connected
 final_devices=()
+tmp_ssids_final=$(mktemp)
 for serial in "${devices_to_process[@]}"; do
-    current_s=$(get_current_ssid "$serial")
+    (
+        curr_s=$(get_current_ssid "$serial")
+        echo "$serial:$curr_s" >> "$tmp_ssids_final"
+    ) &
+done
+wait
+
+declare -A dev_ssids_final
+while IFS=: read -r serial_key ssid_val; do
+    dev_ssids_final["$serial_key"]="$ssid_val"
+done < "$tmp_ssids_final"
+rm -f "$tmp_ssids_final"
+
+for serial in "${devices_to_process[@]}"; do
+    current_s="${dev_ssids_final[$serial]}"
     if [ "$current_s" == "$chosen_ssid" ]; then
         echo -e "[$serial] Already connected to '$chosen_ssid'. \e[1;30mSkipping.\e[0m"
     else
@@ -225,20 +257,29 @@ for serial in "${final_devices[@]}"; do
 done
 wait
 
-# Step B. Poll for connection state and run clicker
-echo "Waiting for connection and handling UI prompts..."
-for i in {1..5}; do
-    sleep 3
-    for serial in "${final_devices[@]}"; do
-        python3 "$CMD_DIR/wifi_clicker.py" "$serial"
-    done
+# Step B. Poll for connection state and run clicker in parallel
+echo "Waiting for connection and handling UI prompts in parallel..."
+for serial in "${final_devices[@]}"; do
+    (
+        for i in {1..5}; do
+            sleep 3
+            python3 "$CMD_DIR/wifi_clicker.py" "$serial" >/dev/null 2>&1
+        done
+    ) &
 done
+wait
 
-# Step C. Final Verification
+# Step C. Final Verification in parallel
 echo -e "\n============================================="
 echo -e "Final Wi-Fi Connection Status"
 echo -e "============================================="
+tmp_status=$(mktemp)
 for serial in "${final_devices[@]}"; do
-    current_status=$(adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep -E "SSID|Wifi is" | tr -d '\r\n')
-    echo -e "[$serial]: $current_status"
+    (
+        current_status=$(adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep -E "SSID|Wifi is" | tr -d '\r\n')
+        echo "[$serial]: $current_status" >> "$tmp_status"
+    ) &
 done
+wait
+cat "$tmp_status"
+rm -f "$tmp_status"
