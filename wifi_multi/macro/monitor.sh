@@ -155,9 +155,10 @@ check_app_survival() {
         local CHECK_XML
         CHECK_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
         if echo "$CHECK_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
-            echo "[$(NOW)] [✓] Home screen UI elements detected. Bypassing packet wait."
-            STATE_FLAGS[STEP_02_HOME]=1
-            update_live_status "HOME_READY"
+            echo "[$(NOW)] [✓] Home screen UI elements detected. Appending virtual home screenview."
+            if ! grep -q "home" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+                echo "[screenview] home" >> "$ABS_LOG_DIR/events.log"
+            fi
         elif [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
             echo "[$(NOW)] [?] Home screen delayed. Proactively checking for blocking popups..."
             # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
@@ -216,17 +217,18 @@ while true; do
     # [NEW] Auto-Recovery for Stuck Navigation / Resume Guidance State
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
-            echo "[$(NOW)] [⚠️] Active driving/trafficjam packets detected while waiting for Home screen!"
-            # Dump UI XML to verify if we are actually in navigation vs on Home screen
+            # Verify if we are actually in navigation vs on Home screen
             adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_recovery.xml" >/dev/null 2>&1
             RECOVERY_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_recovery.xml" 2>/dev/null)
             
-            # If Home screen indicators are visible, we are NOT in navigation! Just transition to HOME_READY.
+            # If Home screen indicators are visible, we are NOT in navigation! Just write virtual home screenview.
             if echo "$RECOVERY_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
-                echo "[$(NOW)] [✓] Home screen UI elements detected during recovery check. Transitioning to SEARCHING."
-                STATE_FLAGS[STEP_02_HOME]=1
-                update_live_status "HOME_READY"
+                echo "[$(NOW)] [✓] Home screen UI elements detected during recovery check. Appending virtual home screenview."
+                if ! grep -q "home" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+                    echo "[screenview] home" >> "$ABS_LOG_DIR/events.log"
+                fi
             else
+                echo "[$(NOW)] [⚠️] Active driving/trafficjam packets detected while waiting for Home screen!"
                 if [ -z "$RECOVERY_TRY" ]; then RECOVERY_TRY=0; fi
                 if [ "$RECOVERY_TRY" -lt 2 ]; then
                     ((RECOVERY_TRY++))
