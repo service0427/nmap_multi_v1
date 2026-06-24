@@ -95,11 +95,11 @@ check_app_survival() {
     fi
 
     # [NEW] Fast Fatal UI Error Detection (No Route Found, etc.)
-    if [ "$IS_DRIVING" = false ] && [ $ELAPSED -gt 15 ]; then
+    if [ "$IS_DRIVING" = false ] && [ $ELAPSED -gt 30 ]; then
         local CUR_TS
         CUR_TS=$(date +%s)
         local SEC_SINCE_CHECK=$(( CUR_TS - LAST_UI_CHECK_TS ))
-        if [ $SEC_SINCE_CHECK -ge 10 ]; then
+        if [ $SEC_SINCE_CHECK -ge 30 ]; then
             LAST_UI_CHECK_TS=$CUR_TS
             # Dump UI XML
             adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
