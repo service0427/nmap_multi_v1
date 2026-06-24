@@ -10,5 +10,4 @@ venv/
 install/
 wifi_multi/tmp/
 wifi_multi/logs/
-wifi_multi/manual_counts.conf
 tests/
