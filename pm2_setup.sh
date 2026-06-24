@@ -11,21 +11,16 @@ echo "   Nmap Production Service Registration (PM2)"
 echo "   Root: $PROJECT_ROOT"
 echo "============================================================"
 
-# 1.5 Back up current running status of schedulers
+# 1.5 Back up current running status of scheduler
 WIFI_STATUS=""
-NMAP_STATUS=""
 if command -v pm2 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     WIFI_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="wifi-scheduler") | .pm2_env.status' 2>/dev/null)
-    NMAP_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="nmap-scheduler") | .pm2_env.status' 2>/dev/null)
 fi
 
-
-# Default to active wifi-scheduler if both are empty/unset but wifi_multi exists
-if [ -z "$WIFI_STATUS" ] && [ -z "$NMAP_STATUS" ]; then
+# Default to active wifi-scheduler if empty but wifi_multi exists
+if [ -z "$WIFI_STATUS" ]; then
     if [ -d "wifi_multi" ]; then
         WIFI_STATUS="online"
-    else
-        NMAP_STATUS="online"
     fi
 fi
 
@@ -44,17 +39,7 @@ else
     echo "[!] utils/web_monitor.py not found. Skipping."
 fi
 
-# 3. Register Scheduler (Runner)
-if [ -f "wifi_multi/run_scheduler.sh" ]; then
-    echo "[*] Registering Nmap Scheduler (STOPPED state)..."
-    chmod +x wifi_multi/run_scheduler.sh
-    pm2 delete nmap-scheduler 2>/dev/null
-    # 일단 등록한 뒤 바로 중지 상태로 만듦
-    pm2 start wifi_multi/run_scheduler.sh --name "nmap-scheduler"
-    pm2 stop nmap-scheduler
-else
-    echo "[!] wifi_multi/run_scheduler.sh not found. Skipping."
-fi
+
 
 # 3.5 Register Wi-Fi Scheduler (STOPPED state)
 if [ -f "wifi_multi/run_scheduler.sh" ]; then
@@ -103,10 +88,7 @@ if [ "$WIFI_STATUS" = "online" ]; then
     pm2 start wifi-scheduler
 fi
 
-if [ "$NMAP_STATUS" = "online" ]; then
-    echo "[*] Restoring Nmap Scheduler to online..."
-    pm2 start nmap-scheduler
-fi
+
 
 # 5. Save & Setup Startup
 echo "[*] Finalizing PM2 configuration..."

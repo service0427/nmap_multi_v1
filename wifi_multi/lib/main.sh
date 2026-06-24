@@ -16,7 +16,7 @@ DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
 CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
-rm -f "$CURRENT_TASK_JSON" 2>/dev/null
+# Do not remove CURRENT_TASK_JSON to preserve the allocation metadata written by loop.sh
 
 # Bypassed per-device binding to route through default route (lowest metric: lte11)
 BIND_IFACE=""
@@ -131,6 +131,23 @@ fi
 curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/update_status" \
      -H "Content-Type: application/json" \
      -d "{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
+
+# Save Real IP to current_task.json and session_summary.json for Web Monitor
+CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
+if [ -f "$CURRENT_TASK_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    jq --arg ip "$REAL_IP" '.real_ip = $ip' "$CURRENT_TASK_JSON" > "$TMP_JSON" && mv "$TMP_JSON" "$CURRENT_TASK_JSON"
+else
+    echo "{\"real_ip\": \"$REAL_IP\"}" > "$CURRENT_TASK_JSON"
+fi
+
+SESSION_SUMMARY_JSON="$CAPTURE_LOG_DIR/session_summary.json"
+if [ -f "$SESSION_SUMMARY_JSON" ]; then
+    TMP_JSON=$(mktemp)
+    jq --arg ip "$REAL_IP" '.real_ip = $ip' "$SESSION_SUMMARY_JSON" > "$TMP_JSON" && mv "$TMP_JSON" "$SESSION_SUMMARY_JSON"
+else
+    echo "{\"real_ip\": \"$REAL_IP\"}" > "$SESSION_SUMMARY_JSON"
+fi
 
 # 3. Golden Template
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)

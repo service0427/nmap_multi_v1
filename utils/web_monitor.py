@@ -49,7 +49,7 @@ HTML_TEMPLATE = """
         .header-buttons button { padding: 4px 6px; font-size: 0.8em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 28px; }
         .touch-label { background: #333; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; cursor: pointer; font-size: 0.8em; }
         
-        .diag-overlay { background: rgba(0,0,0,0.7); padding: 5px; border-radius: 4px; margin-bottom: 5px; font-size: 0.75em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 65px; }
+        .diag-overlay { background: rgba(0,0,0,0.7); padding: 5px; border-radius: 4px; margin-bottom: 5px; font-size: 0.75em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 85px; }
         .diag-item { display: flex; justify-content: space-between; }
         .status-badge { padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 0.8em; }
         .badge-working { background: #2E7D32; color: white; }
@@ -76,58 +76,110 @@ HTML_TEMPLATE = """
         button.btn-ctrl { padding: 8px 12px; cursor: pointer; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 1.2em; }
         
         .dimmed { opacity: 0.3; pointer-events: none; }
+        
+        /* Single Device Mode Styles */
+        body.single-device {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #121212;
+        }
+        body.single-device .container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+            max-width: 100vw;
+            margin: 0;
+            padding: 0;
+            justify-content: center;
+            align-items: center;
+        }
+        body.single-device .device-card {
+            width: 100vw;
+            height: 100vh;
+            border: none;
+            border-radius: 0;
+            padding: 10px;
+            box-sizing: border-box;
+            background: #121212;
+        }
+        body.single-device .screen-container {
+            width: 100%;
+            height: 0;
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        body.single-device .screen-img {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            aspect-ratio: 9 / 19;
+            object-fit: contain;
+        }
     </style>
 </head>
-<body>
+<body class="{{ 'single-device' if target_device_id else '' }}">
     <div class="container" id="device-container">
         {% for i in range(MAX_SLOTS) %}
         {% set dev = slots[i] %}
-        <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}">
-            <div class="card-header {{ 'dimmed' if not dev or dev.offline }}">
-                <span class="device-id">
+        {% set is_target = (not target_device_id) or (dev and dev.id == target_device_id) %}
+        <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}" style="display: {{ 'flex' if is_target else 'none' }};">
+            <div class="card-header {{ 'dimmed' if not dev or dev.offline }}" id="header-{{ i }}">
+                <span class="device-id" id="dev-name-{{ i }}">
                     {{ dev.model if dev else 'EMPTY SLOT' }}
                     {% if dev %}<br><small style="font-size: 0.7em; color: #888;">{{ dev.id }}</small>{% endif %}
                 </span>
-                {% if dev and not dev.offline %}
-                <div class="header-buttons">
-                    <button id="btn-mon-{{ dev.id }}" onclick="toggleMonitor('{{ dev.id }}')" style="background: #607D8B;" title="Toggle Monitor">📺</button>
-                    <button onclick="unlockDevice('{{ dev.id }}')" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                    <button onclick="sleepDevice('{{ dev.id }}')" style="background: #9C27B0;" title="Sleep">🌙</button>
-                    <button onclick="rebootDevice('{{ dev.id }}')" style="background: #f44336;" title="Reboot">🔄</button>
+                <div class="header-buttons" id="header-btns-{{ i }}" style="display: {{ 'flex' if dev and not dev.offline else 'none' }};">
+                    <button id="btn-mon-{{ i }}" onclick="toggleMonitor({{ i }})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
+                    <button onclick="unlockDevice({{ i }})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
+                    <button onclick="sleepDevice({{ i }})" style="background: #9C27B0;" title="Sleep">🌙</button>
+                    <button onclick="rebootDevice({{ i }})" style="background: #f44336;" title="Reboot">🔄</button>
                     <label class="touch-label" title="Enable Touch">
-                        <input type="checkbox" id="touch-{{ dev.id }}" checked> 🖐️
+                        <input type="checkbox" id="touch-{{ i }}" checked> 🖐️
                     </label>
                 </div>
-                {% endif %}
             </div>
             
-            <div class="diag-overlay">
-                {% if dev %}
+            <div class="diag-overlay" style="height: 85px;">
                 <div class="diag-item">
-                    <span class="status-badge {{ 'badge-working' if dev.status == 'WORKING' else ('badge-offline' if dev.offline else 'badge-idle') }}" id="badge-{{ dev.id }}">
-                        {{ 'OFFLINE' if dev.offline else dev.status }}
+                    {% set is_active = dev and dev.status != 'IDLE' and not dev.offline %}
+                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-working' if is_active else 'badge-idle') }}" id="badge-{{ i }}">
+                        {{ 'OFFLINE' if not dev or dev.offline else (dev.status if dev.status else 'IDLE') }}
                     </span>
-                    <span id="ip-{{ dev.id }}" style="color: #4CAF50; font-family: monospace;">{{ dev.ip }}</span>
+                    <span id="ip-{{ i }}" style="color: #4CAF50; font-family: monospace;">{{ dev.ip if dev else 'N/A' }}</span>
                 </div>
                 <div class="diag-item">
-                    <span id="temp-{{ dev.id }}" style="color: #ff9800;">🌡️ {{ dev.temp }}°C</span>
-                    {% set b_val = dev.battery | int(-1) %}
-                    <span id="battery-{{ dev.id }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
-                        {{ '⚠️' if b_val != -1 and b_val < 80 else '🔋' }} {{ dev.battery }}%
+                    <span id="temp-{{ i }}" style="color: #ff9800;">🌡️ {{ dev.temp if dev else '??' }}°C</span>
+                    {% set b_val = (dev.battery | int(-1)) if dev else -1 %}
+                    <span id="battery-{{ i }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
+                        {{ '⚠️' if b_val != -1 and b_val < 80 else '🔋' }} {{ dev.battery if dev else '??' }}%
                     </span>
                 </div>
-                {% else %}
-                <div style="color: #444; text-align: center; margin-top: 15px;">Waiting for device...</div>
-                {% endif %}
+                <div class="diag-item" style="border-top: 1px solid #333; margin-top: 4px; padding-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: #888;">
+                    📝 <span id="log-{{ i }}" style="margin-left: 2px;">{{ dev.latest_log if dev else 'No Log' }}</span>
+                </div>
             </div>
 
-            <div id="task-container-{{ dev.id if dev else 'empty-' ~ i }}">
+            <div id="task-container-{{ i }}">
                 {% if dev and dev.current_task %}
-                <div class="live-task-box">
+                {% set is_success = dev.current_task.status == 'SUCCESS' %}
+                <div class="live-task-box" style="{{ 'border-color: rgba(76, 175, 80, 0.6); background: rgba(76, 175, 80, 0.05);' if is_success }}">
                     <div class="live-task-dest" title="{{ dev.current_task.dest_name }}">🎯 {{ dev.current_task.dest_name }} {% if dev.dest_id %}<span style="color:#aaa; font-size:0.8em; margin-left:5px;">(#{{ dev.dest_id }})</span>{% endif %}</div>
                     <div class="live-task-meta">
                         <div class="live-task-row">
-                            <span>⏱️ <span class="elapsed-timer" data-start="{{ dev.current_task.start_ts }}">-</span></span>
+                            <span>
+                                {% if is_success %}
+                                    <span style="color: #4CAF50; font-weight: bold;">✅ 완료</span>
+                                {% else %}
+                                    ⏱️ <span class="elapsed-timer" data-start="{{ dev.current_task.start_ts }}">-</span>
+                                {% endif %}
+                            </span>
                             <span>🏁 
                                 {% if dev.current_task.target_sec %}
                                     <span class="target-confirmed">{{ (dev.current_task.target_sec / 60) | int }}m {{ dev.current_task.target_sec % 60 }}s</span>
@@ -138,57 +190,70 @@ HTML_TEMPLATE = """
                         </div>
                         {% if dev.current_task.total_dist_km %}
                         <div class="live-task-row" style="margin-top: 2px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 2px; font-size: 0.9em;">
-                            <span style="color: #2196F3;">🛣️ {{ dev.current_task.total_dist_km }}km</span>
+                            <span style="color: #2196F3;">🛣️ {{ dev.current_task.total_dist_km }}km {% if dev.current_task.remaining_dist_km and not is_success %}(남음: {{ dev.current_task.remaining_dist_km }}km){% endif %}</span>
                             <span style="color: #ff9800;">🚀 {{ dev.current_task.avg_speed_kmh }}km/h</span>
                         </div>
                         {% endif %}
                     </div>
                 </div>
-                {% elif dev %}
+                {% else %}
                 <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
-                    Ready for next task
+                    {{ 'Ready for next task' if dev else 'Waiting for device...' }}
                 </div>
                 {% endif %}
             </div>
 
             <div class="screen-container">
-                {% if dev and not dev.offline %}
-                <img src="" class="screen-img" id="img-{{ dev.id }}" draggable="false" 
-                     onpointerdown="handlePointerDown(event, '{{ dev.id }}')" 
-                     onpointerup="handlePointerUp(event, '{{ dev.id }}')">
-                <div id="placeholder-{{ dev.id }}" class="offline-placeholder">
+                <img src="" class="screen-img" id="img-{{ i }}" draggable="false" 
+                     onload="adjustAspectRatio(this)" 
+                     onpointerdown="handlePointerDown(event, {{ i }})" 
+                     onpointerup="handlePointerUp(event, {{ i }})">
+                <div id="placeholder-{{ i }}" class="offline-placeholder">
+                    {% if dev and not dev.offline %}
                     <span>📺</span>
                     MONITOR OFF
-                </div>
-                {% else %}
-                <div class="offline-placeholder">
+                    {% else %}
                     <span>📵</span>
                     {{ 'DEVICE DISCONNECTED' if dev else 'EMPTY' }}
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
 
-            <div class="controls {{ 'dimmed' if not dev or dev.offline }}">
-                <button class="btn-ctrl" onclick="sendKey('{{ dev.id if dev else '' }}', 3)">🏠</button>
-                <button class="btn-ctrl" onclick="sendKey('{{ dev.id if dev else '' }}', 4)">⬅️</button>
-                <button class="btn-ctrl" onclick="sendKey('{{ dev.id if dev else '' }}', 187)">📱</button>
+            <div class="controls {{ 'dimmed' if not dev or dev.offline }}" id="controls-{{ i }}">
+                <button class="btn-ctrl" onclick="sendKey({{ i }}, 3)">🏠</button>
+                <button class="btn-ctrl" onclick="sendKey({{ i }}, 4)">⬅️</button>
+                <button class="btn-ctrl" onclick="sendKey({{ i }}, 187)">📱</button>
             </div>
         </div>
         {% endfor %}
     </div>
 
     <script>
+        const targetDeviceId = '{{ target_device_id }}';
+        function adjustAspectRatio(img) {
+            if (img.naturalWidth && img.naturalHeight) {
+                img.style.aspectRatio = img.naturalWidth + ' / ' + img.naturalHeight;
+            }
+        }
         let activePointers = {};
+        let slotDeviceIds = [
+            {% for i in range(MAX_SLOTS) %}
+                {% if slots[i] %}'{{ slots[i].id }}'{% else %}null{% endif %}{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
 
-        function toggleMonitor(devId) {
-            const img = document.getElementById('img-' + devId);
-            const btn = document.getElementById('btn-mon-' + devId);
-            const placeholder = document.getElementById('placeholder-' + devId);
+        function toggleMonitor(slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if (!devId) return;
+            const img = document.getElementById('img-' + slotIdx);
+            const btn = document.getElementById('btn-mon-' + slotIdx);
+            const placeholder = document.getElementById('placeholder-' + slotIdx);
             
             if (img.src.includes('/stream/')) {
                 img.src = '';
                 img.style.display = 'none';
                 placeholder.style.display = 'flex';
+                placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
                 btn.style.background = '#607D8B';
                 btn.innerText = '📺';
             } else {
@@ -200,29 +265,36 @@ HTML_TEMPLATE = """
             }
         }
 
-        function sendKey(devId, code) {
+        function sendKey(slotIdx, code) {
+            const devId = slotDeviceIds[slotIdx];
             if(!devId) return;
             fetch(`/key/${devId}?code=${code}`);
         }
 
-        function unlockDevice(devId) {
+        function unlockDevice(slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if(!devId) return;
             fetch(`/unlock/${devId}`);
         }
 
-        function sleepDevice(devId) {
+        function sleepDevice(slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if(!devId) return;
             fetch(`/sleep/${devId}`);
         }
 
-        function rebootDevice(devId) {
+        function rebootDevice(slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if(!devId) return;
             if (confirm(`Reboot device ${devId}?`)) {
                 fetch(`/reboot/${devId}`);
             }
         }
 
-        function handlePointerDown(event, devId) {
-            const touchCheck = document.getElementById('touch-' + devId);
+        function handlePointerDown(event, slotIdx) {
+            const touchCheck = document.getElementById('touch-' + slotIdx);
             if (!touchCheck || !touchCheck.checked) return;
-            const img = document.getElementById('img-' + devId);
+            const img = document.getElementById('img-' + slotIdx);
             img.setPointerCapture(event.pointerId);
             const rect = img.getBoundingClientRect();
             activePointers[event.pointerId] = {
@@ -232,13 +304,15 @@ HTML_TEMPLATE = """
             };
         }
 
-        function handlePointerUp(event, devId) {
-            const touchCheck = document.getElementById('touch-' + devId);
+        function handlePointerUp(event, slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if(!devId) return;
+            const touchCheck = document.getElementById('touch-' + slotIdx);
             if (!touchCheck || !touchCheck.checked) return;
             const startData = activePointers[event.pointerId];
             if (!startData) return;
 
-            const img = document.getElementById('img-' + devId);
+            const img = document.getElementById('img-' + slotIdx);
             const rect = img.getBoundingClientRect();
             const endX = (event.clientX - rect.left) / rect.width;
             const endY = (event.clientY - rect.top) / rect.height;
@@ -254,66 +328,232 @@ HTML_TEMPLATE = """
             delete activePointers[event.pointerId];
         }
 
+        function createSlotHtml(i) {
+            return `
+            <div class="device-card offline" id="slot-${i}">
+                <div class="card-header dimmed" id="header-${i}">
+                    <span class="device-id" id="dev-name-${i}">EMPTY SLOT</span>
+                    <div class="header-buttons" id="header-btns-${i}" style="display: none;">
+                        <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
+                        <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
+                        <button onclick="sleepDevice(${i})" style="background: #9C27B0;" title="Sleep">🌙</button>
+                        <button onclick="rebootDevice(${i})" style="background: #f44336;" title="Reboot">🔄</button>
+                        <label class="touch-label" title="Enable Touch">
+                            <input type="checkbox" id="touch-${i}" checked> 🖐️
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="diag-overlay" style="height: 85px;">
+                    <div class="diag-item">
+                        <span class="status-badge badge-offline" id="badge-${i}">OFFLINE</span>
+                        <span id="ip-${i}" style="color: #4CAF50; font-family: monospace;">N/A</span>
+                    </div>
+                    <div class="diag-item">
+                        <span id="temp-${i}" style="color: #ff9800;">🌡️ ??°C</span>
+                        <span id="battery-${i}" style="color: #2196F3;">🔋 ??%</span>
+                    </div>
+                    <div class="diag-item" style="border-top: 1px solid #333; margin-top: 4px; padding-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: #888;">
+                        📝 <span id="log-${i}" style="margin-left: 2px;">No Log</span>
+                    </div>
+                </div>
+
+                <div id="task-container-${i}">
+                    <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                        Ready for next task
+                    </div>
+                </div>
+
+                <div class="screen-container">
+                    <img src="" class="screen-img" id="img-${i}" draggable="false" 
+                         onload="adjustAspectRatio(this)" 
+                         onpointerdown="handlePointerDown(event, ${i})" 
+                         onpointerup="handlePointerUp(event, ${i})">
+                    <div id="placeholder-${i}" class="offline-placeholder">
+                        <span>📵</span>
+                        EMPTY
+                    </div>
+                </div>
+
+                <div class="controls dimmed" id="controls-${i}">
+                    <button class="btn-ctrl" onclick="sendKey(${i}, 3)">🏠</button>
+                    <button class="btn-ctrl" onclick="sendKey(${i}, 4)">⬅️</button>
+                    <button class="btn-ctrl" onclick="sendKey(${i}, 187)">📱</button>
+                </div>
+            </div>`;
+        }
+
         // Seamless polling for Status
         function fetchStatus() {
             fetch('/status').then(r => r.json()).then(data => {
+                const container = document.getElementById('device-container');
                 data.slots.forEach((dev, i) => {
-                    if (!dev) return;
+                    // slots 크기 증가 시 dynamic element 생성
+                    if (i >= slotDeviceIds.length) {
+                        slotDeviceIds.push(null);
+                        const newSlotHtml = createSlotHtml(i);
+                        container.insertAdjacentHTML('beforeend', newSlotHtml);
+                    }
                     
+                    const oldDevId = slotDeviceIds[i];
+                    const newDevId = dev ? dev.id : null;
+                    slotDeviceIds[i] = newDevId;
+
                     const card = document.getElementById('slot-' + i);
+                    
+                    // Check if it is the target device
+                    const isTarget = !targetDeviceId || (newDevId === targetDeviceId);
                     if (card) {
-                        card.className = 'device-card ' + (dev.offline ? 'offline' : (dev.status === 'WORKING' ? 'working' : ''));
+                        card.style.display = isTarget ? 'flex' : 'none';
+                    }
+                    const header = document.getElementById('header-' + i);
+                    const devName = document.getElementById('dev-name-' + i);
+                    const headerBtns = document.getElementById('header-btns-' + i);
+                    const badge = document.getElementById('badge-' + i);
+                    const ipEl = document.getElementById('ip-' + i);
+                    const tempEl = document.getElementById('temp-' + i);
+                    const battEl = document.getElementById('battery-' + i);
+                    const taskContainer = document.getElementById('task-container-' + i);
+                    const controls = document.getElementById('controls-' + i);
+                    const img = document.getElementById('img-' + i);
+                    const placeholder = document.getElementById('placeholder-' + i);
+                    const logEl = document.getElementById('log-' + i);
+
+                    // 디바이스 변경 감지 시 모니터 초기화
+                    if (oldDevId !== newDevId) {
+                        if (img) {
+                            img.src = '';
+                            img.style.display = 'none';
+                        }
+                        if (placeholder) {
+                            placeholder.style.display = 'flex';
+                            if (newDevId) {
+                                placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
+                            } else {
+                                placeholder.innerHTML = '<span>📵</span>EMPTY';
+                            }
+                        }
+                        const btnMon = document.getElementById('btn-mon-' + i);
+                        if (btnMon) {
+                            btnMon.style.background = '#607D8B';
+                            btnMon.innerText = '📺';
+                        }
                     }
 
-                    const badge = document.getElementById('badge-' + dev.id);
-                    if (badge) {
-                        badge.className = 'status-badge ' + (dev.offline ? 'badge-offline' : (dev.status === 'WORKING' ? 'badge-working' : 'badge-idle'));
-                        badge.innerText = dev.offline ? 'OFFLINE' : dev.status;
+                    // Auto-start stream for target device if it's online
+                    if (targetDeviceId && newDevId === targetDeviceId && dev && !dev.offline) {
+                        if (img && !img.src.includes('/stream/')) {
+                            toggleMonitor(i);
+                        }
                     }
-                    
-                    const ipEl = document.getElementById('ip-' + dev.id);
+
+                    if (!dev) {
+                        // EMPTY SLOT 상태로 만들기
+                        if (card) card.className = 'device-card offline';
+                        if (header) header.className = 'card-header dimmed';
+                        if (devName) devName.innerHTML = 'EMPTY SLOT';
+                        if (headerBtns) headerBtns.style.display = 'none';
+                        if (badge) {
+                            badge.className = 'status-badge badge-offline';
+                            badge.innerText = 'OFFLINE';
+                        }
+                        if (ipEl) ipEl.innerText = 'N/A';
+                        if (tempEl) tempEl.innerText = '🌡️ ??°C';
+                        if (battEl) {
+                            battEl.innerText = '🔋 ??%';
+                            battEl.className = '';
+                        }
+                        if (taskContainer) {
+                            taskContainer.innerHTML = `
+                                <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                                    Waiting for device...
+                                </div>`;
+                        }
+                        if (controls) controls.className = 'controls dimmed';
+                        if (placeholder) {
+                            placeholder.innerHTML = '<span>📵</span>EMPTY';
+                        }
+                        if (logEl) logEl.innerText = 'No Log';
+                        return;
+                    }
+
+                    // 디바이스가 있는 경우
+                    const isTaskActive = dev.status && dev.status !== 'IDLE' && dev.status !== 'SUCCESS' && dev.status !== 'ARRIVED';
+                    if (card) {
+                        card.className = 'device-card ' + (dev.offline ? 'offline' : (isTaskActive ? 'working' : ''));
+                    }
+                    if (header) {
+                        header.className = 'card-header ' + (dev.offline ? 'dimmed' : '');
+                    }
+                    if (devName) {
+                        devName.innerHTML = `${dev.model || 'Unknown'}<br><small style="font-size: 0.7em; color: #888;">${dev.id || 'N/A'}</small>`;
+                    }
+                    if (headerBtns) {
+                        headerBtns.style.display = dev.offline ? 'none' : 'flex';
+                    }
+                    if (badge) {
+                        let badgeClass = 'badge-idle';
+                        if (dev.offline) {
+                            badgeClass = 'badge-offline';
+                        } else if (dev.status && dev.status !== 'IDLE') {
+                            badgeClass = 'badge-working';
+                        }
+                        badge.className = 'status-badge ' + badgeClass;
+                        badge.innerText = dev.offline ? 'OFFLINE' : (dev.status || 'IDLE');
+                    }
                     if (ipEl) ipEl.innerText = dev.ip || 'N/A';
+                    if (tempEl) tempEl.innerText = '🌡️ ' + (dev.temp || '??') + '°C';
                     
-                    const tempEl = document.getElementById('temp-' + dev.id);
-                    if (tempEl) tempEl.innerText = '🌡️ ' + dev.temp + '°C';
-                    
-                    const battEl = document.getElementById('battery-' + dev.id);
                     if (battEl) {
                         const bVal = parseInt(dev.battery);
-                        if (!isNaN(bVal) && bVal < 80) {
-                            battEl.innerText = '⚠️ ' + dev.battery + '%';
-                            battEl.className = 'battery-warning';
+                        if (!isNaN(bVal)) {
+                            if (bVal < 80) {
+                                battEl.innerText = '⚠️ ' + dev.battery + '%';
+                                battEl.className = 'battery-warning';
+                            } else {
+                                battEl.innerText = '🔋 ' + dev.battery + '%';
+                                battEl.className = '';
+                            }
                         } else {
-                            battEl.innerText = '🔋 ' + dev.battery + '%';
+                            battEl.innerText = '🔋 ' + (dev.battery || '??') + '%';
                             battEl.className = '';
                         }
                     }
 
-                    const taskContainer = document.getElementById('task-container-' + dev.id);
+                    if (logEl) {
+                        logEl.innerText = dev.latest_log || 'No Log';
+                    }
+
                     if (taskContainer) {
                         if (dev.current_task) {
                             const t = dev.current_task;
+                            const isSuccess = (t.status === 'SUCCESS');
+                            
                             const targetSec = parseInt(t.target_sec);
                             const targetHtml = targetSec ? 
                                 `<span class="target-confirmed">${Math.floor(targetSec / 60)}m ${targetSec % 60}s</span>` :
-                                `${t.target_range}m`;
+                                `${t.target_range || '??'}m`;
                             
                             let distHtml = '';
                             if (t.total_dist_km) {
+                                const remDistStr = (t.remaining_dist_km && t.remaining_dist_km > 0 && !isSuccess) ? ` (남음: ${t.remaining_dist_km}km)` : '';
                                 distHtml = `<div class="live-task-row" style="margin-top: 2px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 2px; font-size: 0.9em;">
-                                    <span style="color: #2196F3;">🛣️ ${t.total_dist_km}km</span>
-                                    <span style="color: #ff9800;">🚀 ${t.avg_speed_kmh}km/h</span>
+                                    <span style="color: #2196F3;">🛣️ ${t.total_dist_km}km${remDistStr}</span>
+                                    <span style="color: #ff9800;">🚀 ${t.avg_speed_kmh || '??'}km/h</span>
                                 </div>`;
                             }
                             
                             const destIdStr = dev.dest_id ? `<span style="color:#aaa; font-size:0.8em; margin-left:5px;">(#${dev.dest_id})</span>` : '';
+                            const timerHtml = isSuccess ? 
+                                `<span style="color: #4CAF50; font-weight: bold;">✅ 완료</span>` : 
+                                `⏱️ <span class="elapsed-timer" data-start="${t.start_ts || 0}">-</span>`;
 
                             taskContainer.innerHTML = `
-                                <div class="live-task-box">
-                                    <div class="live-task-dest" title="${t.dest_name}">🎯 ${t.dest_name} ${destIdStr}</div>
+                                <div class="live-task-box" style="${isSuccess ? 'border-color: rgba(76, 175, 80, 0.6); background: rgba(76, 175, 80, 0.05);' : ''}">
+                                    <div class="live-task-dest" title="${t.dest_name || 'N/A'}">🎯 ${t.dest_name || 'N/A'} ${destIdStr}</div>
                                     <div class="live-task-meta">
                                         <div class="live-task-row">
-                                            <span>⏱️ <span class="elapsed-timer" data-start="${t.start_ts}">-</span></span>
+                                            <span>${timerHtml}</span>
                                             <span>🏁 ${targetHtml}</span>
                                         </div>
                                         ${distHtml}
@@ -326,22 +566,35 @@ HTML_TEMPLATE = """
                                 </div>`;
                         }
                     }
+
+                    if (controls) {
+                        controls.className = 'controls ' + (dev.offline ? 'dimmed' : '');
+                    }
+                    
+                    if (placeholder) {
+                        if (dev.offline) {
+                            placeholder.innerHTML = '<span>📵</span>DEVICE DISCONNECTED';
+                        }
+                    }
                 });
                 updateTimers();
             }).catch(e => console.error("Status fetch error", e));
         }
         setInterval(fetchStatus, 3000);
+        fetchStatus();
 
         // [NEW] Real-time Timer Update
         function updateTimers() {
             const now = Math.floor(Date.now() / 1000);
             document.querySelectorAll('.elapsed-timer').forEach(el => {
                 const start = parseInt(el.getAttribute('data-start'));
-                if (!isNaN(start)) {
+                if (!isNaN(start) && start > 0) {
                     const elapsed = now - start;
                     const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
                     const s = (elapsed % 60).toString().padStart(2, '0');
                     el.innerText = `${m}:${s}`;
+                } else {
+                    el.innerText = "-";
                 }
             });
         }
@@ -378,20 +631,185 @@ def get_device_diagnostics(serial):
     except:
         pass
 
-    # 3. Find Latest Task Badge (current_task.json)
+    # 3. Find Latest Task Details from execution.log & session files (Safety fallback / Contrast)
+    task_data = {
+        "dest_name": "Unknown",
+        "dest_id": "",
+        "start_ts": 0,
+        "target_sec": 0,
+        "total_dist_km": 0.0,
+        "remaining_dist_km": 0.0,
+        "avg_speed_kmh": 0.0,
+        "status": "IDLE"
+    }
+    
+    # 3-1. Try parsing logs directory structure
+    latest_session_dir = None
+    latest_date_str = None
+    try:
+        dev_log_dir = os.path.join(LOG_BASE_DIR, serial)
+        if os.path.exists(dev_log_dir):
+            dates = sorted([d for d in os.listdir(dev_log_dir) if d.isdigit()], reverse=True)
+            if dates:
+                latest_date_str = dates[0]
+                date_dir = os.path.join(dev_log_dir, latest_date_str)
+                sessions = sorted([s for s in os.listdir(date_dir) if "_" in s], reverse=True)
+                if sessions:
+                    latest_session_dir = os.path.join(date_dir, sessions[0])
+                    # Revert latest_log to show the session directory name (e.g. 193352_1874682703)
+                    info["latest_log"] = sessions[0]
+                    parts = sessions[0].split("_")
+                    if len(parts) >= 2:
+                        task_data["dest_id"] = parts[1]
+                        
+                    time_str = parts[0]
+                    try:
+                        dt_str = f"{latest_date_str} {time_str}"
+                        struct_time = time.strptime(dt_str, "%Y%m%d %H%M%S")
+                        task_data["start_ts"] = int(time.mktime(struct_time))
+                    except:
+                        pass
+    except Exception as e:
+        print(f"Error resolving latest session dir: {e}", flush=True)
+
+    # 3-2. Load values from session_summary.json (Primary metadata container)
+    session_status = None
+    if latest_session_dir and os.path.exists(latest_session_dir):
+        summary_path = os.path.join(latest_session_dir, "session_summary.json")
+        if os.path.exists(summary_path):
+            try:
+                with open(summary_path, 'r') as f:
+                    sdata = json.load(f)
+                    info["ip"] = sdata.get("real_ip", info["ip"])
+                    session_status = sdata.get("status", None)
+                    if sdata.get("total_distance_km"):
+                        task_data["total_dist_km"] = sdata.get("total_distance_km")
+            except:
+                pass
+
+    # 3-3. Load values from current_task.json if available as fallback
     try:
         task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
         if os.path.exists(task_info_path):
             with open(task_info_path, 'r') as f:
-                task_data = json.load(f)
-                info["current_task"] = task_data
-                info["ip"] = task_data.get("real_ip", "N/A")
-                sp = task_data.get("session_path", "")
-                if "_" in sp:
-                    info["dest_id"] = sp.split("_")[-1]
+                cdata = json.load(f)
+                for k, v in cdata.items():
+                    if v is not None:
+                        task_data[k] = v
+                info["ip"] = cdata.get("real_ip", info["ip"])
     except:
         pass
-        
+
+    # 3-4. Parse execution.log for live progress
+    if latest_session_dir and os.path.exists(latest_session_dir):
+        exec_log_path = os.path.join(latest_session_dir, "execution.log")
+        if os.path.exists(exec_log_path):
+            try:
+                with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    log_lines = f.readlines()
+                
+                dest_name = None
+                total_dist = None
+                target_sec = None
+                latest_progress = None
+                
+                for line in log_lines:
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+                    
+                    if "Destination:" in line_str:
+                        d_part = line_str.split("Destination:")[-1].strip()
+                        if " (ID:" in d_part:
+                            dest_name = d_part.split(" (ID:")[0].strip()
+                        else:
+                            dest_name = d_part
+                    
+                    if "Initial Path Loaded:" in line_str:
+                        try:
+                            dist_str = line_str.split("Initial Path Loaded:")[-1].replace("km", "").strip()
+                            total_dist = float(dist_str)
+                        except:
+                            pass
+                            
+                    if "Exact Server Arrival Time:" in line_str:
+                        try:
+                            sec_str = line_str.split("Exact Server Arrival Time:")[-1].replace("s", "").strip()
+                            target_sec = int(sec_str)
+                        except:
+                            pass
+                    elif "Session Goal :" in line_str:
+                        try:
+                            sec_str = line_str.split("Session Goal :")[-1].split("s")[0].strip()
+                            target_sec = int(sec_str)
+                        except:
+                            pass
+
+                    if "Progress:" in line_str and "remaining" in line_str:
+                        latest_progress = line_str
+
+                if dest_name:
+                    task_data["dest_name"] = dest_name
+                if total_dist:
+                    task_data["total_dist_km"] = total_dist
+                if target_sec:
+                    task_data["target_sec"] = target_sec
+                
+                if latest_progress:
+                    try:
+                        p_part = latest_progress.split("Progress:")[-1].strip()
+                        rem_str = p_part.split("km remaining")[0].strip()
+                        task_data["remaining_dist_km"] = float(rem_str)
+                        
+                        if "Time:" in p_part:
+                            t_part = p_part.split("Time:")[-1].strip()
+                            parts = t_part.split("/")
+                            elapsed_sec = int(parts[0].replace("s", "").strip())
+                            total_sec = int(parts[1].replace("s", "").strip())
+                            task_data["start_ts"] = int(time.time()) - elapsed_sec
+                            task_data["target_sec"] = total_sec
+                    except:
+                        pass
+            except:
+                pass
+                
+    # Determine the task final status based on whether main.sh is running and log messages
+    is_working = (info["status"] == "WORKING")
+    log_has_success = False
+    
+    # Double check log for SUCCESS or SUCCESSFUL message
+    if latest_session_dir and os.path.exists(latest_session_dir):
+        exec_log_path = os.path.join(latest_session_dir, "execution.log")
+        if os.path.exists(exec_log_path):
+            try:
+                with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()[-20:]
+                for line in lines:
+                    if "SUCCESS" in line or "SUCCESSFUL" in line:
+                        log_has_success = True
+                        break
+            except:
+                pass
+
+    if is_working:
+        # Resolve detailed status from task_data (enriched by current_task.json / session_summary)
+        detailed_status = task_data.get("status", "DRIVING")
+        if detailed_status in ["IDLE", "SUCCESS", "ARRIVED", "Unknown", ""]:
+            detailed_status = "DRIVING"
+            
+        info["status"] = detailed_status
+        task_data["status"] = detailed_status
+        info["current_task"] = task_data
+    else:
+        # If not running, but session_summary states ARRIVED or logs suggest success, mark as SUCCESS
+        if session_status == "ARRIVED" or log_has_success:
+            info["status"] = "SUCCESS"
+            task_data["status"] = "SUCCESS"
+            info["current_task"] = task_data
+        else:
+            info["status"] = "IDLE"
+            info["current_task"] = None
+            
     return info
 
 def refresh_device_slots():
@@ -451,8 +869,9 @@ threading.Thread(target=diag_background_thread, daemon=True).start()
 
 @app.route('/')
 def index():
+    device_id = request.args.get('device_id', '').strip()
     hostname = socket.gethostname()
-    return render_template_string(HTML_TEMPLATE, slots=device_slots, MAX_SLOTS=MAX_SLOTS, hostname=hostname)
+    return render_template_string(HTML_TEMPLATE, slots=device_slots, MAX_SLOTS=MAX_SLOTS, hostname=hostname, target_device_id=device_id)
 
 @app.route('/status')
 def status():
@@ -515,17 +934,22 @@ def reboot(dev_id):
     return "OK"
 
 def gen_frames(dev_id):
-    while True:
-        try:
-            # -p 옵션으로 압축된 png 추출 (대역폭 절약)
-            cmd = ["adb", "-s", dev_id, "exec-out", "screencap", "-p"]
-            frame = subprocess.check_output(cmd, timeout=5)
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/png\r\n\r\n' + frame + b'\r\n')
-            time.sleep(REFRESH_INTERVAL)
-        except:
-            time.sleep(1) # 에러 시 잠시 대기
-            continue
+    try:
+        while True:
+            try:
+                # -p 옵션으로 압축된 png 추출 (대역폭 절약)
+                cmd = ["adb", "-s", dev_id, "exec-out", "screencap", "-p"]
+                frame = subprocess.check_output(cmd, timeout=5)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/png\r\n\r\n' + frame + b'\r\n')
+                time.sleep(REFRESH_INTERVAL)
+            except subprocess.SubprocessError:
+                time.sleep(1)
+            except Exception as e:
+                time.sleep(1)
+    except GeneratorExit:
+        # 클라이언트가 연결을 끊은 경우
+        pass
 
 @app.route('/stream/<dev_id>')
 def stream(dev_id):

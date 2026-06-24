@@ -10,7 +10,7 @@ import sys
 import time
 import os
 
-API_URL = "http://114.207.112.245:8000/api/v1/lte_usage"
+API_URL = "http://114.207.112.245:8010/api/v1/lte_usage"
 
 def get_lte_interfaces():
     """Find all active lte interfaces and their subnets."""

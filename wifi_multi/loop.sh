@@ -13,10 +13,15 @@ declare -A DEVICE_MODEL_CACHE
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR" || exit 1
 
+# Override configuration from external file if exists
+if [ -f "$SCRIPT_DIR/manual_counts.conf" ]; then
+    source "$SCRIPT_DIR/manual_counts.conf"
+fi
+
 export WIFI_MULTI_ROOT="$SCRIPT_DIR"
 export WIFI_MULTI_LOGS="$SCRIPT_DIR/logs"
 export WIFI_MULTI_LIB="$SCRIPT_DIR/lib"
-export API_SERVER="114.207.112.245:8000"
+export API_SERVER="114.207.112.245:8010"
 
 pkill -9 -f "main.sh"
 pkill -9 -f "mitmdump"
@@ -184,6 +189,9 @@ while true; do
 
         # Ensure log directory exists before redirecting output
         mkdir -p "logs/${DEV_ID}/tmp"
+
+        # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
+        echo "{\"status\": \"ALLOCATED\", \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
 
         # Pass ALL variables directly to the engine
         NMAP_BIND_IP="$BIND_IP" \

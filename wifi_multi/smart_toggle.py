@@ -120,7 +120,7 @@ class SmartToggle:
         
         # 1. IP rule이 참조하는 테이블 우선 확인 (가장 중요!)
         result = subprocess.run(
-            f"ip rule show | grep 'from 192.168.{self.subnet}.100' | awk '{{print $NF}}'",
+            f"ip rule show | grep 'from 192.168.{self.subnet}.' | awk '{{print $NF}}' | head -n 1",
             shell=True, capture_output=True, text=True
         )
         rule_table = result.stdout.strip()
@@ -161,9 +161,7 @@ class SmartToggle:
         
         try:
             # 인터페이스 존재 확인
-            cmd = f"ip addr | grep '192.168.{self.subnet}.100' -B2 | head -1 | cut -d: -f2 | tr -d ' '"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-            interface = result.stdout.strip()
+            interface = self.get_interface()
             
             diagnosis['interface_exists'] = bool(interface)
             diagnosis['interface'] = interface
@@ -175,7 +173,9 @@ class SmartToggle:
                 diagnosis['routing_exists'] = "default" in result.stdout
                 
                 # IP rule 확인 (어떤 테이블을 참조하든 존재 여부만 확인)
-                result = subprocess.run(f"ip rule show | grep 'from 192.168.{self.subnet}.100'",
+                local_ip = self.get_local_ip()
+                rule_grep = f"from {local_ip}" if local_ip else f"192.168.{self.subnet}.0/24"
+                result = subprocess.run(f"ip rule show | grep '{rule_grep}'",
                                       shell=True, capture_output=True, text=True, timeout=5)
                 diagnosis['ip_rule_exists'] = bool(result.stdout.strip())
                 
@@ -204,9 +204,14 @@ class SmartToggle:
                 diagnosis['https_reachable'] = bool(https_ip and https_ip.split('.')[0].isdigit())
                 
                 # SOCKS5 서비스 상태 확인 (중요!)
-                socks5_check = subprocess.run(f"systemctl is-active dongle-socks5-{self.subnet}",
-                                             shell=True, capture_output=True, text=True, timeout=5)
-                diagnosis['socks5_service_active'] = socks5_check.stdout.strip() == "active"
+                service_name = f"dongle-socks5-{self.subnet}"
+                check_unit = subprocess.run(f"systemctl list-unit-files | grep {service_name}", shell=True, capture_output=True)
+                if service_name in check_unit.stdout.decode():
+                    socks5_check = subprocess.run(f"systemctl is-active {service_name}",
+                                                 shell=True, capture_output=True, text=True, timeout=5)
+                    diagnosis['socks5_service_active'] = socks5_check.stdout.strip() == "active"
+                else:
+                    diagnosis['socks5_service_active'] = True  # Not used on this machine
                 
                 # 외부 연결 판단 (HTTPS 우선, HTTP 폴백)
                 if diagnosis['https_reachable']:
@@ -284,7 +289,9 @@ class SmartToggle:
             
             # IP rule 추가 (자동 감지된 테이블 사용)
             if not self.diagnosis.get('ip_rule_exists'):
-                cmd = f"ip rule add from 192.168.{self.subnet}.100 table {self.routing_table}"
+                local_ip = self.get_local_ip()
+                rule_src = local_ip if local_ip else f"192.168.{self.subnet}.0/24"
+                cmd = f"ip rule add from {rule_src} table {self.routing_table}"
                 result = subprocess.run(f"sudo {cmd}", shell=True, capture_output=True, text=True, timeout=10)
                 if result.returncode != 0 and "File exists" not in result.stderr:
                     success = False
@@ -494,6 +501,16 @@ class SmartToggle:
             subprocess.run(f"echo '{usb_path}' | sudo tee /sys/bus/usb/drivers/cdc_ether/bind > /dev/null",
                           shell=True, timeout=5)
             
+            # [안전 장치] USB 재연결 직후 인터페이스 이름 및 라우팅 복구 실행
+            time.sleep(5)  # 디바이스가 커널에 등록될 시간을 대기
+            sys.stderr.write(f"[{self.subnet}] Running fix_eth_number.sh to restore interface names and routing after USB bind...\n")
+            try:
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                fix_script = os.path.join(project_root, "fix_eth_number.sh")
+                subprocess.run(["sudo", sys.executable, fix_script], timeout=30)
+            except Exception as fe:
+                sys.stderr.write(f"[{self.subnet}] Warning: Failed to run fix_eth_number.sh: {fe}\n")
+            
             # 인터페이스 재연결 대기 (최대 15초)
             for i in range(15):
                 time.sleep(1)
@@ -524,48 +541,26 @@ class SmartToggle:
                                       shell=True, capture_output=True, text=True, timeout=10)
                 
                 if result.returncode == 0:
+                    # [안전 장치] 개별 포트 전원 ON 직후 인터페이스 이름 및 라우팅 복구 실행
+                    time.sleep(10)  # 모뎀이 켜지고 시스템에 인식될 때까지 충분히 대기 (보통 8~10초 소요)
+                    sys.stderr.write(f"[{self.subnet}] Running fix_eth_number.sh to restore interface names and routing after power ON...\n")
+                    try:
+                        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                        fix_script = os.path.join(project_root, "fix_eth_number.sh")
+                        subprocess.run(["sudo", "python3", fix_script], timeout=30)
+                    except Exception as fe:
+                        sys.stderr.write(f"[{self.subnet}] Warning: Failed to run fix_eth_number.sh: {fe}\n")
+                    
                     # 복구 대기 (최대 30초)
                     for i in range(30):
                         time.sleep(1)
                         if self.test_connectivity():
                             return True
             
-            # 2차 시도: 전체 허브 재시작
-            self.log_step(4, 'power_cycle', 'trying_full_reset', 
-                        details={'message': 'Individual reset failed, attempting full hub reset'})
-            
-            # dongle_config.json에서 허브 정보 가져오기
-            try:
-                with open('/home/proxy/config/dongle_config.json', 'r') as f:
-                    config = json.load(f)
-                    
-                if 'port_mapping' in config and str(self.subnet) in config['port_mapping']:
-                    hub = config['port_mapping'][str(self.subnet)]['hub']
-                else:
-                    # 기본값: 서브넷 번호로 추정
-                    if self.subnet >= 11 and self.subnet <= 14:
-                        hub = "1-3.4"
-                    elif self.subnet >= 15 and self.subnet <= 18:
-                        hub = "1-3.1"
-                    else:
-                        hub = "1-3.3"
-                
-                # 전체 허브 재시작
-                result = subprocess.run(f"sudo uhubctl -a cycle -l {hub} -p 1,2,3,4",
-                                      shell=True, capture_output=True, text=True, timeout=15)
-                
-                if result.returncode == 0:
-                    # 복구 대기 (최대 60초)
-                    time.sleep(10)  # 허브 재시작 대기
-                    for i in range(50):
-                        time.sleep(1)
-                        if self.test_connectivity():
-                            return True
-                            
-            except Exception as e:
-                self.log_step(4, 'power_cycle', 'hub_reset_failed', 
-                            details={'error': str(e)})
-            
+            # 2차 시도: 전체 허브 재시작은 활성화된 다른 모뎀들에 치명적이므로 안전하게 비활성화합니다.
+            self.log_step(4, 'power_cycle', 'full_reset_disabled', 
+                        details={'message': 'Full hub reset is disabled to protect other active modems.'})
+            sys.stderr.write(f"[{self.subnet}] Full hub reset is disabled to protect other active modems.\n")
             return False
             
         except Exception as e:
@@ -596,65 +591,79 @@ class SmartToggle:
             return False
     
     def test_connectivity_https(self):
-        """항상 HTTPS로 테스트"""
+        """항상 HTTPS로 테스트 (다중화)"""
         try:
             interface = self.get_interface()
             if not interface:
                 return False
             
-            result = subprocess.run(f"curl --interface {interface} -s -m 3 https://api.ipify.org",
-                                  shell=True, capture_output=True, text=True, timeout=5)
-            ip = result.stdout.strip()
-            
-            if ip and ip.split('.')[0].isdigit():
-                self.result['ip'] = ip
-                return True
-            
+            test_urls = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com", "https://ident.me"]
+            for url in test_urls:
+                try:
+                    result = subprocess.run(f"curl --interface {interface} -s -m 3 {url}",
+                                          shell=True, capture_output=True, text=True, timeout=5)
+                    ip = result.stdout.strip()
+                    if ip and ip.split('.')[0].isdigit():
+                        self.result['ip'] = ip
+                        return True
+                except:
+                    continue
             return False
         except:
             return False
     
     def test_connectivity_http(self):
-        """폴백용 HTTP 테스트"""
+        """폴백용 HTTP 테스트 (다중화)"""
         try:
             interface = self.get_interface()
             if not interface:
                 return False
             
-            result = subprocess.run(f"curl --interface {interface} -s -m 3 http://techb.kr/ip.php",
-                                  shell=True, capture_output=True, text=True, timeout=5)
-            ip = result.stdout.strip()
-            
-            if ip and ip.split('.')[0].isdigit():
-                self.result['ip'] = ip
-                return True
-            
+            test_urls = ["http://techb.kr/ip.php", "http://ifconfig.me/ip", "http://icanhazip.com", "http://ident.me"]
+            for url in test_urls:
+                try:
+                    result = subprocess.run(f"curl --interface {interface} -s -m 3 {url}",
+                                          shell=True, capture_output=True, text=True, timeout=5)
+                    ip = result.stdout.strip()
+                    if ip and ip.split('.')[0].isdigit():
+                        self.result['ip'] = ip
+                        return True
+                except:
+                    continue
             return False
         except:
             return False
     
     def get_current_ip(self):
-        """현재 외부 IP 확인 (HTTPS 우선, HTTP 폴백)"""
+        """현재 외부 IP 확인 (HTTPS 우선, HTTP 폴백 다중화)"""
         try:
             interface = self.get_interface()
             if not interface:
                 return None
             
-            # HTTPS 먼저 시도
-            result = subprocess.run(f"curl --interface {interface} -s -m 3 https://api.ipify.org",
-                                  shell=True, capture_output=True, text=True, timeout=5)
-            ip = result.stdout.strip()
+            # HTTPS 먼저 시도 (다중화)
+            test_urls_https = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com", "https://ident.me"]
+            for url in test_urls_https:
+                try:
+                    result = subprocess.run(f"curl --interface {interface} -s -m 3 {url}",
+                                          shell=True, capture_output=True, text=True, timeout=5)
+                    ip = result.stdout.strip()
+                    if ip and ip.split('.')[0].isdigit():
+                        return ip
+                except:
+                    continue
             
-            if ip and ip.split('.')[0].isdigit():
-                return ip
-            
-            # HTTPS 실패시 HTTP 시도
-            result = subprocess.run(f"curl --interface {interface} -s -m 3 http://techb.kr/ip.php",
-                                  shell=True, capture_output=True, text=True, timeout=5)
-            ip = result.stdout.strip()
-            
-            if ip and ip.split('.')[0].isdigit():
-                return ip
+            # HTTPS 실패시 HTTP 시도 (다중화)
+            test_urls_http = ["http://techb.kr/ip.php", "http://ifconfig.me/ip", "http://icanhazip.com", "http://ident.me"]
+            for url in test_urls_http:
+                try:
+                    result = subprocess.run(f"curl --interface {interface} -s -m 3 {url}",
+                                          shell=True, capture_output=True, text=True, timeout=5)
+                    ip = result.stdout.strip()
+                    if ip and ip.split('.')[0].isdigit():
+                        return ip
+                except:
+                    continue
             
             return None
         except:
@@ -663,7 +672,43 @@ class SmartToggle:
     def get_interface(self):
         """인터페이스명 획득"""
         try:
-            cmd = f"ip addr | grep '192.168.{self.subnet}.100' -B2 | head -1 | cut -d: -f2 | tr -d ' '"
+            # 1. First try lte{subnet}
+            iface = f"lte{self.subnet}"
+            if os.path.exists(f"/sys/class/net/{iface}"):
+                return iface
+            
+            # 2. Fallback to searching by subnet IP prefix (e.g. 192.168.11.)
+            cmd = f"ip addr | grep '192.168.{self.subnet}.' -B2 | head -1 | cut -d: -f2 | tr -d ' '"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            iface_found = result.stdout.strip().split('@')[0]
+            
+            # 만약 다른 이름(eth11 등)으로 변경되어 있다면, fix_eth_number.sh를 즉시 실행하여 원래 이름으로 복구
+            if iface_found and iface_found != iface:
+                sys.stderr.write(f"[{self.subnet}] Misnamed interface detected: {iface_found}. Running fix_eth_number.sh to restore to {iface}...\n")
+                try:
+                    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    fix_script = os.path.join(project_root, "fix_eth_number.sh")
+                    subprocess.run(["sudo", sys.executable, fix_script], timeout=30)
+                except Exception as fe:
+                    sys.stderr.write(f"[{self.subnet}] Warning: Failed to run fix_eth_number.sh: {fe}\n")
+                
+                # 복구 후 다시 lte{subnet} 확인
+                if os.path.exists(f"/sys/class/net/{iface}"):
+                    return iface
+            
+            if iface_found:
+                return iface_found
+        except:
+            pass
+        return None
+
+    def get_local_ip(self):
+        """인터페이스에 할당된 실제 IP 획득"""
+        try:
+            interface = self.get_interface()
+            if not interface:
+                return None
+            cmd = f"ip -4 addr show {interface} | grep inet | awk '{{print $2}}' | cut -d/ -f1"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
             return result.stdout.strip()
         except:
@@ -752,29 +797,45 @@ class SmartToggle:
             if hasattr(self, 'skip_socks5_verify') and self.skip_socks5_verify:
                 return True
                 
+            # If SOCKS5 service is not configured on this machine, skip SOCKS5 check and return True
+            try:
+                service_name = f"dongle-socks5-{self.subnet}"
+                check_unit = subprocess.run(f"systemctl list-unit-files | grep {service_name}", shell=True, capture_output=True, timeout=5)
+                if service_name not in check_unit.stdout.decode():
+                    return True
+            except:
+                return True
+                
             port = 10000 + self.subnet
-            # SOCKS5를 통한 HTTPS 연결 테스트
-            result = subprocess.run(
-                f"curl --socks5 127.0.0.1:{port} -s -m 3 https://api.ipify.org",
-                shell=True, capture_output=True, text=True, timeout=5
-            )
-            ip = result.stdout.strip()
+            # SOCKS5를 통한 HTTPS 연결 테스트 (다중화)
+            test_urls = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com", "https://ident.me"]
             
-            if ip and ip.split('.')[0].isdigit():
+            def test_socks_conn():
+                for url in test_urls:
+                    try:
+                        result = subprocess.run(
+                            f"curl --socks5 127.0.0.1:{port} -s -m 3 {url}",
+                            shell=True, capture_output=True, text=True, timeout=5
+                        )
+                        ip = result.stdout.strip()
+                        if ip and ip.split('.')[0].isdigit():
+                            return True
+                    except:
+                        pass
+                return False
+
+            if test_socks_conn():
                 return True
             
             # SOCKS5가 작동하지 않으면 개별 서비스 재시작
-            subprocess.run(f"sudo systemctl restart dongle-socks5-{self.subnet}", shell=True, timeout=10)
-            time.sleep(2)
+            try:
+                subprocess.run(f"sudo systemctl restart dongle-socks5-{self.subnet}", shell=True, timeout=10)
+                time.sleep(2)
+            except:
+                pass
             
             # 재시도
-            result = subprocess.run(
-                f"curl --socks5 127.0.0.1:{port} -s -m 3 https://api.ipify.org",
-                shell=True, capture_output=True, text=True, timeout=5
-            )
-            ip = result.stdout.strip()
-            
-            return ip and ip.split('.')[0].isdigit()
+            return test_socks_conn()
         except:
             return False
     
