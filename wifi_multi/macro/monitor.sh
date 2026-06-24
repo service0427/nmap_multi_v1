@@ -60,6 +60,7 @@ LAST_JSON_COUNT=0
 STUCK_COUNT=0
 IS_DRIVING=false
 POPUP_CHECKED=false
+LAST_UI_CHECK_TS=0
 
 # [NEW] Transition Timeout Variables
 NAVI_START_TS=0
@@ -90,6 +91,31 @@ check_app_survival() {
     if [ $ELAPSED -gt 30 ]; then
         if ! adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
             echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
+        fi
+    fi
+
+    # [NEW] Fast Fatal UI Error Detection (No Route Found, etc.)
+    if [ "$IS_DRIVING" = false ] && [ $ELAPSED -gt 15 ]; then
+        local CUR_TS
+        CUR_TS=$(date +%s)
+        local SEC_SINCE_CHECK=$(( CUR_TS - LAST_UI_CHECK_TS ))
+        if [ $SEC_SINCE_CHECK -ge 10 ]; then
+            LAST_UI_CHECK_TS=$CUR_TS
+            # Dump UI XML
+            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
+            local XML_CONTENT
+            XML_CONTENT=$(adb -s "$DEV_ID" shell "cat /sdcard/ui.xml" 2>/dev/null)
+            if [ -n "$XML_CONTENT" ]; then
+                local FATAL_PATTERN="길찾기 결과가 없습니다|결과를 제공할 수 없습니다|검색 결과가 없습니다|장소를 찾을 수 없습니다|길찾기 결과를 제공할 수 없습니다|검색 결과가 없어요|출발지와 도착지가 같습니다|출발지와 목적지가 같습니다|주변에 도로가 없습니다|안내할 수 없는 경로입니다|네트워크 연결이 원활하지 않습니다|네트워크 연결 상태를 확인|네트워크가 연결되어 있지 않습니다|알 수 없는 에러가 발생했습니다"
+                if echo "$XML_CONTENT" | grep -q -E "$FATAL_PATTERN"; then
+                    local MATCHED_MSG
+                    MATCHED_MSG=$(echo "$XML_CONTENT" | grep -o -E "$FATAL_PATTERN" | head -n 1)
+                    echo "[$(NOW)] [🚨] Fatal UI State Detected ('$MATCHED_MSG'). Fail-fast."
+                    send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"NO_ROUTE_FOUND: $MATCHED_MSG\"}"
+                    echo "[$(NOW)] [*] Immediate Exit for FAIL due to Fatal UI. Letting main.sh handle cleanup."
+                    exit 0
+                fi
+            fi
         fi
     fi
 
