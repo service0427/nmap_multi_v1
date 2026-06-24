@@ -148,9 +148,17 @@ check_app_survival() {
         fi
     fi
 
-    # [NEW] Proactive Popup Killer if Home Screen is delayed (e.g. Cache Clear Popup)
+    # [NEW] Proactive Popup Killer & UI Home screen detector if Home Screen is delayed
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
-        if [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
+        # Check UI to see if Home screen is already visible
+        adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_home_check.xml" >/dev/null 2>&1
+        local CHECK_XML
+        CHECK_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
+        if echo "$CHECK_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
+            echo "[$(NOW)] [✓] Home screen UI elements detected. Bypassing packet wait."
+            STATE_FLAGS[STEP_02_HOME]=1
+            update_live_status "HOME_READY"
+        elif [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
             echo "[$(NOW)] [?] Home screen delayed. Proactively checking for blocking popups..."
             # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
             python3 macro/ui_clicker.py "$DEV_ID" "exact:DUMMY_POPUP_CHECK" "PopupCheck" >/dev/null 2>&1
@@ -209,30 +217,41 @@ while true; do
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
             echo "[$(NOW)] [⚠️] Active driving/trafficjam packets detected while waiting for Home screen!"
-            if [ -z "$RECOVERY_TRY" ]; then RECOVERY_TRY=0; fi
-            if [ "$RECOVERY_TRY" -lt 2 ]; then
-                ((RECOVERY_TRY++))
-                echo "      > [Attempt $RECOVERY_TRY/2] Sending Back key and attempting to exit navigation..."
-                adb -s "$DEV_ID" shell input keyevent 4
-                sleep 2
-                # Attempt to click standard exit/confirm dialog buttons
-                python3 macro/ui_clicker.py "$DEV_ID" "exact:종료" "ExitNavi" >/dev/null 2>&1
-                python3 macro/ui_clicker.py "$DEV_ID" "exact:확인" "ExitNavi" >/dev/null 2>&1
-                python3 macro/ui_clicker.py "$DEV_ID" "exact:안내종료" "ExitNavi" >/dev/null 2>&1
-                sleep 3
-            else
-                # Fallback: Bypass to driving state to prevent infinite hangs
-                echo "      > Fallback: Bypassing initial setup steps and transitioning directly to driving state."
+            # Dump UI XML to verify if we are actually in navigation vs on Home screen
+            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_recovery.xml" >/dev/null 2>&1
+            RECOVERY_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_recovery.xml" 2>/dev/null)
+            
+            # If Home screen indicators are visible, we are NOT in navigation! Just transition to HOME_READY.
+            if echo "$RECOVERY_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
+                echo "[$(NOW)] [✓] Home screen UI elements detected during recovery check. Transitioning to SEARCHING."
                 STATE_FLAGS[STEP_02_HOME]=1
-                STATE_FLAGS[STEP_03_TYPING]=1
-                STATE_FLAGS[STEP_04_SELECT_ADDR]=1
-                STATE_FLAGS[STEP_05_POI_ARRIVAL]=1
-                STATE_FLAGS[STEP_07_NAVI_START]=1
-                STATE_FLAGS[STEP_07_1_BUSINESS_MODAL]=1
-                STATE_FLAGS[STEP_07_2_DRIVING_STARTED]=1
-                IS_DRIVING=true
-                update_live_status "DRIVING"
-                touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                update_live_status "HOME_READY"
+            else
+                if [ -z "$RECOVERY_TRY" ]; then RECOVERY_TRY=0; fi
+                if [ "$RECOVERY_TRY" -lt 2 ]; then
+                    ((RECOVERY_TRY++))
+                    echo "      > [Attempt $RECOVERY_TRY/2] Sending Back key and attempting to exit navigation..."
+                    adb -s "$DEV_ID" shell input keyevent 4
+                    sleep 2
+                    # Attempt to click standard exit/confirm dialog buttons
+                    python3 macro/ui_clicker.py "$DEV_ID" "exact:종료" "ExitNavi" >/dev/null 2>&1
+                    python3 macro/ui_clicker.py "$DEV_ID" "exact:확인" "ExitNavi" >/dev/null 2>&1
+                    python3 macro/ui_clicker.py "$DEV_ID" "exact:안내종료" "ExitNavi" >/dev/null 2>&1
+                    sleep 3
+                else
+                    # Fallback: Bypass to driving state to prevent infinite hangs
+                    echo "      > Fallback: Bypassing initial setup steps and transitioning directly to driving state."
+                    STATE_FLAGS[STEP_02_HOME]=1
+                    STATE_FLAGS[STEP_03_TYPING]=1
+                    STATE_FLAGS[STEP_04_SELECT_ADDR]=1
+                    STATE_FLAGS[STEP_05_POI_ARRIVAL]=1
+                    STATE_FLAGS[STEP_07_NAVI_START]=1
+                    STATE_FLAGS[STEP_07_1_BUSINESS_MODAL]=1
+                    STATE_FLAGS[STEP_07_2_DRIVING_STARTED]=1
+                    IS_DRIVING=true
+                    update_live_status "DRIVING"
+                    touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                fi
             fi
         fi
     fi
