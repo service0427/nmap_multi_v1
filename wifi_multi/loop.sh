@@ -50,20 +50,45 @@ while true; do
         if [ "$etime" -gt 1200 ] && [ -n "$DEV_ID" ]; then
             echo "[⚠️] [$(date +%T)] [$DEV_ID] DETECTED STALE PROCESS (PID: $pid, Elapsed: ${etime}s). Force killing..."
             
+            # 포트 파싱 및 미트덤프/프리다 정리 (current_task.json에서 고유 device_seq를 조회하여 복원)
+            # [원칙] DB 고유의 불변값인 device_seq를 기반으로 포트를 지정하므로 충돌이 없습니다.
+            # 절대 cksum 방식으로 롤백하지 마십시오.
+            SEQ=$(jq -r '.device_seq // empty' "logs/${DEV_ID}/current_task.json" 2>/dev/null)
+            if [ -n "$SEQ" ] && [ "$SEQ" != "null" ]; then
+                FRIDA_PORT=$((10000 + SEQ))
+                MITM_PORT=$((20000 + SEQ))
+            else
+                # Fallback: 만약 current_task.json에 없고 최근 api_response.json이 존재한다면 탐색
+                LATEST_API_RESP=$(find "logs/${DEV_ID}" -name "api_response.json" 2>/dev/null | sort | tail -n 1)
+                if [ -n "$LATEST_API_RESP" ]; then
+                    SEQ=$(jq -r '.device_seq // empty' "$LATEST_API_RESP" 2>/dev/null)
+                fi
+                if [ -n "$SEQ" ] && [ "$SEQ" != "null" ]; then
+                    FRIDA_PORT=$((10000 + SEQ))
+                    MITM_PORT=$((20000 + SEQ))
+                else
+                    FRIDA_PORT=""
+                    MITM_PORT=""
+                fi
+            fi
+
             # 프로세스 강제 종료
             pkill -9 -f "main.sh $DEV_ID"
             pkill -9 -f "monitor.sh $DEV_ID"
             pkill -9 -f "auto_reloader.py .* $DEV_ID"
             
-            # 포트 파싱 및 미트덤프/프리다 정리
-            FRIDA_PORT=$((6000 + $(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')))
-            MITM_PORT=$((FRIDA_PORT + 10000))
-            pkill -9 -f "mitmdump -p $MITM_PORT"
-            pkill -9 -f "frida -H localhost:$FRIDA_PORT"
+            if [ -n "$FRIDA_PORT" ]; then
+                pkill -9 -f "mitmdump -p $MITM_PORT"
+                pkill -9 -f "frida -H localhost:$FRIDA_PORT"
+                
+                # ADB 터널 및 프록시 설정 원복
+                timeout 10 adb -s "$DEV_ID" forward --remove tcp:"$FRIDA_PORT" 2>/dev/null
+                timeout 10 adb -s "$DEV_ID" reverse --remove tcp:"$MITM_PORT" 2>/dev/null
+            else
+                # 혹시라도 포트 조회가 실패한 비상 상황의 경우, 기기명을 인자로 갖는 mitmdump 등을 킬
+                pkill -9 -f "mitmdump .* $DEV_ID"
+            fi
             
-            # ADB 터널 및 프록시 설정 원복, 앱 강제종료
-            timeout 10 adb -s "$DEV_ID" forward --remove tcp:"$FRIDA_PORT" 2>/dev/null
-            timeout 10 adb -s "$DEV_ID" reverse --remove tcp:"$MITM_PORT" 2>/dev/null
             timeout 10 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
             timeout 10 adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
             
@@ -183,7 +208,18 @@ while true; do
 
         TASK_ID=$(echo "$RESPONSE" | jq -r '.task_id')
         DEST_NAME=$(echo "$RESPONSE" | jq -r '.destination.target_name')
-        FRIDA_PORT=$((6000 + $(echo "$DEV_ID" | cksum | awk '{print $1 % 1000}')))
+        DEVICE_SEQ=$(echo "$RESPONSE" | jq -r '.device_seq')
+
+        # =================================================================================
+        # [포트 할당 설계 원칙 - 절대 수정 및 롤백 금지]
+        # - device_seq는 DB 서버에서 각 device_id에 1:1로 할당되어 절대 변하지 않는 고유 Sequence ID입니다.
+        # - FRIDA_PORT = 10000 + device_seq
+        # - MITM_PORT = 20000 + device_seq
+        # - 이 정적 매핑 방식은 전체 인프라(수십 대의 PC, 수백 대의 폰)에서 포트 충돌 가능성이 0%입니다.
+        # - 이전의 cksum 해시 방식(6000 + cksum % 1000)은 해시 충돌(예: R3CR70M3FZH와 R3CRB0ETRZJ 충돌)로 인해
+        #   서로의 프로세스를 강제 종료(pkill)시키는 무한 재시작 루프가 발생하였으므로 절대 롤백하지 마십시오.
+        # =================================================================================
+        FRIDA_PORT=$((10000 + DEVICE_SEQ))
         
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
 
@@ -191,7 +227,8 @@ while true; do
         mkdir -p "logs/${DEV_ID}/tmp"
 
         # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
-        echo "{\"status\": \"ALLOCATED\", \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
+        # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
+        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
 
         # Pass ALL variables directly to the engine
         NMAP_BIND_IP="$BIND_IP" \
