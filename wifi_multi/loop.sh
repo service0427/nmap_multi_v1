@@ -8,6 +8,7 @@ MANUAL_COUNTS=(5 5 5 5)
 # --- [CACHING] ---
 declare -A SSID_CACHE
 declare -A DEVICE_MODEL_CACHE
+declare -A SUBNET_CACHE
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -38,6 +39,17 @@ get_device_ssid() {
         SSID=$(timeout 3 adb -s "$SERIAL" shell "dumpsys connectivity | grep -oE 'SSID: \"[^\"]+\"' | head -n 1" | cut -d'"' -f2 | tr -d '\r\n')
     fi
     echo "$SSID"
+}
+
+get_device_wifi_subnet() {
+    local SERIAL=$1
+    local IP=$(timeout 3 adb -s "$SERIAL" shell "ip route get 1.1.1.1 2>/dev/null" | grep -oE "src [0-9.]+" | awk '{print $2}')
+    if [ -z "$IP" ]; then
+        IP=$(timeout 3 adb -s "$SERIAL" shell "ip addr show wlan0 2>/dev/null" | grep -oE 'inet [0-9./]+' | head -n 1 | awk '{print $2}' | cut -d/ -f1)
+    fi
+    if [ -n "$IP" ]; then
+        echo "$IP" | cut -d. -f3
+    fi
 }
 
 while true; do
@@ -153,48 +165,34 @@ while true; do
             fi
         fi
 
-        # 2. Get Wi-Fi SSID with caching to prevent excessive adb queries
-        SSID="${SSID_CACHE[$DEV_ID]}"
-        if [ -z "$SSID" ]; then
-            SSID=$(get_device_ssid "$DEV_ID")
-            if [ -n "$SSID" ]; then
-                SSID_CACHE["$DEV_ID"]="$SSID"
-                echo "[DYNAMICS] [$DEV_ID] Cached SSID: $SSID"
+        # 2. Get Wi-Fi IP Subnet with caching to prevent excessive adb queries
+        SUBNET_IDX="${SUBNET_CACHE[$DEV_ID]}"
+        if [ -z "$SUBNET_IDX" ]; then
+            SUBNET_IDX=$(get_device_wifi_subnet "$DEV_ID")
+            if [ -n "$SUBNET_IDX" ]; then
+                SUBNET_CACHE["$DEV_ID"]="$SUBNET_IDX"
+                echo "[DYNAMICS] [$DEV_ID] Cached Wi-Fi IP Subnet: 192.168.${SUBNET_IDX}.x"
             fi
         fi
         
-        SSID_SUFFIX=$(echo "$SSID" | grep -oE "[0-9]{2}$")
-        if [ -n "$SSID_SUFFIX" ]; then
-            MODEM_IDX=$SSID_SUFFIX
+        # 3. Map Wi-Fi IP Subnet to Modem interface (e.g. 192.168.11.x -> lte11)
+        if [ -n "$SUBNET_IDX" ]; then
+            MODEM_IDX=$SUBNET_IDX
             modem_idx_offset=$((MODEM_IDX - 11))
             if [ "$modem_idx_offset" -ge 0 ] && [ "$modem_idx_offset" -lt "${#MANUAL_COUNTS[@]}" ]; then
                 BIND_IP="${IP_LIST[$modem_idx_offset]}"
                 if [ -n "$BIND_IP" ]; then
-                    echo "[DYNAMICS] [$DEV_ID] Matched SSID '$SSID' to Modem lte$MODEM_IDX"
+                    echo "[DYNAMICS] [$DEV_ID] Matched IP Subnet '192.168.${SUBNET_IDX}.x' to Modem lte$MODEM_IDX ($BIND_IP)"
                 fi
             fi
         fi
 
-        # --- Fallback to Manual Assignment Logic ---
+        # --- Strict Safety Gate: Prevent execution if mapping fails (NO FALLBACK) ---
         if [ -z "$BIND_IP" ]; then
-            current_sum=0
-            for i in "${!MANUAL_COUNTS[@]}"; do
-                current_sum=$((current_sum + MANUAL_COUNTS[i]))
-                if [ "$DEV_INDEX" -lt "$current_sum" ]; then
-                    MODEM_IDX=$((11 + i))
-                    BIND_IP="${IP_LIST[$i]}"
-                    break
-                fi
-            done
-            echo "[FALLBACK] [$DEV_ID] No SSID match. Using index-based Modem lte$MODEM_IDX"
-        fi
-
-        if [ -z "$BIND_IP" ]; then
-            if [ -n "$MODEM_IDX" ]; then
-                echo "[!] Skipping $DEV_ID: Modem lte$MODEM_IDX not ready (No IP)."
-            else
-                echo "[!] Skipping $DEV_ID: All modem slots are full (Active count: $DEV_INDEX)."
-            fi
+            # Clear cache in case the device changed Wi-Fi AP
+            unset "SUBNET_CACHE[$DEV_ID]"
+            SSID=$(get_device_ssid "$DEV_ID")
+            echo "[⚠️] [$DEV_ID] SKIPPED: Wi-Fi IP subnet ($SUBNET_IDX) has no active matching modem. (SSID: $SSID)"
             continue
         fi
 
