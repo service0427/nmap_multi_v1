@@ -354,7 +354,9 @@ while true; do
                         touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
-                    echo "[$(NOW)] [Action] GOAL REACHED. EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."
+                    echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
+                    sleep 10
+                    echo "[$(NOW)] [Action] EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."
                     ACTUAL_DIST=0; ACTUAL_TIME=0
                     for f in $(ls -1v "$ABS_LOG_DIR"/*_trafficjam_log.json 2>/dev/null); do
                         DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
