@@ -168,15 +168,26 @@ else
         done
         echo -e "========================================================================="
         
-        read -p "Select device number(s) (e.g., 0, 1, 1,3) [Default: 0]: " dev_selection < /dev/tty
+        read -p "Select device number(s) (e.g., 0, 1-10, 1,3,9-12) [Default: 0]: " dev_selection < /dev/tty
         if [[ "$dev_selection" == "0" ]] || [ -z "$dev_selection" ]; then
             devices_to_process=("${all_devices[@]}")
         else
             IFS=', ' read -ra ADDR <<< "$dev_selection"
-            for i in "${ADDR[@]}"; do
-                idx=$((i-1))
-                if [ $idx -ge 0 ] && [ $idx -lt ${#all_devices[@]} ]; then
-                    devices_to_process+=("${all_devices[$idx]}")
+            for part in "${ADDR[@]}"; do
+                if [[ "$part" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+                    start=${BASH_REMATCH[1]}
+                    end=${BASH_REMATCH[2]}
+                    for ((j=start; j<=end; j++)); do
+                        idx=$((j-1))
+                        if [ $idx -ge 0 ] && [ $idx -lt ${#all_devices[@]} ]; then
+                            devices_to_process+=("${all_devices[$idx]}")
+                        fi
+                    done
+                elif [[ "$part" =~ ^[0-9]+$ ]]; then
+                    idx=$((part-1))
+                    if [ $idx -ge 0 ] && [ $idx -lt ${#all_devices[@]} ]; then
+                        devices_to_process+=("${all_devices[$idx]}")
+                    fi
                 fi
             done
         fi
