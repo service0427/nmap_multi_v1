@@ -3,7 +3,8 @@
 echo -e "\033[0;34m   🚀 LTE Multi-Proxy Infrastructure Master Installer\033[0m"
 
 if [ "$EUID" -ne 0 ]; then
-  echo -e "\033[1;33m[!] Warning: Not running as root. Some commands might fail without sudo privileges.\033[0m"
+  echo -e "\033[1;31m[❌] Error: This script must be run with sudo or as root. Exiting...\033[0m"
+  exit 1
 fi
 
 # 1. Install Dependencies
