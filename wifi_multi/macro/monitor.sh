@@ -172,7 +172,7 @@ check_app_survival() {
 
     # 3. Packet-File Silence Kill (Global Check for Frida/App Health)
     # 개별 요청 JSON 파일들이 새로 생성되고 있는지 숫자로 체크
-    CUR_JSON_COUNT=$(ls -1 "$ABS_LOG_DIR"/*.json 2>/dev/null | wc -l)
+    CUR_JSON_COUNT=$(ls -1 "$ABS_LOG_DIR"/*.json 2>/dev/null | grep -v -E "heartbeat|location|sdk_log|log_batch|geojson|metadata|my_notices|weather" | wc -l)
     if [ $CUR_JSON_COUNT -gt $LAST_JSON_COUNT ]; then
         STUCK_COUNT=0; LAST_JSON_COUNT=$CUR_JSON_COUNT
     else

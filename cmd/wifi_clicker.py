@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 def handle_wifi_dialog(device_id):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    dev_tmp_dir = os.path.join(script_dir, "..", "logs", device_id, "tmp")
+    dev_tmp_dir = os.path.join(script_dir, "..", "wifi_multi", "logs", device_id, "tmp")
     os.makedirs(dev_tmp_dir, exist_ok=True)
     temp_xml = os.path.join(dev_tmp_dir, f"wifi_ui_{device_id}.xml")
     
