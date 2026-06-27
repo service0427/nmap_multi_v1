@@ -189,10 +189,12 @@ while true; do
         NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
         NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
         NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
+        NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token') \
         NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
         NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
         NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
         NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
+        NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
         
         DEV_INDEX=$((DEV_INDEX + 1))
