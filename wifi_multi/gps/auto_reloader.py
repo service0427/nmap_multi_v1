@@ -207,11 +207,11 @@ def main(log_dir, device_id):
                             flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
                             log_print(f"[⏳] Waiting for Guidance Start click (checking flag: {flag_path})...")
                             
-                            # Timeout to prevent infinite hang if click fails (max 20s)
+                            # Timeout to prevent infinite hang if click fails (max 60s)
                             wait_start = time.time()
                             while not os.path.exists(flag_path):
                                 time.sleep(0.5)
-                                if time.time() - wait_start > 20.0:
+                                if time.time() - wait_start > 60.0:
                                     log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
                                     break
                             
@@ -287,6 +287,14 @@ def main(log_dir, device_id):
 
                     if remaining_dist < 0.03:
                         log_print("[✨] Destination reached. Transitioning to FORCED_FINISH.")
+                        # [Self-Healing] Inject virtual routeend to events.log to prevent 15-minute hangs if proxy misses the packet
+                        try:
+                            events_path = os.path.join(log_dir, "events.log")
+                            with open(events_path, "a", encoding="utf-8") as ef:
+                                ef.write(f"[{datetime.datetime.now().strftime('%H:%M:%S.%3N')}] [screenview] routeend\n")
+                            log_print("[✓] Self-Healed: Injected virtual routeend event to events.log")
+                        except Exception as ee:
+                            log_print(f"[!] Failed to inject virtual routeend: {ee}")
                         drive_state = "FORCED_FINISH"
                         time.sleep(30)
                 else:
