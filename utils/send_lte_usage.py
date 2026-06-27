@@ -183,13 +183,15 @@ def recover_modem(interface):
         print(f"[RECOVERY] Single port unbind/bind command executed successfully.")
         time.sleep(5)
         
-    # 4. Run dynamic lte-sync to restore interface names and routing
-    try:
-        print(f"[RECOVERY] Running lte-sync to restore interface routing and names...")
-        subprocess.run(["sudo", "/usr/local/bin/lte-sync"], timeout=30)
-        print(f"[RECOVERY] lte-sync run completed.")
-    except Exception as e:
-        print(f"[RECOVERY] Failed to run lte-sync: {e}")
+    # 4. Run dynamic lte-sync in a loop to restore interface names and routing
+    print(f"[RECOVERY] Running lte-sync to restore interface routing and names (3 attempts)...")
+    for attempt in range(3):
+        time.sleep(5)  # Wait for kernel to initialize device and DHCP lease
+        try:
+            print(f"[RECOVERY] lte-sync Attempt {attempt+1}/3...")
+            subprocess.run(["sudo", "/usr/local/bin/lte-sync"], timeout=30)
+        except Exception as e:
+            print(f"[RECOVERY] Failed to run lte-sync: {e}")
 
 def run_once():
     hostname = socket.gethostname()
