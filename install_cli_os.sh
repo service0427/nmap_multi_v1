@@ -157,6 +157,8 @@ if [ -d /etc/apt/apt.conf.d ]; then
     echo 'APT::Periodic::Update-Package-Lists "0";' | sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
     echo 'APT::Periodic::Unattended-Upgrade "0";' | sudo tee -a /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
     echo "  -> Automatic updates disabled in APT configs."
+fi
+
 # 9.6. USB Autosuspend (자동 절전) 비활성화 설정 (기기 오프라인 방지)
 echo "[*] Disabling USB Autosuspend (To prevent devices from going offline)..."
 # 1) GRUB 커널 부팅 파라미터 등록 (재부팅 후에도 영구 적용)
