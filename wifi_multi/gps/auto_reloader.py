@@ -45,10 +45,10 @@ def get_su_cmd(device_id):
     return "su"
 
 def get_current_mock_location(device_id):
-    cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last location=Location\\[.* [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
+    cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last location=Location\\[(gps|fused|test) [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
     res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
     if not res:
-        cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last mock location=Location\\[.* [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
+        cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last mock location=Location\\[(gps|fused|test) [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
         res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
     try:
         content = res.split("[")[1].split("]")[0]
@@ -211,7 +211,7 @@ def main(log_dir, device_id):
                             wait_start = time.time()
                             while not os.path.exists(flag_path):
                                 time.sleep(0.5)
-                                if time.time() - wait_start > 60.0:
+                                if time.time() - wait_start > 30.0:
                                     log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
                                     break
                             
@@ -230,6 +230,12 @@ def main(log_dir, device_id):
                                 sys.exit(1)
  
             elif drive_state == "MONITORING":
+                if safety_stage == 1:
+                    # Wobble GPS slightly to wake up Naver Map's location listener at the destination
+                    wobble_lat = coords_list[-1][0] + random.uniform(-0.00008, 0.00008)
+                    wobble_lng = coords_list[-1][1] + random.uniform(-0.00008, 0.00008)
+                    move_gps_to_target(device_id, wobble_lat, wobble_lng)
+                
                 cur_lat, cur_lng = get_current_mock_location(device_id)
                 if cur_lat and coords_list:
                     gps_fail_count = 0
