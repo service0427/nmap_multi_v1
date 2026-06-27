@@ -21,6 +21,15 @@ source "$BASE_DIR/device_init/modules/app_installation.sh"
 source "$BASE_DIR/device_init/modules/mitm_recovery.sh"
 source "$BASE_DIR/device_init/modules/touch_protection.sh"
 
+# Verify host PC naming convention (P01~P20 / M01~M50)
+HOST_NAME=$(hostname 2>/dev/null | tr -d '\r\n')
+if [ -n "$HOST_NAME" ]; then
+    if [[ ! "$HOST_NAME" =~ ^(P(0[1-9]|1[0-9]|20)|M(0[1-9]|[1-4][0-9]|50))$ ]]; then
+        echo -e "\e[1;33m[⚠️] Warning: Current host name '$HOST_NAME' does not match the new convention (P01~P20 / M01~M50).\e[0m"
+        echo -e "    - Recommended Host Name format: English uppercase letter + 2 digits (e.g. P01, M05)"
+    fi
+fi
+
 # Get target device from argument (optional)
 TARGET_DEVICE=$1
 
