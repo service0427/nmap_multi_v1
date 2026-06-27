@@ -248,7 +248,7 @@ def main(log_dir, device_id):
                             last_remaining_dist = remaining_dist
                         
                         dist_diff = last_remaining_dist - remaining_dist
-                        if dist_diff < 0.01: # less than 10m
+                        if 0.0 <= dist_diff < 0.01: # less than 10m
                             stuck_count += 1
                             log_print(f"[⏳] Stuck warning: progress {dist_diff*1000:.1f}m < 10m. Stuck count: {stuck_count}/9")
                             # Self-healing: 30s stuck -> teleport to end
