@@ -155,6 +155,8 @@ def main(log_dir, device_id):
     stuck_count = 0
     gps_fail_count = 0
     safety_stage = 0 # 0: Normal, 1: GPS Moved, 2: Finished
+    slowdown_applied = False
+    final_badge_speed = 0.0
     
     log_print(f"============================================================")
     log_print(f"[*] [Auto-Reloader V7.7] Sequential Safety Monitor Started")
@@ -247,6 +249,13 @@ def main(log_dir, device_id):
                             min_err = err; start_idx = i
                     remaining_dist = RouteDecoder.calculate_distance(coords_list[start_idx:])
                     log_print(f"[🛣️] Progress: {remaining_dist:.2f} km remaining | Time: {elapsed}s / {total_target_sec}s")
+                    
+                    # Proactive Slowdown near Destination (<500m) for high-speed runs (>100 km/h)
+                    if final_badge_speed > 100.0 and remaining_dist < 0.5 and not slowdown_applied:
+                        slowdown_speed = random.randint(30, 50)
+                        log_print(f"[⚙️] Proactive Slowdown near Destination (<500m): Speed reduced from {final_badge_speed} to {slowdown_speed} km/h")
+                        set_simulator_speed(device_id, slowdown_speed)
+                        slowdown_applied = True
                     
                     # Stuck Detection Logic
                     if remaining_dist > 0.0:
