@@ -231,7 +231,8 @@ while true; do
         # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
         echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
 
-        # Pass ALL variables directly to the engine
+        # [Security Warning] NMAP_ORIG_TOKEN and NMAP_ID_TOKEN are crucial for identity washing.
+        # Ensure these are passed properly to prevent raw tracking token leaks.
         NMAP_BIND_IP="$BIND_IP" \
         NMAP_API_RESPONSE="$RESPONSE" \
         NMAP_TASK_ID="$TASK_ID" \
@@ -250,13 +251,11 @@ while true; do
         NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
         NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
         NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
-        # [Security] Original device tracking token (last part of nlog_id)
         NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token') \
         NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
         NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
         NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
         NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
-        # [Security] Spoofed tracking token for identity washing
         NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
         
