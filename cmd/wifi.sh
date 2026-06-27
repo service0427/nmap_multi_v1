@@ -59,7 +59,7 @@ if [ -z "$TARGET_SSID" ]; then
     wait
     sleep 5
 
-    # Gather all unique SSIDs starting with "Moon" or "U26-" from all scanning devices
+    # Gather all unique SSIDs starting with "Moon" or ending with "-11" to "-20" from all scanning devices
     ssids=()
     raw_ssids=""
     for serial in "${scanners[@]}"; do
@@ -80,11 +80,11 @@ if [ -z "$TARGET_SSID" ]; then
         if [ -n "$ssid" ] && [ "$ssid" != "SSID" ] && [ "$ssid" != "null" ]; then
             ssids+=("$ssid")
         fi
-    done < <(echo "$raw_ssids" | sort -u | grep -E '^(Moon|U26-)')
+    done < <(echo "$raw_ssids" | sort -u | grep -E 'Moon|-(11|12|13|14|15|16|17|18|19|20)$')
 
     num_ssids=${#ssids[@]}
     if [ $num_ssids -eq 0 ]; then
-        echo "No matching Wi-Fi networks (starting with Moon or U26-) found."
+        echo "No matching Wi-Fi networks (starting with Moon or ending with -11 to -20) found."
         exit 0
     fi
 
