@@ -10,7 +10,30 @@ import sys
 import time
 import os
 
-API_URL = "http://114.207.112.245:8010/api/v1/lte_usage"
+def load_config():
+    config = {
+        "API_SERVER": "114.207.112.245:8011"
+    }
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(os.path.dirname(script_dir), "wifi_multi", "config.conf")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    match = re.match(r'^(\w+)\s*=\s*["\']?(.*?)["\']?$', line)
+                    if match:
+                        key, val = match.group(1), match.group(2)
+                        config[key] = val
+        except Exception:
+            pass
+    return config
+
+_config = load_config()
+API_SERVER = _config.get("API_SERVER", "114.207.112.245:8011")
+API_URL = f"http://{API_SERVER}/api/v1/lte_usage"
 
 def get_lte_interfaces():
     """Find all active lte interfaces and their subnets."""

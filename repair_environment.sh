@@ -24,6 +24,7 @@ sudo python3 -m pip install --ignore-installed \
     frida-tools \
     mitmproxy \
     requests \
+    huawei-lte-api \
     $PIP_BREAK_FLAGS
 
 # 2. Verify and Symlink

@@ -61,6 +61,8 @@ STUCK_COUNT=0
 IS_DRIVING=false
 POPUP_CHECKED=false
 LAST_UI_CHECK_TS=0
+LAST_HOME_CHECK_TS=0
+LAST_SURVIVAL_CHECK_TS=0
 
 # [NEW] Transition Timeout Variables
 NAVI_START_TS=0
@@ -89,8 +91,13 @@ check_app_survival() {
 
     # 2. Process Survival Check
     if [ $ELAPSED -gt 30 ]; then
-        if ! adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
-            echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
+        local NOW_SEC=$(date +%s)
+        local SEC_SINCE_SURVIVAL_CHECK=$(( NOW_SEC - LAST_SURVIVAL_CHECK_TS ))
+        if [ $SEC_SINCE_SURVIVAL_CHECK -ge 15 ]; then
+            LAST_SURVIVAL_CHECK_TS=$NOW_SEC
+            if ! adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
+                echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
+            fi
         fi
     fi
 
@@ -150,20 +157,25 @@ check_app_survival() {
 
     # [NEW] Proactive Popup Killer & UI Home screen detector if Home Screen is delayed
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
-        # Check UI to see if Home screen is already visible
-        adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_home_check.xml" >/dev/null 2>&1
-        local CHECK_XML
-        CHECK_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
-        if echo "$CHECK_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
-            echo "[$(NOW)] [✓] Home screen UI elements detected. Appending virtual home screenview."
-            if ! grep -q "home" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
-                echo "[screenview] home" >> "$ABS_LOG_DIR/events.log"
+        local NOW_SEC=$(date +%s)
+        local SEC_SINCE_HOME_CHECK=$(( NOW_SEC - LAST_HOME_CHECK_TS ))
+        if [ $SEC_SINCE_HOME_CHECK -ge 20 ]; then
+            LAST_HOME_CHECK_TS=$NOW_SEC
+            # Check UI to see if Home screen is already visible
+            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_home_check.xml" >/dev/null 2>&1
+            local CHECK_XML
+            CHECK_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
+            if echo "$CHECK_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
+                echo "[$(NOW)] [✓] Home screen UI elements detected. Appending virtual home screenview."
+                if ! grep -q "home" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+                    echo "[screenview] home" >> "$ABS_LOG_DIR/events.log"
+                fi
+            elif [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
+                echo "[$(NOW)] [?] Home screen delayed. Proactively checking for blocking popups..."
+                # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:DUMMY_POPUP_CHECK" "PopupCheck" >/dev/null 2>&1
+                POPUP_CHECKED=true
             fi
-        elif [ $ELAPSED -gt 15 ] && [ "$POPUP_CHECKED" = false ]; then
-            echo "[$(NOW)] [?] Home screen delayed. Proactively checking for blocking popups..."
-            # Call ui_clicker with a dummy query just to trigger check_and_dismiss_popups()
-            python3 macro/ui_clicker.py "$DEV_ID" "exact:DUMMY_POPUP_CHECK" "PopupCheck" >/dev/null 2>&1
-            POPUP_CHECKED=true
         fi
     fi
     

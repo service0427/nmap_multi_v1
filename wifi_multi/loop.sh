@@ -4,6 +4,7 @@
 
 # --- [CONFIGURATION] ---
 MANUAL_COUNTS=(5 5 5 5)
+API_SERVER="114.207.112.245:8011"
 
 # --- [CACHING] ---
 declare -A SSID_CACHE
@@ -15,14 +16,16 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR" || exit 1
 
 # Override configuration from external file if exists
-if [ -f "$SCRIPT_DIR/manual_counts.conf" ]; then
+if [ -f "$SCRIPT_DIR/config.conf" ]; then
+    source "$SCRIPT_DIR/config.conf"
+elif [ -f "$SCRIPT_DIR/manual_counts.conf" ]; then
     source "$SCRIPT_DIR/manual_counts.conf"
 fi
 
 export WIFI_MULTI_ROOT="$SCRIPT_DIR"
 export WIFI_MULTI_LOGS="$SCRIPT_DIR/logs"
 export WIFI_MULTI_LIB="$SCRIPT_DIR/lib"
-export API_SERVER="114.207.112.245:8010"
+export API_SERVER
 
 pkill -9 -f "main.sh"
 pkill -9 -f "mitmdump"

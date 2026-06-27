@@ -182,7 +182,7 @@ adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT
             echo " [$DEV_ID] [⚠️] ADB Reverse Tunnel dropped! Restoring..." >> "$EXEC_LOG"
             adb -s "$DEV_ID" reverse tcp:"$NMAP_MITM_PORT" tcp:"$NMAP_MITM_PORT" >/dev/null 2>&1
         fi
-        sleep 10
+        sleep 60
     done
 ) >/dev/null 2>&1 &
 WATCHDOG_PID=$!

@@ -86,7 +86,7 @@ sudo apt install -y git screen adb curl wget build-essential cron net-tools nano
 echo "[*] Installing Python3 and required libraries..."
 sudo apt install -y python3 python3-pip python3-dev python3-venv
 sudo python3 -m pip install --upgrade --ignore-installed pip --break-system-packages
-sudo python3 -m pip install --ignore-installed blackboxprotobuf flask frida-tools mitmproxy requests --break-system-packages
+sudo python3 -m pip install --ignore-installed blackboxprotobuf flask frida-tools mitmproxy requests huawei-lte-api --break-system-packages
 
 # [V1.2] Frida & Mitmproxy PATH 안정화 (심볼릭 링크 강제 생성)
 # 최신 OS에서 externally-managed-environment 에러 대응 및 PATH 누락 방지
@@ -157,7 +157,35 @@ if [ -d /etc/apt/apt.conf.d ]; then
     echo 'APT::Periodic::Update-Package-Lists "0";' | sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
     echo 'APT::Periodic::Unattended-Upgrade "0";' | sudo tee -a /etc/apt/apt.conf.d/20auto-upgrades >/dev/null
     echo "  -> Automatic updates disabled in APT configs."
+# 9.6. USB Autosuspend (자동 절전) 비활성화 설정 (기기 오프라인 방지)
+echo "[*] Disabling USB Autosuspend (To prevent devices from going offline)..."
+# 1) GRUB 커널 부팅 파라미터 등록 (재부팅 후에도 영구 적용)
+if [ -f /etc/default/grub ]; then
+    if ! grep -q "usbcore.autosuspend=-1" /etc/default/grub; then
+        sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="usbcore.autosuspend=-1 /' /etc/default/grub
+        sudo update-grub 2>/dev/null || echo "  -> [Warning] Failed to update-grub. Please run sudo update-grub manually."
+        echo "  -> Added usbcore.autosuspend=-1 to GRUB cmdline."
+    else
+        echo "  -> GRUB already has usbcore.autosuspend=-1."
+    fi
 fi
+
+# 2) udev 규칙 파일 생성 (기기 연결 시 전원 control을 'on'으로 상시 유지)
+UDEV_RULE_PATH="/etc/udev/rules.d/99-disable-usb-autosuspend.rules"
+if [ ! -f "$UDEV_RULE_PATH" ]; then
+    echo 'ACTION=="add", SUBSYSTEM=="usb", TEST=="power/control", ATTR{power/control}="on"' | sudo tee "$UDEV_RULE_PATH" >/dev/null
+    sudo udevadm control --reload-rules
+    echo "  -> Created permanent udev rule to disable USB autosuspend."
+else
+    echo "  -> udev rule already exists. Skipping."
+fi
+
+# 3) 현재 세션에 즉시 적용
+sudo sh -c 'echo -1 > /sys/module/usbcore/parameters/autosuspend' 2>/dev/null || true
+for dev in /sys/bus/usb/devices/*/power/control; do
+    echo "on" | sudo tee "$dev" >/dev/null 2>&1
+done
+echo "  -> USB Autosuspend disabled for active session."
 
 # 10. 설치 확인
 echo "============================================================"
