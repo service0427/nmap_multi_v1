@@ -26,7 +26,7 @@ for i in range(11, 21):
     iface = f"lte{i}"
     if os.path.exists(f"/sys/class/net/{iface}"):
         metric = 200 + i
-        table = 200 + i
+        table = i
         gw = f"192.168.{i}.1"
         
         # 기본 라우팅 제거 후 새 메트릭 추가
@@ -34,8 +34,8 @@ for i in range(11, 21):
         run(f"sudo ip route add default via {gw} dev {iface} metric {metric}")
         
         # 정책 라우팅 설정
-        run(f"sudo ip rule del from 192.168.{i}.0/24 table {table}")
-        run(f"sudo ip rule add from 192.168.{i}.0/24 table {table}")
+        run(f"sudo ip rule del from 192.168.{i}.0/24 table {table} priority 5209 2>/dev/null")
+        run(f"sudo ip rule add from 192.168.{i}.0/24 table {table} priority 5209")
         run(f"sudo ip route replace default via {gw} dev {iface} table {table}")
         
         print(f"✅ {iface} 설정 완료 (Metric: {metric})")

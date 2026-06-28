@@ -51,9 +51,9 @@ def configure_modems():
                 run(f"sudo ip route add default via {gw} dev {iface} metric {target_metric}")
 
                 # 정책 라우팅 (PBR) 적용: 특정 모뎀 고정 사용용
-                table_id = 200 + subnet
-                run(f"sudo ip rule del from 192.168.{subnet}.0/24 table {table_id} 2>/dev/null")
-                run(f"sudo ip rule add from 192.168.{subnet}.0/24 table {table_id}")
+                table_id = subnet
+                run(f"sudo ip rule del from 192.168.{subnet}.0/24 table {table_id} priority 5209 2>/dev/null")
+                run(f"sudo ip rule add from 192.168.{subnet}.0/24 table {table_id} priority 5209")
                 run(f"sudo ip route replace default via {gw} dev {iface} table {table_id}")
                 
                 print(f"✅ {iface} 설정 완료! (Metric: {target_metric}, PBR Table: {table_id})")

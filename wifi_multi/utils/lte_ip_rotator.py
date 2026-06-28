@@ -107,7 +107,77 @@ def get_next_rotation_ts():
     minutes = random.randint(MIN_ROTATION_MINUTES, MAX_ROTATION_MINUTES)
     return time.time() + (minutes * 60)
 
+def get_local_ip(interface):
+    try:
+        addr_info = subprocess.getoutput(f"ip -4 addr show {interface}")
+        match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', addr_info)
+        if match:
+            return match.group(1)
+    except:
+        pass
+    return None
+
+def ensure_ip_rules():
+    try:
+        rules_output = subprocess.getoutput("ip rule show")
+        interfaces = get_lte_interfaces()
+        
+        for name, subnet in interfaces:
+            local_ip = get_local_ip(name)
+            if not local_ip:
+                log(f"[{name}] No local IP found, skipping IP rule sync.")
+                continue
+            
+            table_name = f"lte{subnet}"
+            correct_rule_exists = False
+            rules_to_delete = []
+            
+            for line in rules_output.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(':', 1)
+                if len(parts) < 2:
+                    continue
+                try:
+                    priority = int(parts[0].strip())
+                except ValueError:
+                    continue
+                
+                rule_detail = parts[1].strip()
+                is_for_our_table = False
+                if f"lookup {table_name}" in rule_detail or f"table {table_name}" in rule_detail:
+                    is_for_our_table = True
+                elif f"lookup {subnet}" in rule_detail or f"table {subnet}" in rule_detail:
+                    is_for_our_table = True
+                
+                if is_for_our_table:
+                    ip_match = re.search(r'from ([0-9./]+)', rule_detail)
+                    if ip_match:
+                        rule_ip = ip_match.group(1)
+                        if rule_ip == local_ip:
+                            if priority < 5210:
+                                correct_rule_exists = True
+                            else:
+                                rules_to_delete.append((priority, rule_ip))
+                        else:
+                            rules_to_delete.append((priority, rule_ip))
+            
+            for priority, ip_addr in rules_to_delete:
+                log(f"[{name}] Removing outdated IP rule: priority {priority} from {ip_addr} table {table_name}")
+                subprocess.run(["sudo", "ip", "rule", "del", "from", ip_addr, "table", table_name, "priority", str(priority)], stderr=subprocess.DEVNULL)
+                subprocess.run(["sudo", "ip", "rule", "del", "from", ip_addr, "table", str(subnet), "priority", str(priority)], stderr=subprocess.DEVNULL)
+            
+            if not correct_rule_exists:
+                log(f"[{name}] Adding IP rule: from {local_ip} table {table_name} priority 5209")
+                res = subprocess.run(["sudo", "ip", "rule", "add", "from", local_ip, "table", table_name, "priority", "5209"], capture_output=True, text=True)
+                if res.returncode != 0:
+                    subprocess.run(["sudo", "ip", "rule", "add", "from", local_ip, "table", str(subnet), "priority", "5209"])
+    except Exception as e:
+        log(f"Error in ensure_ip_rules: {e}")
+
 def run_rotation():
+    ensure_ip_rules()
     state = load_state()
     interfaces = get_lte_interfaces()
     
@@ -145,6 +215,9 @@ def main():
     log("Running initial routing setup...")
     subprocess.run(["sudo", "bash", f"{PROJECT_ROOT}/utils/lte_surgical_setup.sh"])
     
+    log("Running initial IP rules synchronization...")
+    ensure_ip_rules()
+    
     while True:
         try:
             run_rotation()
@@ -154,3 +227,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

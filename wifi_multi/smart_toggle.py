@@ -178,9 +178,38 @@ class SmartToggle:
                     diagnosis['external_reachable'] = True
                     diagnosis['current_ip'] = "0.0.0.0"
                 
-                # 라우팅과 IP 룰, SOCKS5는 기본적으로 존재하는 것으로 가정 (99% 정상 경로 우선)
-                diagnosis['routing_exists'] = True
-                diagnosis['ip_rule_exists'] = True
+                # Check if routing and ip rules exist in the kernel locally (very fast)
+                routing_exists = False
+                try:
+                    res_route = subprocess.run(f"ip route show table {self.routing_table} default", shell=True, capture_output=True, text=True, timeout=2)
+                    if "default via" in res_route.stdout:
+                        routing_exists = True
+                except:
+                    pass
+                
+                ip_rule_exists = False
+                local_ip = self.get_local_ip()
+                if local_ip:
+                    try:
+                        import re
+                        res_rule = subprocess.run("ip rule show", shell=True, capture_output=True, text=True, timeout=2)
+                        for line in res_rule.stdout.strip().split('\n'):
+                            if f"from {local_ip}" in line:
+                                if f"lookup {self.routing_table}" in line or f"lookup {self.subnet}" in line:
+                                    parts = line.strip().split(':', 1)
+                                    if len(parts) > 0:
+                                        try:
+                                            priority = int(parts[0].strip())
+                                            if priority < 5210:
+                                                ip_rule_exists = True
+                                                break
+                                        except ValueError:
+                                            pass
+                    except:
+                        pass
+                
+                diagnosis['routing_exists'] = routing_exists
+                diagnosis['ip_rule_exists'] = ip_rule_exists
                 diagnosis['socks5_service_active'] = True
                 diagnosis['socks5_issue'] = False
                 diagnosis['gateway_reachable'] = True
@@ -242,11 +271,44 @@ class SmartToggle:
             # IP rule 추가 (자동 감지된 테이블 사용)
             if not self.diagnosis.get('ip_rule_exists'):
                 local_ip = self.get_local_ip()
-                rule_src = local_ip if local_ip else f"192.168.{self.subnet}.0/24"
-                cmd = f"ip rule add from {rule_src} table {self.routing_table}"
-                result = subprocess.run(f"sudo {cmd}", shell=True, capture_output=True, text=True, timeout=10)
-                if result.returncode != 0 and "File exists" not in result.stderr:
-                    success = False
+                if local_ip:
+                    # Clean up outdated rules first
+                    try:
+                        import re
+                        rules_output = subprocess.check_output(["ip", "rule", "show"]).decode()
+                        for line in rules_output.strip().split('\n'):
+                            if f"lookup {self.routing_table}" in line or f"table {self.routing_table}" in line or f"lookup {self.subnet}" in line or f"table {self.subnet}" in line:
+                                parts = line.split(':', 1)
+                                if len(parts) >= 2:
+                                    priority = parts[0].strip()
+                                    rule_detail = parts[1].strip()
+                                    ip_match = re.search(r'from ([0-9./]+)', rule_detail)
+                                    if ip_match:
+                                        rule_ip = ip_match.group(1)
+                                        if rule_ip != local_ip:
+                                            # Outdated rule, delete it
+                                            subprocess.run(f"sudo ip rule del from {rule_ip} table {self.routing_table} priority {priority}", shell=True, stderr=subprocess.DEVNULL)
+                                            subprocess.run(f"sudo ip rule del from {rule_ip} table {self.subnet} priority {priority}", shell=True, stderr=subprocess.DEVNULL)
+                    except:
+                        pass
+                    
+                    cmd = f"ip rule add from {local_ip} table {self.routing_table} priority 5209"
+                    result = subprocess.run(f"sudo {cmd}", shell=True, capture_output=True, text=True, timeout=10)
+                    if result.returncode != 0 and "File exists" not in result.stderr:
+                        # try with subnet number
+                        cmd_alt = f"ip rule add from {local_ip} table {self.subnet} priority 5209"
+                        res_alt = subprocess.run(f"sudo {cmd_alt}", shell=True, capture_output=True, text=True, timeout=10)
+                        if res_alt.returncode != 0 and "File exists" not in res_alt.stderr:
+                            success = False
+                else:
+                    rule_src = f"192.168.{self.subnet}.0/24"
+                    cmd = f"ip rule add from {rule_src} table {self.routing_table} priority 5209"
+                    result = subprocess.run(f"sudo {cmd}", shell=True, capture_output=True, text=True, timeout=10)
+                    if result.returncode != 0 and "File exists" not in result.stderr:
+                        cmd_alt = f"ip rule add from {rule_src} table {self.subnet} priority 5209"
+                        res_alt = subprocess.run(f"sudo {cmd_alt}", shell=True, capture_output=True, text=True, timeout=10)
+                        if res_alt.returncode != 0 and "File exists" not in res_alt.stderr:
+                            success = False
             
             if success:
                 # 3초 대기 후 연결 테스트
@@ -416,14 +478,6 @@ class SmartToggle:
     def usb_reset(self):
         """3단계: USB unbind/bind"""
         try:
-            # USB 매핑 로드
-            with open(MAPPING_FILE, 'r') as f:
-                mapping = json.load(f)
-            
-            device_info = mapping.get(str(self.subnet))
-            if not device_info:
-                return False
-            
             interface = self.diagnosis.get('interface')
             if not interface:
                 return False
@@ -436,13 +490,22 @@ class SmartToggle:
             if not usb_path:
                 return False
             
-            # USB 매핑 업데이트
-            device_info['usb_path'] = usb_path
-            device_info['interface'] = interface
-            device_info['last_seen'] = datetime.now().isoformat()
-            
-            with open(MAPPING_FILE, 'w') as f:
-                json.dump(mapping, f, indent=2)
+            # USB 매핑 업데이트 (존재할 경우에만 수행)
+            if os.path.exists(MAPPING_FILE):
+                try:
+                    with open(MAPPING_FILE, 'r') as f:
+                        mapping = json.load(f)
+                    
+                    device_info = mapping.get(str(self.subnet))
+                    if device_info:
+                        device_info['usb_path'] = usb_path
+                        device_info['interface'] = interface
+                        device_info['last_seen'] = datetime.now().isoformat()
+                        
+                        with open(MAPPING_FILE, 'w') as f:
+                            json.dump(mapping, f, indent=2)
+                except Exception as me:
+                    sys.stderr.write(f"[{self.subnet}] Warning: Failed to update mapping file: {me}\n")
             
             # unbind
             subprocess.run(f"echo '{usb_path}' | sudo tee /sys/bus/usb/drivers/cdc_ether/unbind > /dev/null",
@@ -477,9 +540,14 @@ class SmartToggle:
     def power_cycle(self):
         """4단계: 전원 재시작 (개별 시도 후 실패 시 전체 허브 재시작)"""
         try:
+            power_script = "/home/proxy/scripts/power_control.sh"
+            if not os.path.exists(power_script):
+                sys.stderr.write(f"[{self.subnet}] Power control script {power_script} not found, skipping power cycle.\n")
+                return False
+                
             # 1차 시도: 개별 포트 재시작
-            result = subprocess.run(f"sudo /home/proxy/scripts/power_control.sh off {self.subnet}",
-                                  shell=True, capture_output=True, text=True, timeout=10)
+            result = subprocess.run(f"sudo {power_script} off {self.subnet}",
+                                   shell=True, capture_output=True, text=True, timeout=10)
             
             if result.returncode != 0:
                 # 개별 포트 제어 실패
@@ -488,8 +556,8 @@ class SmartToggle:
             else:
                 time.sleep(5)
                 
-                result = subprocess.run(f"sudo /home/proxy/scripts/power_control.sh on {self.subnet}",
-                                      shell=True, capture_output=True, text=True, timeout=10)
+                result = subprocess.run(f"sudo {power_script} on {self.subnet}",
+                                       shell=True, capture_output=True, text=True, timeout=10)
                 
                 if result.returncode == 0:
                     # [안전 장치] 개별 포트 전원 ON 직후 인터페이스 이름 및 라우팅 복구 실행 (최대 3회 재시도)

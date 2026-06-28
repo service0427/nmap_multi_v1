@@ -64,7 +64,7 @@ for iface in $MODEM_IFACES; do
     [ "$SUBNET" -lt 11 ] || [ "$SUBNET" -gt 20 ] && continue
     
     TARGET_NAME="lte$SUBNET"
-    TABLE_ID="2$SUBNET" # Table ID aligned with lte_manager.py (211 ~ 220)
+    TABLE_ID="$SUBNET" # Table ID aligned with lte-sync and rt_tables (11 ~ 20)
     
     # Rename if needed
     if [ "$iface" != "$TARGET_NAME" ]; then
@@ -77,8 +77,10 @@ for iface in $MODEM_IFACES; do
     # Apply Routing strictly to this IP
     echo "Routing: Mapping $IP to Table $TABLE_ID via $TARGET_NAME"
     sudo ip route replace default via 192.168.$SUBNET.1 dev "$TARGET_NAME" table "$TABLE_ID"
-    sudo ip rule add from "$IP" table "$TABLE_ID" priority "$TABLE_ID" 2>/dev/null || true
-    sudo ip rule add from 192.168.$SUBNET.0/24 table "$TABLE_ID" priority "$TABLE_ID" 2>/dev/null || true
+    sudo ip rule del from "$IP" table "$TABLE_ID" priority 5209 2>/dev/null || true
+    sudo ip rule add from "$IP" table "$TABLE_ID" priority 5209 2>/dev/null || true
+    sudo ip rule del from 192.168.$SUBNET.0/24 table "$TABLE_ID" priority 5209 2>/dev/null || true
+    sudo ip rule add from 192.168.$SUBNET.0/24 table "$TABLE_ID" priority 5209 2>/dev/null || true
 done
 
 sudo ip rule add from all lookup main priority 32766 2>/dev/null || true
