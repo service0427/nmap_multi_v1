@@ -38,7 +38,8 @@ def get_adb_processes():
     return processes
 
 def sync_adb_keys():
-    """Ensures that the tech user's adb keys match root's keys so authorization is preserved."""
+    """Ensures that the tech user's adb keys match root's keys so authorization is preserved.
+    [V1.1.2] Improved to bypass tech user's read permission barrier over /root directory via sudo test."""
     try:
         root_key = os.path.join(ROOT_ANDROID_DIR, "adbkey")
         root_pub = os.path.join(ROOT_ANDROID_DIR, "adbkey.pub")
@@ -49,24 +50,21 @@ def sync_adb_keys():
             os.makedirs(TECH_ANDROID_DIR, exist_ok=True)
             log("INFO", f"Created directory: {TECH_ANDROID_DIR}")
 
-        updated = False
-        # If root key exists, make sure tech key matches root key
-        if os.path.exists(root_key):
-            # Check if tech key matches root key in size/existence
-            if not os.path.exists(tech_key) or os.path.getsize(tech_key) != os.path.getsize(root_key):
-                log("WARNING", "Tech adbkey differs from root adbkey. Copying...")
-                # Use sudo to copy root keys since they are owned by root and readable only by root/group
-                subprocess.run(["sudo", "cp", root_key, tech_key], check=True)
-                subprocess.run(["sudo", "cp", root_pub, tech_pub], check=True)
-                updated = True
+        # Check if root key exists using sudo test (bypasses tech's read permission restriction on /root)
+        res = subprocess.run(["sudo", "test", "-f", root_key], stderr=subprocess.DEVNULL)
+        if res.returncode == 0:
+            # Force copy via sudo to bypass local os.path permission blocks and ensure synchronization
+            log("INFO", "Root adbkey exists. Force synchronizing keys via sudo copy...")
+            subprocess.run(["sudo", "cp", root_key, tech_key], check=True)
+            subprocess.run(["sudo", "cp", root_pub, tech_pub], check=True)
 
         # Correct permissions and ownership
-        if os.path.exists(tech_key):
+        res_tech = subprocess.run(["test", "-f", tech_key], stderr=subprocess.DEVNULL)
+        if res_tech.returncode == 0:
             subprocess.run(["sudo", "chown", f"{TECH_USER}:{TECH_USER}", tech_key, tech_pub], check=True)
             subprocess.run(["chmod", "600", tech_key], check=True)
             subprocess.run(["chmod", "644", tech_pub], check=True)
-            if updated:
-                log("INFO", "Successfully copied and configured root adb keys for tech user.")
+            log("INFO", "Successfully synchronized and configured adb keys for tech user.")
     except Exception as e:
         log("ERROR", f"Failed to synchronize adb keys: {e}")
 
