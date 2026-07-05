@@ -165,6 +165,18 @@ else
 fi
 
 # 3. Golden Template
+# [NEW] Clear App Data and Grant Permissions before applying Golden Template
+echo " [$DEV_ID] [🧹] Clearing Naver Map app data (pm clear)..."
+adb -s "$DEV_ID" shell pm clear com.nhn.android.nmap >/dev/null 2>&1
+
+echo " [$DEV_ID] [🛡️] Granting location & system permissions..."
+adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_FINE_LOCATION >/dev/null 2>&1
+adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_COARSE_LOCATION >/dev/null 2>&1
+adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.READ_PHONE_STATE >/dev/null 2>&1
+adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
+adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.RECORD_AUDIO >/dev/null 2>&1
+sleep 1
+
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
 [ -z "$APP_UID" ] && APP_UID="root"
 ./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ORIG_SSAID"
@@ -240,8 +252,21 @@ while true; do
     # 1. Check if monitor.sh finished
     kill -0 $MONITOR_PID 2>/dev/null || cleanup "Task Completed"
     
-    # 2. Check if Naver Map app is still running
-    if ! adb -s "$DEV_ID" shell pidof com.nhn.android.nmap >/dev/null 2>&1; then
+    # 2. Check if Naver Map app is still running (Robust check against transient ADB/USB drops)
+    local APP_RUNNING=false
+    if ! adb devices | grep -q -w "$DEV_ID"; then
+        # Device is temporarily disconnected/offline. Assume the app is still running to prevent false kill.
+        APP_RUNNING=true
+    else
+        for r in {1..3}; do
+            if adb -s "$DEV_ID" shell pidof com.nhn.android.nmap >/dev/null 2>&1; then
+                APP_RUNNING=true
+                break
+            fi
+            sleep 1
+        done
+    fi
+    if [ "$APP_RUNNING" = false ]; then
         cleanup "App Closed"
     fi
     

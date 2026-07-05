@@ -82,6 +82,16 @@ else
     echo "[!] wifi_multi/utils/lte_ip_rotator.py not found. Skipping."
 fi
 
+# 4.6.5 Register ADB Recovery Monitor
+if [ -f "utils/adb_recovery_monitor.py" ]; then
+    echo "[*] Registering ADB Recovery Monitor..."
+    chmod +x utils/adb_recovery_monitor.py
+    pm2 delete adb-recovery-monitor 2>/dev/null
+    pm2 start utils/adb_recovery_monitor.py --name "adb-recovery-monitor" --interpreter python3
+else
+    echo "[!] utils/adb_recovery_monitor.py not found. Skipping."
+fi
+
 # 4.7 Restore Running Status
 if [ "$WIFI_STATUS" = "online" ]; then
     echo "[*] Restoring Wi-Fi Scheduler to online..."

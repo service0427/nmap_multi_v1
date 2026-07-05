@@ -89,13 +89,28 @@ check_app_survival() {
         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
     fi
 
-    # 2. Process Survival Check
+    # 2. Process Survival Check (Robust check against transient ADB/USB drops)
     if [ $ELAPSED -gt 30 ]; then
         local NOW_SEC=$(date +%s)
         local SEC_SINCE_SURVIVAL_CHECK=$(( NOW_SEC - LAST_SURVIVAL_CHECK_TS ))
         if [ $SEC_SINCE_SURVIVAL_CHECK -ge 15 ]; then
             LAST_SURVIVAL_CHECK_TS=$NOW_SEC
-            if ! adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
+            
+            local APP_RUNNING=false
+            if ! adb devices | grep -q -w "$DEV_ID"; then
+                # Device is temporarily disconnected/offline. Assume the app is still running to prevent false exit.
+                APP_RUNNING=true
+            else
+                for r in {1..3}; do
+                    if adb -s "$DEV_ID" shell pidof "$PKG_NAME" >/dev/null 2>&1; then
+                        APP_RUNNING=true
+                        break
+                    fi
+                    sleep 1
+                done
+            fi
+            
+            if [ "$APP_RUNNING" = false ]; then
                 echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
             fi
         fi

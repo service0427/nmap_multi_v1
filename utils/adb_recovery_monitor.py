@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+import subprocess
+import time
+import os
+import sys
+from datetime import datetime
+
+# Configuration
+CHECK_INTERVAL_SEC = 30  # 30 seconds
+ADB_TIMEOUT_SEC = 5
+TECH_USER = "tech"
+TECH_HOME = f"/home/{TECH_USER}"
+TECH_ANDROID_DIR = os.path.join(TECH_HOME, ".android")
+ROOT_ANDROID_DIR = "/root/.android"
+
+def log(level, message):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}", flush=True)
+
+def get_adb_processes():
+    """Returns a list of tuples (pid, user, cmd) for all adb processes."""
+    processes = []
+    try:
+        # Run ps to get pid, user, and command arguments
+        res = subprocess.run(["ps", "-Ao", "pid,user,args"], capture_output=True, text=True, check=True)
+        for line in res.stdout.strip().split("\n")[1:]:  # Skip header
+            parts = line.strip().split(None, 2)
+            if len(parts) >= 3:
+                pid, user, cmd = parts[0], parts[1], parts[2]
+                # Filter for processes containing 'adb' but exclude grep, ps, or this monitor itself
+                if "adb" in cmd and "grep" not in cmd and "adb_recovery_monitor" not in cmd:
+                    try:
+                        processes.append((int(pid), user, cmd))
+                    except ValueError:
+                        continue
+    except Exception as e:
+        log("ERROR", f"Failed to list processes: {e}")
+    return processes
+
+def sync_adb_keys():
+    """Ensures that the tech user's adb keys match root's keys so authorization is preserved."""
+    try:
+        root_key = os.path.join(ROOT_ANDROID_DIR, "adbkey")
+        root_pub = os.path.join(ROOT_ANDROID_DIR, "adbkey.pub")
+        tech_key = os.path.join(TECH_ANDROID_DIR, "adbkey")
+        tech_pub = os.path.join(TECH_ANDROID_DIR, "adbkey.pub")
+
+        if not os.path.exists(TECH_ANDROID_DIR):
+            os.makedirs(TECH_ANDROID_DIR, exist_ok=True)
+            log("INFO", f"Created directory: {TECH_ANDROID_DIR}")
+
+        updated = False
+        # If root key exists, make sure tech key matches root key
+        if os.path.exists(root_key):
+            # Check if tech key matches root key in size/existence
+            if not os.path.exists(tech_key) or os.path.getsize(tech_key) != os.path.getsize(root_key):
+                log("WARNING", "Tech adbkey differs from root adbkey. Copying...")
+                # Use sudo to copy root keys since they are owned by root and readable only by root/group
+                subprocess.run(["sudo", "cp", root_key, tech_key], check=True)
+                subprocess.run(["sudo", "cp", root_pub, tech_pub], check=True)
+                updated = True
+
+        # Correct permissions and ownership
+        if os.path.exists(tech_key):
+            subprocess.run(["sudo", "chown", f"{TECH_USER}:{TECH_USER}", tech_key, tech_pub], check=True)
+            subprocess.run(["chmod", "600", tech_key], check=True)
+            subprocess.run(["chmod", "644", tech_pub], check=True)
+            if updated:
+                log("INFO", "Successfully copied and configured root adb keys for tech user.")
+    except Exception as e:
+        log("ERROR", f"Failed to synchronize adb keys: {e}")
+
+def kill_processes(pids, use_sudo=False):
+    """Kills a list of PIDs."""
+    if not pids:
+        return
+    log("INFO", f"Killing processes (use_sudo={use_sudo}): {pids}")
+    cmd = ["sudo", "kill", "-9"] if use_sudo else ["kill", "-9"]
+    cmd.extend(str(pid) for pid in pids)
+    try:
+        subprocess.run(cmd, check=True)
+    except Exception as e:
+        log("ERROR", f"Failed to kill processes: {e}")
+
+def perform_recovery():
+    log("WARNING", "Initiating ADB Recovery...")
+    
+    # 1. Gather all adb processes
+    procs = get_adb_processes()
+    root_pids = [pid for pid, user, _ in procs if user == "root"]
+    tech_pids = [pid for pid, user, _ in procs if user == TECH_USER]
+
+    # 2. Kill root-owned processes
+    if root_pids:
+        log("INFO", f"Found {len(root_pids)} root-owned adb processes. Killing them...")
+        kill_processes(root_pids, use_sudo=True)
+
+    # 3. Kill tech-owned processes
+    if tech_pids:
+        log("INFO", f"Found {len(tech_pids)} tech-owned adb processes. Killing them...")
+        kill_processes(tech_pids, use_sudo=False)
+
+    # Clean killall safety just in case
+    try:
+        subprocess.run(["sudo", "killall", "-9", "adb"], stderr=subprocess.DEVNULL)
+        subprocess.run(["killall", "-9", "adb"], stderr=subprocess.DEVNULL)
+    except:
+        pass
+
+    # Wait a bit for sockets to free up
+    time.sleep(2)
+
+    # 4. Sync keys
+    sync_adb_keys()
+
+    # 5. Start adb server as tech
+    try:
+        log("INFO", "Starting adb server as tech user...")
+        # Explicitly run as tech
+        subprocess.run(["adb", "start-server"], check=True)
+    except Exception as e:
+        log("ERROR", f"Failed to start adb server: {e}")
+        return False
+
+    # 6. Verify
+    try:
+        res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            # Count connected devices
+            lines = res.stdout.strip().split("\n")
+            device_count = sum(1 for line in lines[1:] if line.strip() and not line.startswith("*"))
+            log("SUCCESS", f"ADB server recovered successfully. {device_count} devices attached.")
+            return True
+        else:
+            log("ERROR", f"ADB verification returned exit code {res.returncode}")
+            return False
+    except subprocess.TimeoutExpired:
+        log("ERROR", "ADB verification timed out during recovery validation.")
+        return False
+
+def check_adb_status():
+    """
+    Checks the adb server status.
+    Returns (is_ok, reason, device_count)
+    """
+    # 1. Check for root processes
+    procs = get_adb_processes()
+    root_procs = [p for p in procs if p[1] == "root"]
+    if root_procs:
+        return False, f"Root-owned adb process detected (PID: {root_procs[0][0]})", 0
+
+    # 2. Check for adb hanging
+    try:
+        res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=ADB_TIMEOUT_SEC)
+        if res.returncode != 0:
+            return False, f"adb devices failed with code {res.returncode}", 0
+        
+        # Parse device count
+        lines = res.stdout.strip().split("\n")
+        device_count = 0
+        unauthorized_count = 0
+        for line in lines[1:]:
+            line = line.strip()
+            if not line or line.startswith("*"):
+                continue
+            device_count += 1
+            if "unauthorized" in line:
+                unauthorized_count += 1
+
+        if unauthorized_count > 0 and unauthorized_count == device_count:
+            return False, f"All {device_count} connected devices are unauthorized", device_count
+            
+        return True, "OK", device_count
+
+    except subprocess.TimeoutExpired:
+        return False, "adb devices command timed out", 0
+    except Exception as e:
+        return False, f"adb check encountered error: {e}", 0
+
+def main():
+    log("INFO", "ADB Recovery Monitor Daemon started.")
+    
+    # Run an initial check and key sync
+    sync_adb_keys()
+    
+    while True:
+        try:
+            is_ok, reason, dev_count = check_adb_status()
+            if not is_ok:
+                log("ERROR", f"ADB issue detected: {reason}")
+                perform_recovery()
+            else:
+                log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
+        except Exception as e:
+            log("ERROR", f"Exception in main loop: {e}")
+            
+        time.sleep(CHECK_INTERVAL_SEC)
+
+if __name__ == "__main__":
+    main()

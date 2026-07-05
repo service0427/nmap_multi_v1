@@ -31,12 +31,29 @@ SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) - random.randint(60
 
 def smart_cleanse(obj):
     """Recursive identity washing using simple string/byte replacement.
-    [V2.0.9] Improved to prevent data structure corruption by checking ID length."""
+    [V2.0.9] Improved to prevent data structure corruption by checking ID length.
+    [V2.1.8] Auto-synthesizes realistic time values if pm clear resets them to 0."""
+    import time
+    current_ms = int(time.time() * 1000)
+    
     if isinstance(obj, dict):
+        # pm clear로 0 또는 비정상 범위의 작은 값이 유입된 경우 10~30일 전 타임스탬프로 위조 복원
+        def get_safe_init_ts(val):
+            if val < 100000000000: # 13자리 밀리초가 아닌 비정상 범위(0 등)
+                import random
+                return current_ms - random.randint(864000000, 2592000000)
+            return val
+
+        def get_safe_install_ts(val):
+            if val < 100000000: # 10자리 초 단위가 아닌 비정상 범위(0 등)
+                import random
+                return int(time.time()) - random.randint(86400, 2592000)
+            return val
+
         return {k: (v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
                    (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
-                   (v - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
-                   (v - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v))))) 
+                   (get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
+                   (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v))))) 
                 for k, v in obj.items()}
     elif isinstance(obj, list): return [smart_cleanse(i) for i in obj]
     elif isinstance(obj, str):
