@@ -136,44 +136,103 @@ def perform_recovery():
         log("ERROR", "ADB verification timed out during recovery validation.")
         return False
 
+RECOVERY_LOG_PATH = "/home/tech/nmap_multi_v1/adb_recovery.log"
+
+def write_recovery_log(event_type, details):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] [{event_type}] {details}\n"
+    try:
+        with open(RECOVERY_LOG_PATH, 'a') as f:
+            f.write(log_entry)
+        # Ensure tech user and others can write/read the log safely
+        os.chmod(RECOVERY_LOG_PATH, 0o666)
+    except Exception as e:
+        log("ERROR", f"Failed to write to adb_recovery.log: {e}")
+
+def get_usb_path_by_serial(serial):
+    base_dir = "/sys/bus/usb/devices"
+    if not os.path.exists(base_dir):
+        return None
+    try:
+        for d in os.listdir(base_dir):
+            serial_file = os.path.join(base_dir, d, "serial")
+            if os.path.exists(serial_file):
+                try:
+                    with open(serial_file, 'r') as f:
+                        if f.read().strip() == serial:
+                            return d
+                except Exception:
+                    pass
+    except Exception as e:
+        log("ERROR", f"Error scanning sysfs for serial {serial}: {e}")
+    return None
+
+def reset_usb_device(usb_path):
+    unbind_file = "/sys/bus/usb/drivers/usb/unbind"
+    log("INFO", f"Targeting USB port {usb_path} for unbind reset...")
+    try:
+        # Since monitor runs as tech, write via sudo tee
+        res = subprocess.run(
+            ["sudo", "tee", unbind_file],
+            input=usb_path.encode(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE
+        )
+        if res.returncode == 0:
+            log("INFO", f"Successfully sent unbind to {usb_path}")
+            return True
+        else:
+            log("ERROR", f"Unbind failed for {usb_path}: {res.stderr.decode().strip()}")
+    except Exception as e:
+        log("ERROR", f"Failed to execute unbind for {usb_path}: {e}")
+    return False
+
 def check_adb_status():
     """
     Checks the adb server status.
-    Returns (is_ok, reason, device_count)
+    Returns (is_ok, reason, unauthorized_serials, device_count)
     """
     # 1. Check for root processes
     procs = get_adb_processes()
     root_procs = [p for p in procs if p[1] == "root"]
     if root_procs:
-        return False, f"Root-owned adb process detected (PID: {root_procs[0][0]})", 0
+        return False, f"Root-owned adb process detected (PID: {root_procs[0][0]})", [], 0
 
     # 2. Check for adb hanging
     try:
         res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=ADB_TIMEOUT_SEC)
         if res.returncode != 0:
-            return False, f"adb devices failed with code {res.returncode}", 0
+            return False, f"adb devices failed with code {res.returncode}", [], 0
         
         # Parse device count
         lines = res.stdout.strip().split("\n")
         device_count = 0
-        unauthorized_count = 0
+        unauthorized_serials = []
         for line in lines[1:]:
             line = line.strip()
             if not line or line.startswith("*"):
                 continue
             device_count += 1
             if "unauthorized" in line:
-                unauthorized_count += 1
+                parts = line.split()
+                if parts:
+                    unauthorized_serials.append(parts[0])
 
-        if unauthorized_count > 0 and unauthorized_count == device_count:
-            return False, f"All {device_count} connected devices are unauthorized", device_count
+        if device_count > 0:
+            unauthorized_pct = len(unauthorized_serials) / device_count
+            if unauthorized_pct >= 0.20:
+                # 20% or more are unauthorized
+                return False, f"Global issue: {len(unauthorized_serials)}/{device_count} ({unauthorized_pct*100:.1f}%) devices are unauthorized", unauthorized_serials, device_count
+            elif len(unauthorized_serials) > 0:
+                # Less than 20% unauthorized
+                return False, f"Pinpoint issue: {len(unauthorized_serials)}/{device_count} devices are unauthorized", unauthorized_serials, device_count
             
-        return True, "OK", device_count
+        return True, "OK", [], device_count
 
     except subprocess.TimeoutExpired:
-        return False, "adb devices command timed out", 0
+        return False, "adb devices command timed out", [], 0
     except Exception as e:
-        return False, f"adb check encountered error: {e}", 0
+        return False, f"adb check encountered error: {e}", [], 0
 
 def main():
     log("INFO", "ADB Recovery Monitor Daemon started.")
@@ -183,10 +242,32 @@ def main():
     
     while True:
         try:
-            is_ok, reason, dev_count = check_adb_status()
+            is_ok, reason, unauthorized_serials, dev_count = check_adb_status()
             if not is_ok:
-                log("ERROR", f"ADB issue detected: {reason}")
-                perform_recovery()
+                log("WARNING", f"ADB issue detected: {reason}")
+                
+                # Check if it's a global issue or pinpoint issue
+                if reason.startswith("Pinpoint issue"):
+                    log("INFO", f"Handling pinpoint recovery for serials: {unauthorized_serials}")
+                    for serial in unauthorized_serials:
+                        usb_path = get_usb_path_by_serial(serial)
+                        if usb_path:
+                            log("INFO", f"Pinpoint reset for {serial} on USB path {usb_path}")
+                            success = reset_usb_device(usb_path)
+                            if success:
+                                write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset {serial} at USB {usb_path}")
+                            else:
+                                write_recovery_log("PINPOINT_FAILED", f"Failed reset {serial} at USB {usb_path}")
+                        else:
+                            log("WARNING", f"Could not find USB path for serial {serial}")
+                            write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
+                    # Wait a short while for devices to settle/re-authenticate
+                    time.sleep(10)
+                else:
+                    log("WARNING", "Handling global recovery (restarting ADB server)...")
+                    perform_recovery()
+                    write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
+                    time.sleep(10)
             else:
                 log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
         except Exception as e:
