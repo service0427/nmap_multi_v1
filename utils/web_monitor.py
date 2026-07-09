@@ -1073,6 +1073,8 @@ def get_device_diagnostics(serial):
             
     return info
 
+ORDER_FILE_PATH = "/home/tech/nmap_multi_v1/wifi_multi/config/device_order.json"
+
 def refresh_device_slots():
     global device_slots, MAX_SLOTS
     try:
@@ -1088,34 +1090,80 @@ def refresh_device_slots():
                 if p.startswith("model:"): model = p.split(":")[1]; break
             current_connected[serial] = model
 
-        # 1. Update existing slots
-        for i in range(MAX_SLOTS):
-            slot = device_slots[i]
-            if slot:
-                if slot["id"] in current_connected:
-                    slot["offline"] = False
-                    slot["model"] = current_connected[slot["id"]]
-                    # Update diagnostics
-                    diag = get_device_diagnostics(slot["id"])
-                    slot.update(diag)
-                    del current_connected[slot["id"]]
-                else:
-                    slot["offline"] = True
+        # Check if custom order config exists
+        order_list = []
+        if os.path.exists(ORDER_FILE_PATH):
+            try:
+                with open(ORDER_FILE_PATH, 'r') as f:
+                    order_list = json.load(f)
+            except:
+                pass
 
-        # 2. Assign new devices to empty or offline slots
-        for serial, model in current_connected.items():
-            # Find first None or Offline slot
-            assigned = False
-            for i in range(MAX_SLOTS):
-                if device_slots[i] is None or device_slots[i].get("offline"):
+        if order_list:
+            # Mode A: Custom Locked Order
+            # Append any newly connected devices that aren't defined in the order list
+            for serial in current_connected.keys():
+                if serial not in order_list:
+                    order_list.append(serial)
+
+            MAX_SLOTS = len(order_list)
+            while len(device_slots) < MAX_SLOTS:
+                device_slots.append(None)
+            if len(device_slots) > MAX_SLOTS:
+                device_slots = device_slots[:MAX_SLOTS]
+
+            for i, serial in enumerate(order_list):
+                if serial in current_connected:
                     diag = get_device_diagnostics(serial)
-                    device_slots[i] = {"id": serial, "model": model, "offline": False, **diag}
-                    assigned = True
-                    break
-            if not assigned:
-                diag = get_device_diagnostics(serial)
-                device_slots.append({"id": serial, "model": model, "offline": False, **diag})
-                MAX_SLOTS = len(device_slots)
+                    device_slots[i] = {
+                        "id": serial,
+                        "model": current_connected[serial],
+                        "offline": False,
+                        **diag
+                    }
+                else:
+                    # Device is offline but slot position is strictly preserved
+                    old_slot = device_slots[i]
+                    old_model = old_slot.get("model", "Unknown") if old_slot else "Unknown"
+                    device_slots[i] = {
+                        "id": serial,
+                        "model": old_model,
+                        "offline": True,
+                        "status": "OFFLINE",
+                        "ip": "N/A",
+                        "temp": "??",
+                        "battery": "??",
+                        "latest_log": "No Log",
+                        "current_task": None
+                    }
+        else:
+            # Mode B: Dynamic Auto Assignment (Existing style)
+            # 1. Update existing slots
+            for i in range(MAX_SLOTS):
+                slot = device_slots[i]
+                if slot:
+                    if slot["id"] in current_connected:
+                        slot["offline"] = False
+                        slot["model"] = current_connected[slot["id"]]
+                        diag = get_device_diagnostics(slot["id"])
+                        slot.update(diag)
+                        del current_connected[slot["id"]]
+                    else:
+                        slot["offline"] = True
+
+            # 2. Assign new devices to empty or offline slots
+            for serial, model in current_connected.items():
+                assigned = False
+                for i in range(MAX_SLOTS):
+                    if device_slots[i] is None or device_slots[i].get("offline"):
+                        diag = get_device_diagnostics(serial)
+                        device_slots[i] = {"id": serial, "model": model, "offline": False, **diag}
+                        assigned = True
+                        break
+                if not assigned:
+                    diag = get_device_diagnostics(serial)
+                    device_slots.append({"id": serial, "model": model, "offline": False, **diag})
+                    MAX_SLOTS = len(device_slots)
     except:
         pass
 
