@@ -195,6 +195,8 @@ HTML_TEMPLATE = """
                 <div class="header-buttons" id="header-btns-{{ i }}" style="display: {{ 'flex' if dev and not dev.offline else 'none' }};">
                     <button id="btn-mon-{{ i }}" onclick="toggleMonitor({{ i }})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                     <button onclick="unlockDevice({{ i }})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
+                    <button onclick="setThemeDevice({{ i }}, 'dark')" style="background: #37474F;" title="Force Dark Mode">🌙</button>
+                    <button onclick="setThemeDevice({{ i }}, 'light')" style="background: #FFB300; color: black;" title="Force Light Mode">☀️</button>
                     <button onclick="rebootDevice({{ i }})" style="background: #f44336;" title="Reboot">🔄</button>
                 </div>
             </div>
@@ -429,6 +431,12 @@ HTML_TEMPLATE = """
             }
         }
 
+        function setThemeDevice(slotIdx, mode) {
+            const devId = slotDeviceIds[slotIdx];
+            if(!devId) return;
+            fetch(`/set_theme/${devId}/${mode}`);
+        }
+
         function handlePointerDown(event, slotIdx) {
             const img = document.getElementById('img-' + slotIdx);
             img.setPointerCapture(event.pointerId);
@@ -469,6 +477,8 @@ HTML_TEMPLATE = """
                     <div class="header-buttons" id="header-btns-${i}" style="display: none;">
                         <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                         <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
+                        <button onclick="setThemeDevice(${i}, 'dark')" style="background: #37474F;" title="Force Dark Mode">🌙</button>
+                        <button onclick="setThemeDevice(${i}, 'light')" style="background: #FFB300; color: black;" title="Force Light Mode">☀️</button>
                         <button onclick="rebootDevice(${i})" style="background: #f44336;" title="Reboot">🔄</button>
                     </div>
                 </div>
@@ -1152,6 +1162,14 @@ def sleep(dev_id):
 @app.route('/reboot/<dev_id>')
 def reboot(dev_id):
     subprocess.Popen(["adb", "-s", dev_id, "reboot"])
+    return "OK"
+
+@app.route('/set_theme/<dev_id>/<mode>')
+def set_theme(dev_id, mode):
+    if mode == 'dark':
+        subprocess.Popen(["adb", "-s", dev_id, "shell", "cmd", "uimode", "night", "yes"])
+    else:
+        subprocess.Popen(["adb", "-s", dev_id, "shell", "cmd", "uimode", "night", "no"])
     return "OK"
 
 def gen_frames(dev_id):
