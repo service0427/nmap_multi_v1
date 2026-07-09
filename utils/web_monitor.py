@@ -84,6 +84,9 @@ HTML_TEMPLATE = """
         .badge-working { background: #2E7D32; color: white; }
         .badge-idle { background: var(--badge-idle-bg); color: var(--badge-idle-color); }
         .badge-offline { background: #d32f2f; color: white; }
+        .badge-cooldown { background: #E65100; color: white; }
+        .badge-penalty { background: #4A148C; color: white; }
+        .badge-unauthorized { background: #555555; color: white; }
         
         .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
         @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
@@ -198,7 +201,7 @@ HTML_TEMPLATE = """
             <div class="diag-overlay" style="height: 63px;">
                 <div class="diag-item">
                     {% set is_active = dev and dev.status != 'IDLE' and not dev.offline %}
-                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-working' if is_active else 'badge-idle') }}" id="badge-{{ i }}">
+                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-cooldown' if dev.status in ['IP_COOLDOWN', 'COOLDOWN'] else ('badge-penalty' if dev.status == 'PENALTY' else ('badge-unauthorized' if dev.status == 'UNAUTHORIZED' else ('badge-working' if is_active else 'badge-idle')))) }}" id="badge-{{ i }}">
                         {{ 'OFFLINE' if not dev or dev.offline else (dev.status if dev.status else 'IDLE') }}
                     </span>
                     <span id="model-{{ i }}" style="color: #888; margin-left: auto;">{{ dev.model if dev else 'N/A' }}</span>
@@ -628,6 +631,12 @@ HTML_TEMPLATE = """
                         let badgeClass = 'badge-idle';
                         if (dev.offline) {
                             badgeClass = 'badge-offline';
+                        } else if (dev.status === 'IP_COOLDOWN' || dev.status === 'COOLDOWN') {
+                            badgeClass = 'badge-cooldown';
+                        } else if (dev.status === 'PENALTY') {
+                            badgeClass = 'badge-penalty';
+                        } else if (dev.status === 'UNAUTHORIZED') {
+                            badgeClass = 'badge-unauthorized';
                         } else if (dev.status && dev.status !== 'IDLE') {
                             badgeClass = 'badge-working';
                         }
@@ -812,6 +821,20 @@ def get_device_diagnostics(serial):
         info["status"] = "WORKING"
     except:
         info["status"] = "IDLE"
+        try:
+            task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+            if os.path.exists(task_info_path):
+                with open(task_info_path, 'r') as f:
+                    cdata = json.load(f)
+                    cstatus = cdata.get("status")
+                    if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                        info["status"] = cstatus
+                        until = cdata.get("exclude_until", 0)
+                        diff = int(until - time.time())
+                        if diff > 0:
+                            info["latest_log"] = f"{cstatus} ({diff}s remain)"
+        except:
+            pass
 
     # 2. Get Battery & Temp (Cached)
     try:
@@ -904,10 +927,17 @@ def get_device_diagnostics(serial):
                 target_sec = None
                 latest_progress = None
                 
+                task_id = None
                 for line in log_lines:
                     line_str = line.strip()
                     if not line_str:
                         continue
+                    
+                    if "TASK STARTED" in line_str and "LogID:" in line_str:
+                        try:
+                            task_id = line_str.split("LogID:")[-1].replace(")", "").strip()
+                        except:
+                            pass
                     
                     if "Destination:" in line_str:
                         d_part = line_str.split("Destination:")[-1].strip()
@@ -945,6 +975,8 @@ def get_device_diagnostics(serial):
                     task_data["total_dist_km"] = total_dist
                 if target_sec:
                     task_data["target_sec"] = target_sec
+                if task_id and info["latest_log"] == sessions[0]:
+                    info["latest_log"] = f"{sessions[0]} (Task:{task_id})"
                 
                 if latest_progress:
                     try:

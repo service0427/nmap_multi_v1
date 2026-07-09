@@ -240,35 +240,71 @@ def main():
     # Run an initial check and key sync
     sync_adb_keys()
     
+    unauthorized_consecutive_counts = {}
+    global_unauthorized_streak = 0
+    
     while True:
         try:
             is_ok, reason, unauthorized_serials, dev_count = check_adb_status()
+            
+            # Update unauthorized serials counters
+            for serial in unauthorized_serials:
+                unauthorized_consecutive_counts[serial] = unauthorized_consecutive_counts.get(serial, 0) + 1
+            # Reset counters for successful/unseen devices
+            for serial in list(unauthorized_consecutive_counts.keys()):
+                if serial not in unauthorized_serials:
+                    unauthorized_consecutive_counts[serial] = 0
+
             if not is_ok:
                 log("WARNING", f"ADB issue detected: {reason}")
                 
-                # Check if it's a global issue or pinpoint issue
-                if reason.startswith("Pinpoint issue"):
-                    log("INFO", f"Handling pinpoint recovery for serials: {unauthorized_serials}")
+                if "unauthorized" in reason:
+                    # If the issue is unauthorized devices, enforce a 3-minute grace period (6 checks * 30s)
+                    target_resets = []
                     for serial in unauthorized_serials:
-                        usb_path = get_usb_path_by_serial(serial)
-                        if usb_path:
-                            log("INFO", f"Pinpoint reset for {serial} on USB path {usb_path}")
-                            success = reset_usb_device(usb_path)
-                            if success:
-                                write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset {serial} at USB {usb_path}")
-                            else:
-                                write_recovery_log("PINPOINT_FAILED", f"Failed reset {serial} at USB {usb_path}")
+                        streak = unauthorized_consecutive_counts.get(serial, 0)
+                        if streak >= 6:  # 3 minutes
+                            target_resets.append(serial)
                         else:
-                            log("WARNING", f"Could not find USB path for serial {serial}")
-                            write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
-                    # Wait a short while for devices to settle/re-authenticate
-                    time.sleep(10)
+                            log("INFO", f"Device {serial} is unauthorized. Streak: {streak}/6 (Waiting grace period...)")
+                    
+                    if reason.startswith("Global issue"):
+                        # Global recovery: only perform if global issue persists
+                        global_unauthorized_streak += 1
+                        if global_unauthorized_streak >= 6:
+                            log("WARNING", "Global unauthorized issue persists for 3 minutes. Restarting ADB server...")
+                            perform_recovery()
+                            write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
+                            global_unauthorized_streak = 0
+                            time.sleep(10)
+                        else:
+                            log("INFO", f"Global unauthorized issue streak: {global_unauthorized_streak}/6. Waiting...")
+                    
+                    elif target_resets:
+                        log("INFO", f"Handling pinpoint recovery for persistent serials: {target_resets}")
+                        for serial in target_resets:
+                            usb_path = get_usb_path_by_serial(serial)
+                            if usb_path:
+                                log("INFO", f"Pinpoint reset for {serial} on USB path {usb_path}")
+                                success = reset_usb_device(usb_path)
+                                if success:
+                                    write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset {serial} at USB {usb_path}")
+                                else:
+                                    write_recovery_log("PINPOINT_FAILED", f"Failed reset {serial} at USB {usb_path}")
+                            else:
+                                log("WARNING", f"Could not find USB path for serial {serial}")
+                                write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
+                            # Reset counter after recovery attempt
+                            unauthorized_consecutive_counts[serial] = 0
+                        time.sleep(10)
                 else:
-                    log("WARNING", "Handling global recovery (restarting ADB server)...")
+                    # For non-unauthorized issues (e.g. adb hung, root process), perform recovery immediately
+                    log("WARNING", "Handling immediate recovery for system/hung adb issues...")
                     perform_recovery()
                     write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
                     time.sleep(10)
             else:
+                global_unauthorized_streak = 0
                 log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
         except Exception as e:
             log("ERROR", f"Exception in main loop: {e}")

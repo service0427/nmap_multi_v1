@@ -102,3 +102,13 @@ def handle_response(addon, flow: http.HTTPFlow):
 
     with open(os.path.join(addon.base_log_dir, fn), "w") as f:
         json.dump(full_packet, f, ensure_ascii=False, indent=2)
+
+    # Append packet log summary to session_summary.json
+    addon.update_summary({
+        "packet": {
+            "idx": idx,
+            "method": m,
+            "path": cp[:80],
+            "status": flow.response.status_code
+        }
+    })

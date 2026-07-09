@@ -119,7 +119,7 @@ echo " [$DEV_ID] [📊] Environment Snapshot: Temp=${TEMP_C}°C | Batt=${BATT_LE
 # 2. IP Verification (Robust 30s Wait for IP Toggles)
 echo " [$DEV_ID] [🌐] Verifying External Network..."
 IP_READY=false
-for i in {1..15}; do
+for i in {1..2}; do
     # Try multiple IP check services in sequence to resolve rate limits or downtime
     REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout 2 -4 http://ifconfig.me || curl -s --connect-timeout 2 -4 http://ifconfig.me" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     if [ -z "$REAL_IP" ]; then
@@ -135,19 +135,14 @@ for i in {1..15}; do
         break
     fi
     
-    # [NEW] Backup check: If 8.8.8.8 is reachable, allow session passage to prevent NETWORK_TIMEOUT under proxy load
-    if adb -s "$DEV_ID" shell "ping -c 1 -W 2 8.8.8.8" >/dev/null 2>&1; then
-        echo " [$DEV_ID] [⚠️] IP check sites timed out, but 8.8.8.8 ping succeeded. Proceeding with active connection."
-        REAL_IP="0.0.0.0"
-        IP_READY=true
-        break
-    fi
     
-    echo " [$DEV_ID] Waiting for IP (Toggle Recovery)... ($i/15)"
+    echo " [$DEV_ID] Waiting for IP (Toggle Recovery)... ($i/2)"
     sleep 2
 done
 
 if [ "$IP_READY" = false ]; then
+    mkdir -p "logs/${DEV_ID}/tmp"
+    touch "logs/${DEV_ID}/tmp/ip_failed_gate"
     cleanup "NETWORK_TIMEOUT"
 fi
 
@@ -257,7 +252,7 @@ while true; do
     kill -0 $MONITOR_PID 2>/dev/null || cleanup "Task Completed"
     
     # 2. Check if Naver Map app is still running (Robust check against transient ADB/USB drops)
-    local APP_RUNNING=false
+    APP_RUNNING=false
     if ! adb devices | grep -q -w "$DEV_ID"; then
         # Device is temporarily disconnected/offline. Assume the app is still running to prevent false kill.
         APP_RUNNING=true

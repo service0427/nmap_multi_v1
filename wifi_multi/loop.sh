@@ -10,6 +10,7 @@ API_SERVER="114.207.112.245:8011"
 declare -A SSID_CACHE
 declare -A DEVICE_MODEL_CACHE
 declare -A SUBNET_CACHE
+declare -A DEV_EXCLUDE_UNTIL
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -141,6 +142,18 @@ while true; do
             continue
         fi
 
+        # --- IP Failure Cooldown Shield (180s) ---
+        if [ -f "logs/${DEV_ID}/tmp/ip_failed_gate" ]; then
+            CURRENT_TIME=$(date +%s)
+            DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 180))
+            rm -f "logs/${DEV_ID}/tmp/ip_failed_gate"
+            echo "[IP_BLOCKED] [$DEV_ID] IP lookup failed. Applying heavy 180s cooldown to save modem bandwidth."
+            mkdir -p "logs/${DEV_ID}"
+            echo "{\"status\": \"IP_COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+            DEV_INDEX=$((DEV_INDEX + 1))
+            continue
+        fi
+
         # Ensure ADBKeyboard is enabled and set as default IME
         CURRENT_IME=$(timeout 3 adb -s "$DEV_ID" shell settings get secure default_input_method 2>/dev/null | tr -d '\r\n')
         if [ "$CURRENT_IME" != "com.android.adbkeyboard/.AdbIME" ]; then
@@ -199,11 +212,50 @@ while true; do
             continue
         fi
 
+        # --- Cooldown & Penalty Skip Check ---
+        CURRENT_TIME=$(date +%s)
+        EXCLUDE_UNTIL=${DEV_EXCLUDE_UNTIL[$DEV_ID]}
+        if [ -n "$EXCLUDE_UNTIL" ] && [ "$CURRENT_TIME" -lt "$EXCLUDE_UNTIL" ]; then
+            # Silent skip, no heavy polling
+            continue
+        fi
+
         RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \
              -H "Content-Type: application/json" \
              -d "{\"device_id\":\"$DEV_ID\"}")
         
-        if [ -z "$RESPONSE" ] || [ "$(echo "$RESPONSE" | jq -r '.status')" != "ok" ]; then
+        if [ -z "$RESPONSE" ]; then
+            # Temporary server/network error, wait 10s before retry
+            DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+            continue
+        fi
+
+        STATUS=$(echo "$RESPONSE" | jq -r '.status')
+        if [ "$STATUS" != "ok" ]; then
+            MSG=$(echo "$RESPONSE" | jq -r '.msg')
+            CURRENT_TIME=$(date +%s)
+            
+            mkdir -p "logs/${DEV_ID}"
+            if [ "$MSG" = "COOLDOWN_ACTIVE" ]; then
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 60))
+                echo "[COOLDOWN] [$DEV_ID] Cooldown active. Excluding for 60 seconds."
+                echo "{\"status\": \"COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+            elif [ "$MSG" = "PENALTY_ACTIVE" ]; then
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 600))
+                echo "[🚨] [$DEV_ID] Penalty active (60+ fails). Excluding for 10 minutes."
+                echo "{\"status\": \"PENALTY\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+            elif [ "$MSG" = "UNAUTHORIZED_DEVICE" ]; then
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 300))
+                echo "[⚠️] [$DEV_ID] Unauthorized device. Excluding for 5 minutes."
+                echo "{\"status\": \"UNAUTHORIZED\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+            elif [ "$MSG" = "NO_TASK_AVAILABLE" ]; then
+                # Temporary no tasks, fast polling but slight delay to prevent CPU spam
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+                echo "{\"status\": \"IDLE\"}" > "logs/${DEV_ID}/current_task.json"
+            else
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+                echo "{\"status\": \"IDLE\"}" > "logs/${DEV_ID}/current_task.json"
+            fi
             continue
         fi
 
@@ -257,7 +309,7 @@ while true; do
         NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
         NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
         NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
-        setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" >> "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
+        setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
         
         DEV_INDEX=$((DEV_INDEX + 1))
         sleep 2

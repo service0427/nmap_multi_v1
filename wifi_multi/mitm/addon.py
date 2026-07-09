@@ -42,7 +42,13 @@ class ProxyV2ClassicLog:
                     with open(self.summary_path, "r") as f:
                         current = json.load(f)
                 
-                current.update(data)
+                if "packet" in data:
+                    if "packets" not in current:
+                        current["packets"] = []
+                    current["packets"].append(data["packet"])
+                else:
+                    current.update(data)
+                
                 with open(self.summary_path, "w") as f:
                     json.dump(current, f, ensure_ascii=False, indent=2)
             except Exception as e:

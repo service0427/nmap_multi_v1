@@ -6,6 +6,7 @@ import time
 import os
 import sys
 import json
+import glob
 
 def save_multiline_xml(tree_root, file_path):
     """Saves XML tree as a pretty-printed, multiline file"""
@@ -175,10 +176,55 @@ def find_element(xml_file, query):
         print(f" [-] find_element Error: {e}")
         return None, False, None
 
+def check_search_failure(log_dir):
+    """Analyzes instantSearchV2.json packets in log_dir to determine the failure cause"""
+    if not log_dir or not os.path.exists(log_dir):
+        return "ADDRESS_NOT_FOUND"
+        
+    search_files = glob.glob(os.path.join(log_dir, "*instantSearchV2.json"))
+    
+    if not search_files:
+        return "TYPING_FAILED"
+        
+    network_error = True
+    for file_path in search_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            response = data.get("response", {})
+            status_code = response.get("status_code", 0)
+            
+            if status_code != 200:
+                continue
+                
+            body = response.get("body", {})
+            ac = body.get("ac", [])
+            place = body.get("place", [])
+            
+            if len(ac) > 0 or len(place) > 0:
+                network_error = False
+                break
+        except Exception:
+            continue
+            
+    if network_error:
+        return "NETWORK_ERROR_OR_TIMEOUT"
+        
+    return "ADDRESS_NOT_FOUND"
+
 def report_fail(log_id, device_id, status, requested, actual, error):
     """Report failure details to API Server with current log path"""
     if not log_id: return
     log_path = os.environ.get("CAPTURE_LOG_DIR", "Unknown")
+    
+    # 교차 검증을 통해 구체적인 에러 상태 및 메시지 재판정
+    if log_path != "Unknown":
+        reason = check_search_failure(log_path)
+        if reason != "ADDRESS_NOT_FOUND":
+            status = f"FAIL_{reason}"
+            error = f"{error} (Determined cause: {reason})"
+            
     data = {
         "task_id": int(log_id), "device_id": device_id, "status": status, 
         "requested_address": requested, "actual_address": actual, 
@@ -303,6 +349,12 @@ def chain_click(device_id, queries, padding=10, category="default", delay_range=
     return False
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[2] == "CHECK_FAILURE":
+        log_dir = sys.argv[3] if len(sys.argv) >= 4 else os.environ.get("CAPTURE_LOG_DIR", "")
+        reason = check_search_failure(log_dir)
+        print(reason)
+        sys.exit(0)
+
     if len(sys.argv) < 3: sys.exit(1)
     cat = sys.argv[3] if len(sys.argv) >= 4 else "default"
     click_element(sys.argv[1], sys.argv[2], category=cat)

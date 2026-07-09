@@ -123,10 +123,10 @@ check_app_survival() {
         local SEC_SINCE_CHECK=$(( CUR_TS - LAST_UI_CHECK_TS ))
         if [ $SEC_SINCE_CHECK -ge 30 ]; then
             LAST_UI_CHECK_TS=$CUR_TS
-            # Dump UI XML
-            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
+            # Dump UI XML (with safety timeout)
+            timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
             local XML_CONTENT
-            XML_CONTENT=$(adb -s "$DEV_ID" shell "cat /sdcard/ui.xml" 2>/dev/null)
+            XML_CONTENT=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui.xml" 2>/dev/null)
             if [ -n "$XML_CONTENT" ]; then
                 local FATAL_PATTERN="길찾기 결과가 없습니다|결과를 제공할 수 없습니다|검색 결과가 없습니다|장소를 찾을 수 없습니다|길찾기 결과를 제공할 수 없습니다|검색 결과가 없어요|출발지와 도착지가 같습니다|출발지와 목적지가 같습니다|주변에 도로가 없습니다|안내할 수 없는 경로입니다|네트워크 연결이 원활하지 않습니다|네트워크 연결 상태를 확인|네트워크가 연결되어 있지 않습니다|알 수 없는 에러가 발생했습니다"
                 if echo "$XML_CONTENT" | grep -q -E "$FATAL_PATTERN"; then
@@ -176,10 +176,10 @@ check_app_survival() {
         local SEC_SINCE_HOME_CHECK=$(( NOW_SEC - LAST_HOME_CHECK_TS ))
         if [ $SEC_SINCE_HOME_CHECK -ge 20 ]; then
             LAST_HOME_CHECK_TS=$NOW_SEC
-            # Check UI to see if Home screen is already visible
-            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_home_check.xml" >/dev/null 2>&1
+            # Check UI to see if Home screen is already visible (with safety timeout)
+            timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_home_check.xml" >/dev/null 2>&1
             local CHECK_XML
-            CHECK_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
+            CHECK_XML=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui_home_check.xml" 2>/dev/null)
             if echo "$CHECK_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
                 echo "[$(NOW)] [✓] Home screen UI elements detected. Appending virtual home screenview."
                 if ! grep -q "home" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
@@ -244,9 +244,9 @@ while true; do
     # [NEW] Auto-Recovery for Stuck Navigation / Resume Guidance State
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
-            # Verify if we are actually in navigation vs on Home screen
-            adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_recovery.xml" >/dev/null 2>&1
-            RECOVERY_XML=$(adb -s "$DEV_ID" shell "cat /sdcard/ui_recovery.xml" 2>/dev/null)
+            # Verify if we are actually in navigation vs on Home screen (with safety timeout)
+            timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_recovery.xml" >/dev/null 2>&1
+            RECOVERY_XML=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui_recovery.xml" 2>/dev/null)
             
             # If Home screen indicators are visible, we are NOT in navigation! Just write virtual home screenview.
             if echo "$RECOVERY_XML" | grep -q -E "집으로|회사로|v_home_container|entry_search_field"; then
@@ -359,7 +359,13 @@ while true; do
                         echo "[$(NOW)] [Action] Cleaned address not found. Retrying with original: $NMAP_DEST_ADDR"
                         $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
                         if [ $? -ne 0 ]; then
-                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ADDRESS_NOT_FOUND\"}"
+                            # [CROSS VALIDATION] Determine specific cause of failure from instantSearchV2 packets
+                            FAIL_REASON=$(python3 macro/ui_clicker.py "$DEV_ID" "CHECK_FAILURE" "$ABS_LOG_DIR" 2>/dev/null | xargs)
+                            if [ -z "$FAIL_REASON" ]; then
+                                FAIL_REASON="ADDRESS_NOT_FOUND"
+                            fi
+                            echo "[$(NOW)] [🚨] Failure Reason Determined: $FAIL_REASON"
+                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
                         fi
