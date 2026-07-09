@@ -232,7 +232,7 @@ type_destination_only() {
     fi
     echo "[$(NOW)] [Action] Typing: $NMAP_DEST_NAME (via Python Helper)"
     python3 macro/type_helper.py "$DEV_ID" "$NMAP_DEST_NAME"
-    echo "    > Waiting 4s for recommendation list..."; sleep 4
+    echo "    > Waiting 8s for recommendation list..."; sleep 8
 }
 
 echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
