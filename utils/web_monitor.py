@@ -36,6 +36,7 @@ HTML_TEMPLATE = """
 <head>
     <title>{{ hostname }} - Monitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <style>
         :root {
             --bg-color: #121212;
@@ -444,7 +445,7 @@ HTML_TEMPLATE = """
         function copyDevId(devId, elementId) {
             if (!devId || devId === "EMPTY SLOT") return;
             
-            navigator.clipboard.writeText(devId).then(() => {
+            const copySuccess = () => {
                 const txtEl = document.getElementById(elementId);
                 if (!txtEl) return;
                 const originalText = txtEl.innerHTML;
@@ -452,9 +453,38 @@ HTML_TEMPLATE = """
                 setTimeout(() => {
                     txtEl.innerHTML = originalText;
                 }, 800);
-            }).catch(err => {
-                console.error("복사 실패:", err);
-            });
+            };
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(devId).then(copySuccess).catch(err => {
+                    console.error("Modern copy failed, trying fallback:", err);
+                    fallbackCopyText(devId, copySuccess);
+                });
+            } else {
+                fallbackCopyText(devId, copySuccess);
+            }
+        }
+
+        function fallbackCopyText(text, callback) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    callback();
+                } else {
+                    console.error('Fallback copy command failed');
+                }
+            } catch (err) {
+                console.error('Fallback copy exception:', err);
+            }
+            document.body.removeChild(textArea);
         }
 
         function handlePointerDown(event, slotIdx) {
