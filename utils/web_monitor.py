@@ -73,7 +73,8 @@ HTML_TEMPLATE = """
         body.light-theme #theme-btn { border-color: #bbb; color: #111; }
 
         .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 35px; flex-shrink: 0; }
-        .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+        .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; cursor: pointer; transition: color 0.2s; }
+        .device-id:hover { color: #81C784; text-decoration: underline; }
         .header-buttons { display: flex; gap: 5px; align-items: center; }
         .header-buttons button { padding: 3px 5px; font-size: 0.75em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 24px; }
         .touch-label { background: #333; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; cursor: pointer; font-size: 0.8em; }
@@ -187,7 +188,7 @@ HTML_TEMPLATE = """
         {% set is_target = (not target_device_id) or (dev and dev.id == target_device_id) %}
         <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}" style="display: {{ 'flex' if is_target else 'none' }};">
             <div class="card-header {{ 'dimmed' if not dev or dev.offline }}" id="header-{{ i }}">
-                <span class="device-id" id="dev-name-{{ i }}">
+                <span class="device-id" id="dev-name-{{ i }}" onclick="copyDevId({{ i }})" title="클릭하여 디바이스 ID 복사">
                     <span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#{{ "%02d" | format(i + 1) }}</span>
                     {{ dev.id if dev else 'EMPTY SLOT' }}
                 </span>
@@ -435,6 +436,23 @@ HTML_TEMPLATE = """
             }
         }
 
+        function copyDevId(slotIdx) {
+            const devId = slotDeviceIds[slotIdx];
+            if (!devId || devId === "EMPTY SLOT") return;
+            
+            navigator.clipboard.writeText(devId).then(() => {
+                const nameEl = document.getElementById('dev-name-' + slotIdx);
+                if (!nameEl) return;
+                const originalText = nameEl.innerHTML;
+                nameEl.innerHTML = `<span style="color: #81C784; font-weight: bold;">✓ 복사완료!</span>`;
+                setTimeout(() => {
+                    nameEl.innerHTML = originalText;
+                }, 800);
+            }).catch(err => {
+                console.error("복사 실패:", err);
+            });
+        }
+
         function handlePointerDown(event, slotIdx) {
             const img = document.getElementById('img-' + slotIdx);
             img.setPointerCapture(event.pointerId);
@@ -471,7 +489,7 @@ HTML_TEMPLATE = """
             return `
             <div class="device-card offline" id="slot-${i}">
                 <div class="card-header dimmed" id="header-${i}">
-                    <span class="device-id" id="dev-name-${i}"><span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT</span>
+                    <span class="device-id" id="dev-name-${i}" onclick="copyDevId(${i})" title="클릭하여 디바이스 ID 복사"><span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT</span>
                     <div class="header-buttons" id="header-btns-${i}" style="display: none;">
                         <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                         <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
