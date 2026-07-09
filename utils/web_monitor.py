@@ -163,9 +163,9 @@ HTML_TEMPLATE = """
 <body class="{{ 'single-device' if target_device_id else '' }}">
     {% if not target_device_id %}
     <div class="top-navbar">
-        <h2 style="margin: 0; font-size: 1.2em; color: #4CAF50; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            📱 Phone Farm Dashboard ({{ hostname }})
-            <span id="farm-summary" style="font-size: 0.7em; color: #aaa; font-weight: normal; margin-left: 10px;">
+        <h2 style="margin: 0; font-size: 1.05em; color: #4CAF50; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-weight: bold;">
+            [ {{ hostname }} ]
+            <span id="farm-summary" style="font-size: 0.85em; color: #aaa; font-weight: normal; margin-left: 5px;">
                 (연결: -대 | 동작: - | 대기: - | 오프라인: -)
             </span>
         </h2>
