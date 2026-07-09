@@ -37,23 +37,52 @@ HTML_TEMPLATE = """
     <title>{{ hostname }} - Monitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background: #121212; color: #eee; font-family: sans-serif; margin: 0; padding: 10px; }
+        :root {
+            --bg-color: #121212;
+            --text-color: #eee;
+            --card-bg: #1e1e1e;
+            --card-border: #333;
+            --text-muted: #aaa;
+            --timer-color: #ffeb3b;
+            --btn-ctrl-bg: #333;
+            --btn-ctrl-color: white;
+            --badge-idle-bg: #424242;
+            --badge-idle-color: #bbb;
+        }
+        body.light-theme {
+            --bg-color: #f5f5f5;
+            --text-color: #111;
+            --card-bg: #ffffff;
+            --card-border: #ddd;
+            --text-muted: #555;
+            --timer-color: #d32f2f;
+            --btn-ctrl-bg: #e0e0e0;
+            --btn-ctrl-color: #333;
+            --badge-idle-bg: #e0e0e0;
+            --badge-idle-color: #555;
+        }
+        body { background: var(--bg-color); color: var(--text-color); font-family: sans-serif; margin: 0; padding: 10px; transition: background 0.3s, color 0.3s; }
         .container { display: grid; grid-template-columns: repeat(auto-fill, 326px); gap: 15px; max-width: 1800px; margin: 0 auto; justify-content: center; }
-        .device-card { background: #1e1e1e; border-radius: 8px; padding: 10px; border: 1px solid #333; text-align: center; width: 326px; height: 865px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+        .device-card { background: var(--card-bg); border-radius: 8px; padding: 10px; border: 1px solid var(--card-border); text-align: center; width: 326px; height: 865px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; transition: background 0.3s, border-color 0.3s; }
         .device-card.working { border-color: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.2); }
         .device-card.offline { opacity: 0.5; border-color: #f44336; }
         
+        .top-navbar { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%; transition: background 0.3s, border-color 0.3s; }
+        body.light-theme .top-navbar { background: rgba(255, 255, 255, 0.95); border-bottom: 1px solid #ddd; }
+        body.light-theme .active-screens-badge { background: #e0e0e0 !important; color: #111 !important; }
+
         .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 35px; flex-shrink: 0; }
         .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
         .header-buttons { display: flex; gap: 5px; align-items: center; }
         .header-buttons button { padding: 3px 5px; font-size: 0.75em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 24px; }
         .touch-label { background: #333; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; cursor: pointer; font-size: 0.8em; }
         
-        .diag-overlay { background: rgba(0,0,0,0.7); padding: 4px 6px; border-radius: 4px; margin-bottom: 5px; font-size: 0.72em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 63px; box-sizing: border-box; }
+        .diag-overlay { background: rgba(0,0,0,0.7); padding: 4px 6px; border-radius: 4px; margin-bottom: 5px; font-size: 0.72em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 63px; box-sizing: border-box; transition: background 0.3s, border-color 0.3s; }
+        body.light-theme .diag-overlay { background: rgba(240, 240, 240, 0.9); border: 1px solid #ddd; }
         .diag-item { display: flex; justify-content: space-between; }
         .status-badge { padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 0.8em; }
         .badge-working { background: #2E7D32; color: white; }
-        .badge-idle { background: #424242; color: #bbb; }
+        .badge-idle { background: var(--badge-idle-bg); color: var(--badge-idle-color); }
         .badge-offline { background: #d32f2f; color: white; }
         
         .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
@@ -62,9 +91,9 @@ HTML_TEMPLATE = """
         /* [NEW] Live Task Info Styles */
         .live-task-box { background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 4px; padding: 6px; margin-bottom: 8px; text-align: left; font-size: 0.85em; height: 74px; box-sizing: border-box; }
         .live-task-dest { color: #4CAF50; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
-        .live-task-meta { display: flex; flex-direction: column; gap: 1px; color: #aaa; font-size: 0.85em; }
+        .live-task-meta { display: flex; flex-direction: column; gap: 1px; color: var(--text-muted); font-size: 0.85em; }
         .live-task-row { display: flex; justify-content: space-between; }
-        .elapsed-timer { color: #ffeb3b; font-family: monospace; font-weight: bold; }
+        .elapsed-timer { color: var(--timer-color); font-family: monospace; font-weight: bold; }
         .target-confirmed { color: #4CAF50; font-weight: bold; }
 
         .screen-container { position: relative; width: 306px; height: 610px; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 4px; overflow: hidden; flex-shrink: 0; }
@@ -73,7 +102,7 @@ HTML_TEMPLATE = """
         .offline-placeholder { color: #555; font-size: 1.2em; font-weight: bold; display: flex; flex-direction: column; gap: 10px; }
 
         .controls { margin-top: auto; display: flex; gap: 8px; justify-content: center; padding: 10px 0; flex-shrink: 0; }
-        button.btn-ctrl { padding: 8px 12px; cursor: pointer; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 1.2em; }
+        button.btn-ctrl { padding: 8px 12px; cursor: pointer; background: var(--btn-ctrl-bg); color: var(--btn-ctrl-color); border: none; border-radius: 4px; font-weight: bold; font-size: 1.2em; transition: background 0.3s, color 0.3s; }
         
         .dimmed { opacity: 0.3; pointer-events: none; }
         
@@ -126,7 +155,7 @@ HTML_TEMPLATE = """
 </head>
 <body class="{{ 'single-device' if target_device_id else '' }}">
     {% if not target_device_id %}
-    <div style="position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%;">
+    <div class="top-navbar">
         <h2 style="margin: 0; font-size: 1.2em; color: #4CAF50; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             📱 Phone Farm Dashboard ({{ hostname }})
             <span id="farm-summary" style="font-size: 0.7em; color: #aaa; font-weight: normal; margin-left: 10px;">
@@ -134,11 +163,14 @@ HTML_TEMPLATE = """
             </span>
         </h2>
         <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-            <span style="font-size: 0.9em; background: #333; padding: 6px 12px; border-radius: 4px; color: #ffeb3b; font-weight: bold;">
+            <span class="active-screens-badge" style="font-size: 0.9em; background: #333; padding: 6px 12px; border-radius: 4px; color: #ffeb3b; font-weight: bold;">
                 📺 활성 화면: <span id="active-screen-count">0</span> (최대 5개 권장)
             </span>
             <button onclick="unlockAllDevices()" style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 🔓 전체 잠금 해제
+            </button>
+            <button onclick="toggleTheme()" id="theme-btn" style="background: #9C27B0; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
+                🌓 화면 테마: 다크
             </button>
             <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 ❌ 전체 화면 닫기
@@ -710,6 +742,36 @@ HTML_TEMPLATE = """
         }
         setInterval(updateTimers, 1000);
         updateTimers();
+
+        function toggleTheme() {
+            const body = document.body;
+            const btn = document.getElementById('theme-btn');
+            if (body.classList.contains('light-theme')) {
+                body.classList.remove('light-theme');
+                btn.innerText = '🌓 화면 테마: 다크';
+                btn.style.background = '#9C27B0';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                body.classList.add('light-theme');
+                btn.innerText = '🌓 화면 테마: 라이트';
+                btn.style.background = '#ff9800';
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        // Apply theme immediately on DOMContentLoaded to prevent flicker
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'light') {
+                document.body.classList.add('light-theme');
+                const btn = document.getElementById('theme-btn');
+                if (btn) {
+                    btn.innerText = '🌓 화면 테마: 라이트';
+                    btn.style.background = '#ff9800';
+                }
+            }
+            updateActiveScreenCount();
+        });
     </script>
 </body>
 </html>
