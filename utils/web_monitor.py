@@ -764,6 +764,34 @@ HTML_TEMPLATE = """
                                         ${distHtml}
                                     </div>
                                 </div>`;
+                        } else if (dev.cooldown_info) {
+                            const c = dev.cooldown_info;
+                            let color = "#ff9800"; // Orange (IP_COOLDOWN, COOLDOWN)
+                            let border = "rgba(255, 152, 0, 0.4)";
+                            let bg = "rgba(255, 152, 0, 0.05)";
+                            if (c.status === "PENALTY") {
+                                color = "#9c27b0"; // Purple (PENALTY)
+                                border = "rgba(156, 39, 176, 0.4)";
+                                bg = "rgba(156, 39, 176, 0.05)";
+                            } else if (c.status === "UNAUTHORIZED") {
+                                color = "#f44336"; // Red (UNAUTHORIZED)
+                                border = "rgba(244, 67, 54, 0.4)";
+                                bg = "rgba(244, 67, 54, 0.05)";
+                            }
+                            
+                            taskContainer.innerHTML = `
+                                <div class="live-task-box" style="border: 1px solid ${border}; background: ${bg}; padding: 6px; display: flex; flex-direction: column; justify-content: center; height: 74px; box-sizing: border-box;">
+                                    <div style="font-weight: bold; color: ${color}; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center;">
+                                        <span>⚠️ ${c.status}</span>
+                                        <span style="font-size: 0.85em; background: ${color}; color: black; padding: 1px 6px; border-radius: 3px; font-weight: bold;">
+                                            ${c.remain_sec}s
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 0.78em; color: #aaa; margin-top: 4px; line-height: 1.3;">
+                                        <div>• 실패 시각: <span style="color: #ffeb3b;">${c.failed_at}</span></div>
+                                        <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">• 실패 사유: <span style="color: #ff5252;">${c.reason}</span></div>
+                                    </div>
+                                </div>`;
                         } else {
                             taskContainer.innerHTML = `
                                 <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
@@ -1070,6 +1098,62 @@ def get_device_diagnostics(serial):
         else:
             info["status"] = "IDLE"
             info["current_task"] = None
+
+    # 3-5. Resolve failure reason and time for cooldown info if in a penalty or cooldown state
+    info["cooldown_info"] = None
+    try:
+        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+        if os.path.exists(task_info_path):
+            with open(task_info_path, 'r') as f:
+                cdata = json.load(f)
+                cstatus = cdata.get("status")
+                if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                    until = cdata.get("exclude_until", 0)
+                    diff = int(until - time.time())
+                    if diff > 0:
+                        cooldown_reason = "UNKNOWN"
+                        failed_time_str = "N/A"
+                        
+                        if cstatus == "IP_COOLDOWN":
+                            cooldown_reason = "NETWORK_TIMEOUT"
+                            failed_time_str = time.strftime("%H:%M:%S", time.localtime(until - 180))
+                        else:
+                            # Try parsing latest session logs for details
+                            if latest_session_dir and os.path.exists(latest_session_dir):
+                                base_name = os.path.basename(latest_session_dir)
+                                parts = base_name.split("_")
+                                if len(parts) >= 2 and len(parts[0]) == 6:
+                                    t = parts[0]
+                                    failed_time_str = f"{t[0:2]}:{t[2:4]}:{t[4:6]}"
+                                    
+                                exec_log_path = os.path.join(latest_session_dir, "execution.log")
+                                if os.path.exists(exec_log_path):
+                                    try:
+                                        with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as log_f:
+                                            log_lines = log_f.readlines()[-100:]
+                                            for line in log_lines:
+                                                if "Failure Reason Determined:" in line:
+                                                    cooldown_reason = line.split("Failure Reason Determined:")[-1].strip()
+                                                    break
+                                                elif "Terminating. Reason:" in line:
+                                                    cooldown_reason = line.split("Terminating. Reason:")[-1].strip()
+                                    except:
+                                        pass
+                            
+                            # Fallback estimation
+                            if failed_time_str == "N/A":
+                                duration = 600 if cstatus == "PENALTY" else (300 if cstatus == "UNAUTHORIZED" else 60)
+                                failed_time_str = time.strftime("%H:%M:%S", time.localtime(until - duration))
+                        
+                        info["cooldown_info"] = {
+                            "status": cstatus,
+                            "failed_at": failed_time_str,
+                            "reason": cooldown_reason,
+                            "remain_sec": diff
+                        }
+                        info["status"] = cstatus
+    except Exception as e:
+        print(f"Error compiling cooldown_info: {e}", flush=True)
             
     return info
 
