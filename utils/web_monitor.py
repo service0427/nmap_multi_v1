@@ -173,9 +173,8 @@ HTML_TEMPLATE = """
             <button onclick="unlockAllDevices()" style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 🔓 전체 잠금 해제
             </button>
-            <button onclick="toggleTheme()" id="theme-btn" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="화면 테마 토글">
-                🌙
-            </button>
+            <button onclick="setThemeAllDevices('dark')" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="전체 기기 다크모드 일괄 적용">🌙</button>
+            <button onclick="setThemeAllDevices('light')" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="전체 기기 라이트모드 일괄 적용">☀️</button>
             <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 ❌ 전체 화면 닫기
             </button>
@@ -195,8 +194,6 @@ HTML_TEMPLATE = """
                 <div class="header-buttons" id="header-btns-{{ i }}" style="display: {{ 'flex' if dev and not dev.offline else 'none' }};">
                     <button id="btn-mon-{{ i }}" onclick="toggleMonitor({{ i }})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                     <button onclick="unlockDevice({{ i }})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                    <button onclick="setThemeDevice({{ i }}, 'dark')" style="background: #37474F;" title="Force Dark Mode">🌙</button>
-                    <button onclick="setThemeDevice({{ i }}, 'light')" style="background: #FFB300; color: black;" title="Force Light Mode">☀️</button>
                     <button onclick="rebootDevice({{ i }})" style="background: #f44336;" title="Reboot">🔄</button>
                 </div>
             </div>
@@ -431,10 +428,11 @@ HTML_TEMPLATE = """
             }
         }
 
-        function setThemeDevice(slotIdx, mode) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            fetch(`/set_theme/${devId}/${mode}`);
+        function setThemeAllDevices(mode) {
+            const modeText = mode === 'dark' ? '다크(🌙)' : '라이트(☀️)';
+            if (confirm(`연결된 모든 단말기 화면을 일괄적으로 ${modeText} 모드로 변경하시겠습니까?`)) {
+                fetch(`/set_theme_all/${mode}`);
+            }
         }
 
         function handlePointerDown(event, slotIdx) {
@@ -477,8 +475,6 @@ HTML_TEMPLATE = """
                     <div class="header-buttons" id="header-btns-${i}" style="display: none;">
                         <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                         <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                        <button onclick="setThemeDevice(${i}, 'dark')" style="background: #37474F;" title="Force Dark Mode">🌙</button>
-                        <button onclick="setThemeDevice(${i}, 'light')" style="background: #FFB300; color: black;" title="Force Light Mode">☀️</button>
                         <button onclick="rebootDevice(${i})" style="background: #f44336;" title="Reboot">🔄</button>
                     </div>
                 </div>
@@ -782,30 +778,7 @@ HTML_TEMPLATE = """
         setInterval(updateTimers, 1000);
         updateTimers();
 
-        function toggleTheme() {
-            const body = document.body;
-            const btn = document.getElementById('theme-btn');
-            if (body.classList.contains('light-theme')) {
-                body.classList.remove('light-theme');
-                btn.innerText = '🌙';
-                localStorage.setItem('theme', 'dark');
-            } else {
-                body.classList.add('light-theme');
-                btn.innerText = '☀️';
-                localStorage.setItem('theme', 'light');
-            }
-        }
-
-        // Apply theme immediately on DOMContentLoaded to prevent flicker
         document.addEventListener('DOMContentLoaded', () => {
-            const savedTheme = localStorage.getItem('theme');
-            if (savedTheme === 'light') {
-                document.body.classList.add('light-theme');
-                const btn = document.getElementById('theme-btn');
-                if (btn) {
-                    btn.innerText = '☀️';
-                }
-            }
             updateActiveScreenCount();
         });
     </script>
@@ -1164,12 +1137,23 @@ def reboot(dev_id):
     subprocess.Popen(["adb", "-s", dev_id, "reboot"])
     return "OK"
 
-@app.route('/set_theme/<dev_id>/<mode>')
-def set_theme(dev_id, mode):
-    if mode == 'dark':
-        subprocess.Popen(["adb", "-s", dev_id, "shell", "cmd", "uimode", "night", "yes"])
-    else:
-        subprocess.Popen(["adb", "-s", dev_id, "shell", "cmd", "uimode", "night", "no"])
+@app.route('/set_theme_all/<mode>')
+def set_theme_all(mode):
+    try:
+        res = subprocess.check_output(["adb", "devices"]).decode()
+        devices = []
+        for line in res.strip().split("\n")[1:]:
+            line = line.strip()
+            if line and not line.startswith("*"):
+                parts = line.split()
+                if parts and parts[1] == "device":
+                    devices.append(parts[0])
+        
+        night_val = "yes" if mode == "dark" else "no"
+        for dev_id in devices:
+            subprocess.Popen(["adb", "-s", dev_id, "shell", "cmd", "uimode", "night", night_val])
+    except Exception as e:
+        return str(e), 500
     return "OK"
 
 def gen_frames(dev_id):
