@@ -325,7 +325,10 @@ HTML_TEMPLATE = """
             alert(`총 ${count}대의 기기에 잠금 해제 명령을 보냈습니다.`);
         }
 
+        let activeMonitorsQueue = [];
+
         function closeAllMonitors() {
+            activeMonitorsQueue = [];
             for (let i = 0; i < slotDeviceIds.length; i++) {
                 const img = document.getElementById('img-' + i);
                 if (img && img.src && img.src.includes('/stream/')) {
@@ -360,22 +363,38 @@ HTML_TEMPLATE = """
                 placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
                 btn.style.background = '#607D8B';
                 btn.innerText = '📺';
+                
+                // Remove from queue
+                activeMonitorsQueue = activeMonitorsQueue.filter(idx => idx !== slotIdx);
             } else {
-                let count = 0;
-                for (let j = 0; j < slotDeviceIds.length; j++) {
-                    const im = document.getElementById('img-' + j);
-                    if (im && im.src && im.src.includes('/stream/')) count++;
-                }
-                if (count >= 5) {
-                    if (!confirm("화면을 5개 이상 켜면 브라우저 제약으로 인해 일부 화면이 로딩되지 않거나 멈출 수 있습니다. 계속하시겠습니까?")) {
-                        return;
+                // Auto-close oldest if limit of 5 is exceeded
+                while (activeMonitorsQueue.length >= 5) {
+                    const oldestIdx = activeMonitorsQueue.shift();
+                    const oldImg = document.getElementById('img-' + oldestIdx);
+                    const oldBtn = document.getElementById('btn-mon-' + oldestIdx);
+                    const oldPlaceholder = document.getElementById('placeholder-' + oldestIdx);
+                    if (oldImg) {
+                        oldImg.src = '';
+                        oldImg.style.display = 'none';
+                    }
+                    if (oldPlaceholder) {
+                        oldPlaceholder.style.display = 'flex';
+                        oldPlaceholder.innerHTML = '<span>📺</span>MONITOR OFF';
+                    }
+                    if (oldBtn) {
+                        oldBtn.style.background = '#607D8B';
+                        oldBtn.innerText = '📺';
                     }
                 }
+                
                 img.src = '/stream/' + devId;
                 img.style.display = 'block';
                 placeholder.style.display = 'none';
                 btn.style.background = '#4CAF50';
                 btn.innerText = '📡';
+                
+                // Add to queue
+                activeMonitorsQueue.push(slotIdx);
             }
             updateActiveScreenCount();
         }
