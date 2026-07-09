@@ -70,6 +70,7 @@ HTML_TEMPLATE = """
         .top-navbar { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%; transition: background 0.3s, border-color 0.3s; }
         body.light-theme .top-navbar { background: rgba(255, 255, 255, 0.95); border-bottom: 1px solid #ddd; }
         body.light-theme .active-screens-badge { background: #e0e0e0 !important; color: #111 !important; }
+        body.light-theme #theme-btn { border-color: #bbb; color: #111; }
 
         .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 35px; flex-shrink: 0; }
         .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
@@ -172,8 +173,8 @@ HTML_TEMPLATE = """
             <button onclick="unlockAllDevices()" style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 🔓 전체 잠금 해제
             </button>
-            <button onclick="toggleTheme()" id="theme-btn" style="background: #9C27B0; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
-                🌓 화면 테마: 다크
+            <button onclick="toggleTheme()" id="theme-btn" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="화면 테마 토글">
+                🌙
             </button>
             <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 ❌ 전체 화면 닫기
@@ -776,13 +777,11 @@ HTML_TEMPLATE = """
             const btn = document.getElementById('theme-btn');
             if (body.classList.contains('light-theme')) {
                 body.classList.remove('light-theme');
-                btn.innerText = '🌓 화면 테마: 다크';
-                btn.style.background = '#9C27B0';
+                btn.innerText = '🌙';
                 localStorage.setItem('theme', 'dark');
             } else {
                 body.classList.add('light-theme');
-                btn.innerText = '🌓 화면 테마: 라이트';
-                btn.style.background = '#ff9800';
+                btn.innerText = '☀️';
                 localStorage.setItem('theme', 'light');
             }
         }
@@ -794,8 +793,7 @@ HTML_TEMPLATE = """
                 document.body.classList.add('light-theme');
                 const btn = document.getElementById('theme-btn');
                 if (btn) {
-                    btn.innerText = '🌓 화면 테마: 라이트';
-                    btn.style.background = '#ff9800';
+                    btn.innerText = '☀️';
                 }
             }
             updateActiveScreenCount();
