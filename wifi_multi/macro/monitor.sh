@@ -251,6 +251,25 @@ echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
 while true; do
     check_app_survival
     
+    # [NEW] Universal Home Entry Recovery for Startup Popups/Keyboards/Hangs
+    if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
+        local HOME_WAIT_TIME=$(( $(date +%s) - START_TS ))
+        if [ $HOME_WAIT_TIME -gt 25 ]; then
+            local NOW_SEC=$(date +%s)
+            local SEC_SINCE_HOME_RECOVERY=$(( NOW_SEC - LAST_HOME_CHECK_TS ))
+            if [ $SEC_SINCE_HOME_RECOVERY -ge 15 ]; then
+                LAST_HOME_CHECK_TS=$NOW_SEC
+                echo "[$(NOW)] [⚠️] Failed to reach Home screen within ${HOME_WAIT_TIME}s. Dismissing popups/keyboards..."
+                adb -s "$DEV_ID" shell input keyevent 4
+                sleep 2
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:닫기" "DismissPopup" >/dev/null 2>&1
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:확인" "DismissPopup" >/dev/null 2>&1
+                python3 macro/ui_clicker.py "$DEV_ID" "exact:나중에 하기" "DismissPopup" >/dev/null 2>&1
+                adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+            fi
+        fi
+    fi
+
     # [NEW] Auto-Recovery for Stuck Navigation / Resume Guidance State
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
