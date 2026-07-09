@@ -13,6 +13,42 @@ apt-get update > /dev/null
 apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager 2>/dev/null
 pip3 install mitmproxy frida-tools --break-system-packages 2>/dev/null || pip3 install mitmproxy frida-tools
 
+# 1.5. Legacy Clean Up to Prevent Conflicts on Older Servers
+echo -e "\033[1;33m[1.5/6] Cleaning up legacy network & udev configs to prevent routing collisions...\033[0m"
+
+# A. Clean legacy udev rules
+for rule in /etc/udev/rules.d/70-persistent-net.rules /etc/udev/rules.d/99-lte-proxy.rules; do
+    if [ -f "$rule" ]; then
+        echo -e "   > Removing conflicting legacy udev rule: $rule"
+        rm -f "$rule"
+    fi
+done
+
+# B. Clean legacy Netplan yaml files that hardcode LTE interfaces
+if [ -d "/etc/netplan" ]; then
+    for yaml in /etc/netplan/*.yaml /etc/netplan/*.yml; do
+        [ -f "$yaml" ] || continue
+        if [ "$(basename "$yaml")" != "00-installer-config.yaml" ]; then
+            if grep -qE "lte|enx001e101f0000" "$yaml" 2>/dev/null; then
+                echo -e "   > Removing conflicting legacy Netplan file: $yaml"
+                rm -f "$yaml"
+            fi
+        fi
+    done
+fi
+
+# C. Clean legacy table entries in rt_tables
+if [ -f "/etc/iproute2/rt_tables" ]; then
+    if grep -q "lte" /etc/iproute2/rt_tables 2>/dev/null; then
+        echo -e "   > Removing legacy 'lte' routing tables from /etc/iproute2/rt_tables..."
+        sed -i '/lte/d' /etc/iproute2/rt_tables
+    fi
+fi
+
+# D. Apply udev control reload to enforce cleanup immediately
+udevadm control --reload-rules 2>/dev/null || true
+
+
 # 2. Kernel Tuning
 echo -e "\033[1;33m[2/6] Optimizing kernel for identical MAC devices...\033[0m"
 cat <<EOF > /etc/sysctl.d/99-lte-proxy.conf
