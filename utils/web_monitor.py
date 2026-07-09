@@ -851,8 +851,9 @@ def get_device_diagnostics(serial):
                 sessions = sorted([s for s in os.listdir(date_dir) if "_" in s], reverse=True)
                 if sessions:
                     latest_session_dir = os.path.join(date_dir, sessions[0])
-                    # Revert latest_log to show the session directory name (e.g. 193352_1874682703)
-                    info["latest_log"] = sessions[0]
+                    # Revert latest_log to show the session directory name only if not in a cooldown state
+                    if info["status"] not in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                        info["latest_log"] = sessions[0]
                     parts = sessions[0].split("_")
                     if len(parts) >= 2:
                         task_data["dest_id"] = parts[1]
