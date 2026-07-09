@@ -224,6 +224,11 @@ def main():
                 local_ip = ip_out.split()[1].split('/')[0]
                 subprocess.run(["ip", "rule", "del", "from", local_ip, "table", str(table_id)], stderr=subprocess.DEVNULL)
                 subprocess.run(["ip", "rule", "add", "from", local_ip, "table", str(table_id)])
+            # Ensure NAT (Masquerade) rule exists for this interface to share internet to devices
+            try:
+                subprocess.run(f"iptables -t nat -C POSTROUTING -o {new_name} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o {new_name} -j MASQUERADE", shell=True)
+            except Exception as e:
+                print(f"Error setting up NAT for {new_name}: {e}")
             print(f"✅ {new_name} Synced and Isolated")
 
 if __name__ == "__main__":

@@ -80,7 +80,7 @@ date
 # 5. 패키지 리스트 업데이트 및 기본 도구 설치
 echo "[*] Updating package list & Installing basic tools..."
 sudo apt update
-sudo apt install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent
 
 # 6. Python 및 필수 라이브러리 설치
 echo "[*] Installing Python3 and required libraries..."
@@ -145,6 +145,30 @@ if [ ! -f "$CERT_PATH" ]; then
     fi
 else
     echo "  -> mitmproxy certificates already exist. Skipping."
+fi
+
+# 9.1. IP Forwarding 활성화 및 영구 설정
+echo "[*] Enabling IP Forwarding permanently..."
+sudo sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-ip-forward.conf >/dev/null
+
+# 9.2. ADB Key 루트 디렉토리 동기화 및 권한 설정
+echo "[*] Synchronizing ADB Keys to root directory..."
+if [ -f "$HOME/.android/adbkey" ]; then
+    sudo mkdir -p /root/.android
+    sudo cp "$HOME/.android/adbkey" /root/.android/adbkey
+    sudo cp "$HOME/.android/adbkey.pub" /root/.android/adbkey.pub
+    sudo chmod 600 /root/.android/adbkey
+    sudo chmod 644 /root/.android/adbkey.pub
+    sudo chown root:root /root/.android/adbkey /root/.android/adbkey.pub
+    if [ -f "$HOME/.android/adbkey_k17" ]; then
+        sudo cp "$HOME/.android/adbkey_k17" /root/.android/adbkey_k17
+        sudo cp "$HOME/.android/adbkey_k17.pub" /root/.android/adbkey_k17.pub
+        sudo chmod 600 /root/.android/adbkey_k17
+        sudo chmod 644 /root/.android/adbkey_k17.pub
+        sudo chown root:root /root/.android/adbkey_k17 /root/.android/adbkey_k17.pub
+    fi
+    echo "  -> ADB Keys successfully copied and secured under /root/.android/"
 fi
 
 # 9.5. 자동 업데이트(unattended-upgrades) 비활성화 (재부팅/서비스 재시작 방지)

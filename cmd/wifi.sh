@@ -137,7 +137,7 @@ else
         echo "  0) All Devices (Default)"
 
         # Fetch current SSIDs in parallel
-        tmp_ssids=$(mktemp)
+        tmp_ssids=$(mktemp -p "$CMD_DIR")
         for s in "${all_devices[@]}"; do
             (
                 curr_s=$(get_current_ssid "$s")
@@ -198,7 +198,7 @@ fi
 
 # Final list of devices, skipping those already connected
 final_devices=()
-tmp_ssids_final=$(mktemp)
+tmp_ssids_final=$(mktemp -p "$CMD_DIR")
 for serial in "${devices_to_process[@]}"; do
     (
         curr_s=$(get_current_ssid "$serial")
@@ -284,7 +284,7 @@ wait
 echo -e "\n============================================="
 echo -e "Final Wi-Fi Connection Status"
 echo -e "============================================="
-tmp_status=$(mktemp)
+tmp_status=$(mktemp -p "$CMD_DIR")
 for serial in "${final_devices[@]}"; do
     (
         current_status=$(adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep -E "SSID|Wifi is" | tr -d '\r\n')
