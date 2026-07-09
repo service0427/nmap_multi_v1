@@ -154,6 +154,11 @@ while true; do
             continue
         fi
 
+        # --- Pre-Cleanup: Ensure stale Naver Map app is closed if loop is idle ---
+        if [ ! -f "logs/${DEV_ID}/tmp/nmap_lock" ]; then
+            timeout 5 adb -s "$DEV_ID" shell "am force-stop com.nhn.android.nmap; settings put global http_proxy :0" >/dev/null 2>&1
+        fi
+
         # Ensure ADBKeyboard is enabled and set as default IME
         CURRENT_IME=$(timeout 3 adb -s "$DEV_ID" shell settings get secure default_input_method 2>/dev/null | tr -d '\r\n')
         if [ "$CURRENT_IME" != "com.android.adbkeyboard/.AdbIME" ]; then
