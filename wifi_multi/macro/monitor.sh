@@ -113,6 +113,16 @@ check_app_survival() {
             if [ "$APP_RUNNING" = false ]; then
                 echo "[$(NOW)] [!] App process dead. Stopping scheduler."; exit 1
             fi
+
+            # [NEW] Galaxy Finder (삼성 파인더) overlay detection & recovery
+            local CURRENT_FOCUS
+            CURRENT_FOCUS=$(adb -s "$DEV_ID" shell "dumpsys window | grep -E 'mCurrentFocus'" 2>/dev/null)
+            if echo "$CURRENT_FOCUS" | grep -q "com.samsung.android.app.galaxyfinder"; then
+                echo "[$(NOW)] [⚠️] Galaxy Finder detected on screen! Force closing it to return to Naver Map..."
+                adb -s "$DEV_ID" shell "am force-stop com.samsung.android.app.galaxyfinder" >/dev/null 2>&1
+                adb -s "$DEV_ID" shell "input keyevent 4" >/dev/null 2>&1
+                adb -s "$DEV_ID" shell "monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
+            fi
         fi
     fi
 
