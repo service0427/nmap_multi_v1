@@ -39,17 +39,17 @@ HTML_TEMPLATE = """
     <style>
         body { background: #121212; color: #eee; font-family: sans-serif; margin: 0; padding: 10px; }
         .container { display: grid; grid-template-columns: repeat(auto-fill, 326px); gap: 15px; max-width: 1800px; margin: 0 auto; justify-content: center; }
-        .device-card { background: #1e1e1e; border-radius: 8px; padding: 10px; border: 1px solid #333; text-align: center; width: 326px; height: 920px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+        .device-card { background: #1e1e1e; border-radius: 8px; padding: 10px; border: 1px solid #333; text-align: center; width: 326px; height: 865px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
         .device-card.working { border-color: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.2); }
         .device-card.offline { opacity: 0.5; border-color: #f44336; }
         
-        .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 50px; flex-shrink: 0; }
-        .device-id { font-weight: bold; color: #4CAF50; font-size: 0.9em; line-height: 1.2; text-align: left; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 35px; flex-shrink: 0; }
+        .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
         .header-buttons { display: flex; gap: 5px; align-items: center; }
-        .header-buttons button { padding: 4px 6px; font-size: 0.8em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 28px; }
+        .header-buttons button { padding: 3px 5px; font-size: 0.75em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 24px; }
         .touch-label { background: #333; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; cursor: pointer; font-size: 0.8em; }
         
-        .diag-overlay { background: rgba(0,0,0,0.7); padding: 5px; border-radius: 4px; margin-bottom: 5px; font-size: 0.75em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 85px; }
+        .diag-overlay { background: rgba(0,0,0,0.7); padding: 4px 6px; border-radius: 4px; margin-bottom: 5px; font-size: 0.72em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 63px; box-sizing: border-box; }
         .diag-item { display: flex; justify-content: space-between; }
         .status-badge { padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 0.8em; }
         .badge-working { background: #2E7D32; color: white; }
@@ -60,7 +60,7 @@ HTML_TEMPLATE = """
         @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
         /* [NEW] Live Task Info Styles */
-        .live-task-box { background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 4px; padding: 6px; margin-bottom: 8px; text-align: left; font-size: 0.85em; height: 92px; box-sizing: border-box; }
+        .live-task-box { background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 4px; padding: 6px; margin-bottom: 8px; text-align: left; font-size: 0.85em; height: 74px; box-sizing: border-box; }
         .live-task-dest { color: #4CAF50; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
         .live-task-meta { display: flex; flex-direction: column; gap: 1px; color: #aaa; font-size: 0.85em; }
         .live-task-row { display: flex; justify-content: space-between; }
@@ -125,6 +125,24 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body class="{{ 'single-device' if target_device_id else '' }}">
+    {% if not target_device_id %}
+    <div style="position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%;">
+        <h2 style="margin: 0; font-size: 1.2em; color: #4CAF50; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            📱 Phone Farm Dashboard ({{ hostname }})
+            <span id="farm-summary" style="font-size: 0.7em; color: #aaa; font-weight: normal; margin-left: 10px;">
+                (연결: -대 | 동작: - | 대기: - | 오프라인: -)
+            </span>
+        </h2>
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 0.9em; background: #333; padding: 6px 12px; border-radius: 4px; color: #ffeb3b; font-weight: bold;">
+                📺 활성 화면: <span id="active-screen-count">0</span> (최대 5개 권장)
+            </span>
+            <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
+                ❌ 전체 화면 닫기
+            </button>
+        </div>
+    </div>
+    {% endif %}
     <div class="container" id="device-container">
         {% for i in range(MAX_SLOTS) %}
         {% set dev = slots[i] %}
@@ -132,36 +150,35 @@ HTML_TEMPLATE = """
         <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}" style="display: {{ 'flex' if is_target else 'none' }};">
             <div class="card-header {{ 'dimmed' if not dev or dev.offline }}" id="header-{{ i }}">
                 <span class="device-id" id="dev-name-{{ i }}">
-                    {{ dev.model if dev else 'EMPTY SLOT' }}
-                    {% if dev %}<br><small style="font-size: 0.7em; color: #888;">{{ dev.id }}</small>{% endif %}
+                    <span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#{{ "%02d" | format(i + 1) }}</span>
+                    {{ dev.id if dev else 'EMPTY SLOT' }}
                 </span>
                 <div class="header-buttons" id="header-btns-{{ i }}" style="display: {{ 'flex' if dev and not dev.offline else 'none' }};">
                     <button id="btn-mon-{{ i }}" onclick="toggleMonitor({{ i }})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                     <button onclick="unlockDevice({{ i }})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                    <button onclick="sleepDevice({{ i }})" style="background: #9C27B0;" title="Sleep">🌙</button>
                     <button onclick="rebootDevice({{ i }})" style="background: #f44336;" title="Reboot">🔄</button>
-                    <label class="touch-label" title="Enable Touch">
-                        <input type="checkbox" id="touch-{{ i }}" checked> 🖐️
-                    </label>
                 </div>
             </div>
             
-            <div class="diag-overlay" style="height: 85px;">
+            <div class="diag-overlay" style="height: 63px;">
                 <div class="diag-item">
                     {% set is_active = dev and dev.status != 'IDLE' and not dev.offline %}
                     <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-working' if is_active else 'badge-idle') }}" id="badge-{{ i }}">
                         {{ 'OFFLINE' if not dev or dev.offline else (dev.status if dev.status else 'IDLE') }}
                     </span>
-                    <span id="ip-{{ i }}" style="color: #4CAF50; font-family: monospace;">{{ dev.ip if dev else 'N/A' }}</span>
+                    <span id="model-{{ i }}" style="color: #888; margin-left: auto;">{{ dev.model if dev else 'N/A' }}</span>
                 </div>
                 <div class="diag-item">
-                    <span id="temp-{{ i }}" style="color: #ff9800;">🌡️ {{ dev.temp if dev else '??' }}°C</span>
-                    {% set b_val = (dev.battery | int(-1)) if dev else -1 %}
-                    <span id="battery-{{ i }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
-                        {{ '⚠️' if b_val != -1 and b_val < 80 else '🔋' }} {{ dev.battery if dev else '??' }}%
+                    <span id="ip-{{ i }}" style="color: #4CAF50;">{{ dev.ip if dev else 'N/A' }}</span>
+                    <span style="margin-left: auto; display: flex; gap: 8px;">
+                        <span id="temp-{{ i }}" style="color: #ff9800;">🌡️ {{ dev.temp if dev else '??' }}°C</span>
+                        {% set b_val = (dev.battery | int(-1)) if dev else -1 %}
+                        <span id="battery-{{ i }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
+                            🔋 {{ dev.battery if dev else '??' }}%
+                        </span>
                     </span>
                 </div>
-                <div class="diag-item" style="border-top: 1px solid #333; margin-top: 4px; padding-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: #888;">
+                <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
                     📝 <span id="log-{{ i }}" style="margin-left: 2px;">{{ dev.latest_log if dev else 'No Log' }}</span>
                 </div>
             </div>
@@ -197,7 +214,7 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
                 {% else %}
-                <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
                     {{ 'Ready for next task' if dev else 'Waiting for device...' }}
                 </div>
                 {% endif %}
@@ -242,6 +259,46 @@ HTML_TEMPLATE = """
             {% endfor %}
         ];
 
+        function updateActiveScreenCount() {
+            let count = 0;
+            for (let i = 0; i < slotDeviceIds.length; i++) {
+                const img = document.getElementById('img-' + i);
+                if (img && img.src && img.src.includes('/stream/')) {
+                    count++;
+                }
+            }
+            const el = document.getElementById('active-screen-count');
+            if (el) {
+                el.innerText = count;
+                if (count >= 5) {
+                    el.style.color = '#f44336';
+                } else {
+                    el.style.color = '#ffeb3b';
+                }
+            }
+        }
+
+        function closeAllMonitors() {
+            for (let i = 0; i < slotDeviceIds.length; i++) {
+                const img = document.getElementById('img-' + i);
+                if (img && img.src && img.src.includes('/stream/')) {
+                    img.src = '';
+                    img.style.display = 'none';
+                    const placeholder = document.getElementById('placeholder-' + i);
+                    if (placeholder) {
+                        placeholder.style.display = 'flex';
+                        placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
+                    }
+                    const btn = document.getElementById('btn-mon-' + i);
+                    if (btn) {
+                        btn.style.background = '#607D8B';
+                        btn.innerText = '📺';
+                    }
+                }
+            }
+            updateActiveScreenCount();
+        }
+
         function toggleMonitor(slotIdx) {
             const devId = slotDeviceIds[slotIdx];
             if (!devId) return;
@@ -257,12 +314,23 @@ HTML_TEMPLATE = """
                 btn.style.background = '#607D8B';
                 btn.innerText = '📺';
             } else {
+                let count = 0;
+                for (let j = 0; j < slotDeviceIds.length; j++) {
+                    const im = document.getElementById('img-' + j);
+                    if (im && im.src && im.src.includes('/stream/')) count++;
+                }
+                if (count >= 5) {
+                    if (!confirm("화면을 5개 이상 켜면 브라우저 제약으로 인해 일부 화면이 로딩되지 않거나 멈출 수 있습니다. 계속하시겠습니까?")) {
+                        return;
+                    }
+                }
                 img.src = '/stream/' + devId;
                 img.style.display = 'block';
                 placeholder.style.display = 'none';
                 btn.style.background = '#4CAF50';
                 btn.innerText = '📡';
             }
+            updateActiveScreenCount();
         }
 
         function sendKey(slotIdx, code) {
@@ -292,8 +360,6 @@ HTML_TEMPLATE = """
         }
 
         function handlePointerDown(event, slotIdx) {
-            const touchCheck = document.getElementById('touch-' + slotIdx);
-            if (!touchCheck || !touchCheck.checked) return;
             const img = document.getElementById('img-' + slotIdx);
             img.setPointerCapture(event.pointerId);
             const rect = img.getBoundingClientRect();
@@ -307,8 +373,6 @@ HTML_TEMPLATE = """
         function handlePointerUp(event, slotIdx) {
             const devId = slotDeviceIds[slotIdx];
             if(!devId) return;
-            const touchCheck = document.getElementById('touch-' + slotIdx);
-            if (!touchCheck || !touchCheck.checked) return;
             const startData = activePointers[event.pointerId];
             if (!startData) return;
 
@@ -317,7 +381,6 @@ HTML_TEMPLATE = """
             const endX = (event.clientX - rect.left) / rect.width;
             const endY = (event.clientY - rect.top) / rect.height;
             const duration = Date.now() - startData.startTime;
-
             const dist = Math.sqrt(Math.pow(endX - startData.startX, 2) + Math.pow(endY - startData.startY, 2));
 
             if (dist < 0.01 || duration < 100) {
@@ -332,34 +395,33 @@ HTML_TEMPLATE = """
             return `
             <div class="device-card offline" id="slot-${i}">
                 <div class="card-header dimmed" id="header-${i}">
-                    <span class="device-id" id="dev-name-${i}">EMPTY SLOT</span>
+                    <span class="device-id" id="dev-name-${i}"><span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT</span>
                     <div class="header-buttons" id="header-btns-${i}" style="display: none;">
                         <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                         <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                        <button onclick="sleepDevice(${i})" style="background: #9C27B0;" title="Sleep">🌙</button>
                         <button onclick="rebootDevice(${i})" style="background: #f44336;" title="Reboot">🔄</button>
-                        <label class="touch-label" title="Enable Touch">
-                            <input type="checkbox" id="touch-${i}" checked> 🖐️
-                        </label>
                     </div>
                 </div>
                 
-                <div class="diag-overlay" style="height: 85px;">
+                <div class="diag-overlay" style="height: 63px;">
                     <div class="diag-item">
                         <span class="status-badge badge-offline" id="badge-${i}">OFFLINE</span>
-                        <span id="ip-${i}" style="color: #4CAF50; font-family: monospace;">N/A</span>
+                        <span id="model-${i}" style="color: #888; margin-left: auto;">N/A</span>
                     </div>
                     <div class="diag-item">
-                        <span id="temp-${i}" style="color: #ff9800;">🌡️ ??°C</span>
-                        <span id="battery-${i}" style="color: #2196F3;">🔋 ??%</span>
+                        <span id="ip-${i}" style="color: #4CAF50;">N/A</span>
+                        <span style="margin-left: auto; display: flex; gap: 8px;">
+                            <span id="temp-${i}" style="color: #ff9800;">🌡️ ??°C</span>
+                            <span id="battery-${i}" style="color: #2196F3;">🔋 ??%</span>
+                        </span>
                     </div>
-                    <div class="diag-item" style="border-top: 1px solid #333; margin-top: 4px; padding-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: #888;">
+                    <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
                         📝 <span id="log-${i}" style="margin-left: 2px;">No Log</span>
                     </div>
                 </div>
 
                 <div id="task-container-${i}">
-                    <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                    <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
                         Ready for next task
                     </div>
                 </div>
@@ -410,6 +472,7 @@ HTML_TEMPLATE = """
                     const devName = document.getElementById('dev-name-' + i);
                     const headerBtns = document.getElementById('header-btns-' + i);
                     const badge = document.getElementById('badge-' + i);
+                    const modelEl = document.getElementById('model-' + i);
                     const ipEl = document.getElementById('ip-' + i);
                     const tempEl = document.getElementById('temp-' + i);
                     const battEl = document.getElementById('battery-' + i);
@@ -451,12 +514,13 @@ HTML_TEMPLATE = """
                         // EMPTY SLOT 상태로 만들기
                         if (card) card.className = 'device-card offline';
                         if (header) header.className = 'card-header dimmed';
-                        if (devName) devName.innerHTML = 'EMPTY SLOT';
+                        if (devName) devName.innerHTML = `<span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT`;
                         if (headerBtns) headerBtns.style.display = 'none';
                         if (badge) {
                             badge.className = 'status-badge badge-offline';
                             badge.innerText = 'OFFLINE';
                         }
+                        if (modelEl) modelEl.innerText = 'N/A';
                         if (ipEl) ipEl.innerText = 'N/A';
                         if (tempEl) tempEl.innerText = '🌡️ ??°C';
                         if (battEl) {
@@ -465,7 +529,7 @@ HTML_TEMPLATE = """
                         }
                         if (taskContainer) {
                             taskContainer.innerHTML = `
-                                <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
                                     Waiting for device...
                                 </div>`;
                         }
@@ -486,7 +550,10 @@ HTML_TEMPLATE = """
                         header.className = 'card-header ' + (dev.offline ? 'dimmed' : '');
                     }
                     if (devName) {
-                        devName.innerHTML = `${dev.model || 'Unknown'}<br><small style="font-size: 0.7em; color: #888;">${dev.id || 'N/A'}</small>`;
+                        devName.innerHTML = `<span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> ${dev.id || 'Unknown'}`;
+                    }
+                    if (modelEl) {
+                        modelEl.innerText = dev.model || 'N/A';
                     }
                     if (headerBtns) {
                         headerBtns.style.display = dev.offline ? 'none' : 'flex';
@@ -561,7 +628,7 @@ HTML_TEMPLATE = """
                                 </div>`;
                         } else {
                             taskContainer.innerHTML = `
-                                <div style="height: 92px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
+                                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
                                     Ready for next task
                                 </div>`;
                         }
@@ -577,7 +644,35 @@ HTML_TEMPLATE = """
                         }
                     }
                 });
+
+                let totalConnected = 0;
+                let working = 0;
+                let idle = 0;
+                let offline = 0;
+
+                data.slots.forEach((dev) => {
+                    if (dev) {
+                        if (dev.offline) {
+                            offline++;
+                        } else {
+                            totalConnected++;
+                            const isTaskActive = dev.status && dev.status !== 'IDLE' && dev.status !== 'SUCCESS' && dev.status !== 'ARRIVED';
+                            if (isTaskActive) {
+                                working++;
+                            } else {
+                                idle++;
+                            }
+                        }
+                    }
+                });
+
+                const summaryEl = document.getElementById('farm-summary');
+                if (summaryEl) {
+                    summaryEl.innerHTML = `(연결: <b style="color: #4CAF50;">${totalConnected}대</b> | 동작: <b style="color: #2196F3;">${working}</b> | 대기: <b style="color: #bbb;">${idle}</b> | 오프라인: <b style="color: #f44336;">${offline}</b>)`;
+                }
+
                 updateTimers();
+                updateActiveScreenCount();
             }).catch(e => console.error("Status fetch error", e));
         }
         setInterval(fetchStatus, 3000);

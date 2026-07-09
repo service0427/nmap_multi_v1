@@ -93,6 +93,14 @@ echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 
 # Get Environment Snapshot (No bc package requirement)
 BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep level | awk '{print $2}')
+# --- [BATTERY SAFETY GATE] ---
+if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
+    if [ "$BATT_LEVEL" -lt 20 ]; then
+        echo " [$DEV_ID] [🚨] BATTERY CRITICAL: ${BATT_LEVEL}% (Threshold < 20%). Aborting task to prevent hard shutdown."
+        cleanup "BATTERY_LOW_${BATT_LEVEL}%"
+    fi
+fi
+
 TEMP_RAW=$(adb -s "$DEV_ID" shell dumpsys battery | grep temperature | awk '{print $2}')
 if [ -n "$TEMP_RAW" ] && [ "$TEMP_RAW" -eq "$TEMP_RAW" ] 2>/dev/null; then
     TEMP_C="$((TEMP_RAW / 10)).$((TEMP_RAW % 10))"
