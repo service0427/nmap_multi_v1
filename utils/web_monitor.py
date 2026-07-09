@@ -224,7 +224,7 @@ HTML_TEMPLATE = """
                     </span>
                 </div>
                 <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
-                    📝 <span id="log-{{ i }}" style="margin-left: 2px;">{{ dev.latest_log if dev else 'No Log' }}</span>
+                    📝 <span id="log-{{ i }}" style="margin-left: 2px;">{{ dev.latest_log if dev else '-' }}</span>
                 </div>
             </div>
 
@@ -544,7 +544,7 @@ HTML_TEMPLATE = """
                         </span>
                     </div>
                     <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
-                        📝 <span id="log-${i}" style="margin-left: 2px;">No Log</span>
+                        📝 <span id="log-${i}" style="margin-left: 2px;">-</span>
                     </div>
                 </div>
 
@@ -665,7 +665,7 @@ HTML_TEMPLATE = """
                         if (placeholder) {
                             placeholder.innerHTML = '<span>📵</span>EMPTY';
                         }
-                        if (logEl) logEl.innerText = 'No Log';
+                        if (logEl) logEl.innerText = '-';
                         return;
                     }
 
@@ -726,7 +726,7 @@ HTML_TEMPLATE = """
                     }
 
                     if (logEl) {
-                        logEl.innerText = dev.latest_log || 'No Log';
+                        logEl.innerText = dev.latest_log || '-';
                     }
 
                     if (taskContainer) {
@@ -876,7 +876,7 @@ def get_device_diagnostics(serial):
         "ip": "N/A",
         "temp": "??",
         "battery": "??",
-        "latest_log": "No Log",
+        "latest_log": "-",
         "current_task": None
     }
     
@@ -894,10 +894,6 @@ def get_device_diagnostics(serial):
                     cstatus = cdata.get("status")
                     if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
                         info["status"] = cstatus
-                        until = cdata.get("exclude_until", 0)
-                        diff = int(until - time.time())
-                        if diff > 0:
-                            info["latest_log"] = f"{cstatus} ({diff}s remain)"
         except:
             pass
 
@@ -935,9 +931,8 @@ def get_device_diagnostics(serial):
                 sessions = sorted([s for s in os.listdir(date_dir) if "_" in s], reverse=True)
                 if sessions:
                     latest_session_dir = os.path.join(date_dir, sessions[0])
-                    # Revert latest_log to show the session directory name only if not in a cooldown state
-                    if info["status"] not in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
-                        info["latest_log"] = sessions[0]
+                    # Revert latest_log to show the session directory name
+                    info["latest_log"] = sessions[0]
                     parts = sessions[0].split("_")
                     if len(parts) >= 2:
                         task_data["dest_id"] = parts[1]
@@ -1217,7 +1212,7 @@ def refresh_device_slots():
                         "ip": "N/A",
                         "temp": "??",
                         "battery": "??",
-                        "latest_log": "No Log",
+                        "latest_log": "-",
                         "current_task": None
                     }
         else:
