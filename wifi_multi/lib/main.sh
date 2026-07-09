@@ -215,16 +215,35 @@ chmod +x macro/monitor.sh
 nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" > "$CAPTURE_LOG_DIR/monitor.log" 2>&1 &
 MONITOR_PID=$!
 
-# 5. Launch (Wake & Unlock Screen Robustly - Unconditional)
-echo " [$DEV_ID] Waking up device screen..."
-adb -s "$DEV_ID" shell input keyevent 224
-sleep 0.5
-echo " [$DEV_ID] Dismissing keyguard..."
-adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
-sleep 0.5
-# Swipe up to clear the lock screen
-adb -s "$DEV_ID" shell input swipe 500 1500 500 200 300
-sleep 1.0
+# 5. Launch (Wake & Unlock Screen Robustly - Intelligent Retry Loop)
+echo " [$DEV_ID] Waking up device screen and unlocking..."
+for retry in {1..5}; do
+    IS_ON=$(adb -s "$DEV_ID" shell "dumpsys power | grep -E 'mWakefulness=|Display Power: state='" 2>/dev/null)
+    if [[ "$IS_ON" == *"Asleep"* ]] || [[ "$IS_ON" == *"OFF"* ]]; then
+        adb -s "$DEV_ID" shell input keyevent 224
+        sleep 0.8
+    fi
+
+    adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
+    sleep 0.4
+    
+    if [ $retry -eq 1 ]; then
+        adb -s "$DEV_ID" shell input swipe 500 1500 500 200 350
+    elif [ $retry -eq 2 ]; then
+        adb -s "$DEV_ID" shell input swipe 500 1800 500 100 400
+    else
+        adb -s "$DEV_ID" shell input swipe 300 1600 800 300 400
+    fi
+    sleep 1.0
+
+    KEYGUARD_STATUS=$(adb -s "$DEV_ID" shell "dumpsys window | grep -E 'mShowingKeyguard|mDreamingLockscreen'" 2>/dev/null)
+    if [[ "$KEYGUARD_STATUS" != *"mShowingKeyguard=true"* ]]; then
+        echo " [$DEV_ID] Keyguard successfully dismissed."
+        break
+    fi
+    echo " [$DEV_ID] [Attempt $retry/5] Keyguard still active. Retrying unlock..."
+done
+
 
 # Fixed: Use START coordinates for initial position
 ./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
