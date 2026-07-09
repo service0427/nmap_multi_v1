@@ -137,6 +137,9 @@ HTML_TEMPLATE = """
             <span style="font-size: 0.9em; background: #333; padding: 6px 12px; border-radius: 4px; color: #ffeb3b; font-weight: bold;">
                 📺 활성 화면: <span id="active-screen-count">0</span> (최대 5개 권장)
             </span>
+            <button onclick="unlockAllDevices()" style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
+                🔓 전체 잠금 해제
+            </button>
             <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
                 ❌ 전체 화면 닫기
             </button>
@@ -276,6 +279,18 @@ HTML_TEMPLATE = """
                     el.style.color = '#ffeb3b';
                 }
             }
+        }
+
+        function unlockAllDevices() {
+            let count = 0;
+            for (let i = 0; i < slotDeviceIds.length; i++) {
+                const devId = slotDeviceIds[i];
+                if (devId) {
+                    count++;
+                    fetch(`/unlock/${devId}`);
+                }
+            }
+            alert(`총 ${count}대의 기기에 잠금 해제 명령을 보냈습니다.`);
         }
 
         function closeAllMonitors() {
