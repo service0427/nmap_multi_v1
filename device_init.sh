@@ -106,10 +106,17 @@ if [ -z "$TARGET_DEVICE" ]; then
     fi
     echo -e "${GREEN}[✓] All connected devices passed root check. Proceeding to initialization...${NC}\n"
 fi
+# Source global configurations
+if [ -f "$BASE_DIR/version.conf" ]; then
+    source "$BASE_DIR/version.conf"
+else
+    TARGET_NMAP_VERSION="6.7.3"
+fi
+
 # Ensure installation assets are present before initializing devices
 INSTALL_DIR="$BASE_DIR/install"
 has_nmap_apk=false
-if [ -d "$INSTALL_DIR/com.nhn.android.nmap_6.7.3" ] && [ -f "$INSTALL_DIR/com.nhn.android.nmap_6.7.3/base.apk" ]; then
+if [ -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ] && [ -f "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}/base.apk" ]; then
     has_nmap_apk=true
 elif [ -d "$INSTALL_DIR/naver_map" ] && [ -f "$INSTALL_DIR/naver_map/base.apk" ]; then
     has_nmap_apk=true

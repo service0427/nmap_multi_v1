@@ -5,14 +5,20 @@
 CMD_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(cd "$CMD_DIR/.." && pwd)"
 
-# install 디렉토리에서 현재 서버의 타겟 버전을 파악
-INSTALL_DIR="$PROJECT_ROOT/install"
-TARGET_VER="6.7.3" # Fallback 기본값
-NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
-if [ -n "$NMAP_DIR" ]; then
-    folder_name=$(basename "$NMAP_DIR")
-    if [[ "$folder_name" =~ _([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-        TARGET_VER="${BASH_REMATCH[1]}"
+# Source global configurations
+if [ -f "$PROJECT_ROOT/version.conf" ]; then
+    source "$PROJECT_ROOT/version.conf"
+    TARGET_VER="$TARGET_NMAP_VERSION"
+else
+    # Fallback to dynamic local check if version.conf is missing
+    INSTALL_DIR="$PROJECT_ROOT/install"
+    TARGET_VER="6.7.3" # Fallback default
+    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
+    if [ -n "$NMAP_DIR" ]; then
+        folder_name=$(basename "$NMAP_DIR")
+        if [[ "$folder_name" =~ _([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            TARGET_VER="${BASH_REMATCH[1]}"
+        fi
     fi
 fi
 

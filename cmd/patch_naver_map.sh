@@ -22,12 +22,19 @@ if [ -z "$DEVICES" ]; then
     exit 1
 fi
 
+# Source global configurations
+if [ -f "$PROJECT_ROOT/version.conf" ]; then
+    source "$PROJECT_ROOT/version.conf"
+fi
+
 # 패치 대상 디렉토리 탐색
 NMAP_DIR=""
 if [ -d "$INSTALL_DIR/naver_map" ]; then
     NMAP_DIR="$INSTALL_DIR/naver_map"
+elif [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ]; then
+    NMAP_DIR="$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
 else
-    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | head -n 1)
+    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
 fi
 
 if [ -z "$NMAP_DIR" ] || [ ! -d "$NMAP_DIR" ]; then

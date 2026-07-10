@@ -4,14 +4,21 @@
 # Google Drive Asset Downloader & Updater
 # ============================================================
 
-# ⚠️ 구글 드라이브에 업로드한 base 파일과 네이버 지도 파일의 고유 File ID
-GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
-GDRIVE_NMAP_ID="1uXV7Hsys5SqGMVx1SO-GHvMPIQ9SfpCQ"
-
 WORKSPACE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Source global configurations
+if [ -f "$WORKSPACE_DIR/version.conf" ]; then
+    source "$WORKSPACE_DIR/version.conf"
+else
+    # Fallbacks in case config is missing
+    TARGET_NMAP_VERSION="6.7.3"
+    GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
+    GDRIVE_NMAP_ID="1uXV7Hsys5SqGMVx1SO-GHvMPIQ9SfpCQ"
+fi
+
 TARGET_DIR="$WORKSPACE_DIR/install"
 BASE_ARCHIVE="$WORKSPACE_DIR/install_base.tar.gz"
-NMAP_ARCHIVE="$WORKSPACE_DIR/com.nhn.android.nmap_6.7.3.tar.gz"
+NMAP_ARCHIVE="$WORKSPACE_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}.tar.gz"
 
 # Parse arguments for non-interactive flag
 interactive=true
@@ -35,16 +42,33 @@ if [ "$interactive" = true ]; then
     fi
 fi
 
-# 1. Verification of existing local assets in install directory
+# 1. Verification of existing local assets in install directory (Pre-detect local paths)
 has_base=false
 if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/ADBKeyboard.apk" ] && [ -d "$TARGET_DIR/gpsemulator" ]; then
     has_base=true
 fi
 
 has_nmap=false
-target_folder_name=$(basename "$NMAP_ARCHIVE" .tar.gz)
-if [ -d "$TARGET_DIR/$target_folder_name" ] && [ -f "$TARGET_DIR/$target_folder_name/base.apk" ]; then
+# A. Priority 1: Check custom naver_map directory
+if [ -d "$TARGET_DIR/naver_map" ] && [ -f "$TARGET_DIR/naver_map/base.apk" ]; then
     has_nmap=true
+    echo "[*] 로컬에서 사용자 커스텀 패치 경로를 발견했습니다: install/naver_map"
+fi
+
+# B. Priority 2: Check target version directory
+target_folder_name="com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
+if [ "$has_nmap" = false ] && [ -d "$TARGET_DIR/$target_folder_name" ] && [ -f "$TARGET_DIR/$target_folder_name/base.apk" ]; then
+    has_nmap=true
+    echo "[*] 로컬에서 ${TARGET_NMAP_VERSION} 목표 버전 경로를 확인했습니다: install/$target_folder_name"
+fi
+
+# C. Priority 3: Scan dynamically for other manual versions under com.nhn.android.nmap_*
+if [ "$has_nmap" = false ]; then
+    highest_local_nmap=$(find "$TARGET_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" 2>/dev/null | sort -V -r | head -n 1)
+    if [ -n "$highest_local_nmap" ] && [ -f "$highest_local_nmap/base.apk" ]; then
+        has_nmap=true
+        echo "[*] 로컬에서 수동 배치된 타겟 버전 경로를 동적 탐지했습니다: install/$(basename "$highest_local_nmap")"
+    fi
 fi
 
 if [ "$has_base" = true ] && [ "$has_nmap" = true ]; then
