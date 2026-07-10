@@ -87,7 +87,8 @@ init_app_installation() {
     if [ -d "$INSTALL_DIR/naver_map" ]; then
         nmap_dir="$INSTALL_DIR/naver_map"
     else
-        nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | head -n 1)
+        # Use version sort in reverse to ensure the highest version is picked first (e.g. 6.7.3 over 6.6.1)
+        nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
     fi
 
     if [ -n "$nmap_dir" ] && [ -d "$nmap_dir" ]; then

@@ -109,7 +109,7 @@ fi
 # Ensure installation assets are present before initializing devices
 INSTALL_DIR="$BASE_DIR/install"
 has_nmap_apk=false
-nmap_search_dir=$(find "$INSTALL_DIR" -maxdepth 2 -name "base.apk" 2>/dev/null | grep -E "naver_map|com.nhn.android.nmap" | head -n 1)
+nmap_search_dir=$(find "$INSTALL_DIR" -maxdepth 2 -name "base.apk" 2>/dev/null | grep -E "naver_map|com.nhn.android.nmap" | sort -V -r | head -n 1)
 if [ -n "$nmap_search_dir" ] && [ -f "$nmap_search_dir" ]; then
     has_nmap_apk=true
 fi
