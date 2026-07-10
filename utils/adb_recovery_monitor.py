@@ -11,7 +11,6 @@ ADB_TIMEOUT_SEC = 5
 TECH_USER = "tech"
 TECH_HOME = f"/home/{TECH_USER}"
 TECH_ANDROID_DIR = os.path.join(TECH_HOME, ".android")
-ROOT_ANDROID_DIR = "/root/.android"
 
 def log(level, message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -37,36 +36,7 @@ def get_adb_processes():
         log("ERROR", f"Failed to list processes: {e}")
     return processes
 
-def sync_adb_keys():
-    """Ensures that the tech user's adb keys match root's keys so authorization is preserved.
-    [V1.1.2] Improved to bypass tech user's read permission barrier over /root directory via sudo test."""
-    try:
-        root_key = os.path.join(ROOT_ANDROID_DIR, "adbkey")
-        root_pub = os.path.join(ROOT_ANDROID_DIR, "adbkey.pub")
-        tech_key = os.path.join(TECH_ANDROID_DIR, "adbkey")
-        tech_pub = os.path.join(TECH_ANDROID_DIR, "adbkey.pub")
-
-        if not os.path.exists(TECH_ANDROID_DIR):
-            os.makedirs(TECH_ANDROID_DIR, exist_ok=True)
-            log("INFO", f"Created directory: {TECH_ANDROID_DIR}")
-
-        # Check if root key exists using sudo test (bypasses tech's read permission restriction on /root)
-        res = subprocess.run(["sudo", "test", "-f", root_key], stderr=subprocess.DEVNULL)
-        if res.returncode == 0:
-            # Force copy via sudo to bypass local os.path permission blocks and ensure synchronization
-            log("INFO", "Root adbkey exists. Force synchronizing keys via sudo copy...")
-            subprocess.run(["sudo", "cp", root_key, tech_key], check=True)
-            subprocess.run(["sudo", "cp", root_pub, tech_pub], check=True)
-
-        # Correct permissions and ownership
-        res_tech = subprocess.run(["test", "-f", tech_key], stderr=subprocess.DEVNULL)
-        if res_tech.returncode == 0:
-            subprocess.run(["sudo", "chown", f"{TECH_USER}:{TECH_USER}", tech_key, tech_pub], check=True)
-            subprocess.run(["chmod", "600", tech_key], check=True)
-            subprocess.run(["chmod", "644", tech_pub], check=True)
-            log("INFO", "Successfully synchronized and configured adb keys for tech user.")
-    except Exception as e:
-        log("ERROR", f"Failed to synchronize adb keys: {e}")
+# adbkey synchronization logic removed as per user preference (manual local verification only)
 
 def kill_processes(pids, use_sudo=False):
     """Kills a list of PIDs."""
@@ -107,9 +77,6 @@ def perform_recovery():
 
     # Wait a bit for sockets to free up
     time.sleep(2)
-
-    # 4. Sync keys
-    sync_adb_keys()
 
     # 5. Start adb server as tech
     try:
@@ -237,8 +204,7 @@ def check_adb_status():
 def main():
     log("INFO", "ADB Recovery Monitor Daemon started.")
     
-    # Run an initial check and key sync
-    sync_adb_keys()
+    # Run an initial check
     
     unauthorized_consecutive_counts = {}
     global_unauthorized_streak = 0
