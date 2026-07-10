@@ -443,29 +443,19 @@ HTML_TEMPLATE = """
         }
 
         function resetDevicePenalty(serial) {
-            if (!confirm(`정말로 이 디바이스(${serial})의 패널티 및 로컬 쿨다운을 리셋하시겠습니까?`)) {
-                return;
-            }
-            
+            // 즉시 백그라운드 슛 쏘기 (컨펌 및 알림 팝업 없음)
             fetch('/api/reset_device_penalty', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ serial: serial })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    alert(`성공적으로 패널티 리셋 요청을 발송했습니다.\n\n• 외부: ${data.details.external}\n• 로컬: ${data.details.local}`);
-                    fetchStatus();
-                } else {
-                    alert("에러: " + data.message);
-                }
-            })
-            .catch(err => {
-                alert("네트워크 오류: " + err);
             });
+            
+            // 리턴 대기 없이 100ms 뒤 즉각 화면 갱신 (로컬 current_task.json이 리셋되므로 바로 풀림!)
+            setTimeout(() => {
+                fetchStatus();
+            }, 100);
         }
 
         function copyDevId(devId, elementId) {
@@ -1305,19 +1295,18 @@ def reset_device_penalty():
         if not serial:
             return jsonify({"status": "error", "message": "Missing serial"}), 400
             
-        # 1. External API 호출
-        external_url = f"http://114.207.112.245:8001/api/v1/admin/device/reset_penalty?device_id={serial}"
-        ext_status = "Skipped"
-        try:
-            import requests
-            r = requests.get(external_url, timeout=5)
-            ext_status = f"HTTP {r.status_code}: {r.text[:100]}"
-        except Exception as ex:
-            ext_status = f"Error: {ex}"
+        # 1. External API 호출 (리턴을 전혀 기다리지 않고 스레드로 백그라운드 격발!)
+        def trigger_external_reset(dev_id):
+            try:
+                import requests
+                requests.get(f"http://114.207.112.245:8001/api/v1/admin/device/reset_penalty?device_id={dev_id}", timeout=5)
+            except Exception as ex:
+                print(f"Async external reset error: {ex}", flush=True)
+
+        threading.Thread(target=trigger_external_reset, args=(serial,), daemon=True).start()
             
         # 2. Local Reset (current_task.json 갱신 또는 삭제)
         task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
-        local_status = "No current_task.json file found"
         if os.path.exists(task_info_path):
             try:
                 with open(task_info_path, 'r') as f:
@@ -1325,25 +1314,16 @@ def reset_device_penalty():
                 cdata["status"] = "IDLE"
                 with open(task_info_path, 'w') as f:
                     json.dump(cdata, f, indent=4)
-                local_status = "Reset to IDLE successfully"
-            except Exception as lex:
+            except:
                 try:
                     os.remove(task_info_path)
-                    local_status = "Removed current_task.json successfully"
-                except Exception as rex:
-                    local_status = f"Failed to reset: {lex} / {rex}"
+                except:
+                    pass
         
         # 3. 로컬 메모리 상태 즉시 갱신 (반응성 극대화)
         refresh_device_slots()
                    
-        return jsonify({
-            "status": "success",
-            "message": f"Penalty reset triggered for {serial}.",
-            "details": {
-                "external": ext_status,
-                "local": local_status
-            }
-        })
+        return jsonify({"status": "success", "message": "Reset triggered successfully"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
