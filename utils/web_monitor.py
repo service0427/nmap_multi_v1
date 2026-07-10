@@ -442,6 +442,32 @@ HTML_TEMPLATE = """
             }
         }
 
+        function resetDevicePenalty(serial) {
+            if (!confirm(`정말로 이 디바이스(${serial})의 패널티 및 로컬 쿨다운을 리셋하시겠습니까?`)) {
+                return;
+            }
+            
+            fetch('/api/reset_device_penalty', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ serial: serial })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert(`성공적으로 패널티 리셋 요청을 발송했습니다.\n\n• 외부: ${data.details.external}\n• 로컬: ${data.details.local}`);
+                    fetchStatus();
+                } else {
+                    alert("에러: " + data.message);
+                }
+            })
+            .catch(err => {
+                alert("네트워크 오류: " + err);
+            });
+        }
+
         function copyDevId(devId, elementId) {
             if (!devId || devId === "EMPTY SLOT") return;
             
@@ -783,9 +809,12 @@ HTML_TEMPLATE = """
                                 <div class="live-task-box" style="border: 1px solid ${border}; background: ${bg}; padding: 6px; display: flex; flex-direction: column; justify-content: center; height: 74px; box-sizing: border-box;">
                                     <div style="font-weight: bold; color: ${color}; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center;">
                                         <span>⚠️ ${c.status}</span>
-                                        <span style="font-size: 0.85em; background: ${color}; color: black; padding: 1px 6px; border-radius: 3px; font-weight: bold;">
-                                            ${c.remain_sec}s
-                                        </span>
+                                        <div style="display: flex; gap: 4px; align-items: center;">
+                                            <button onclick="resetDevicePenalty('${dev.id}')" style="background: #E65100; color: white; border: none; padding: 2px 6px; font-size: 0.8em; border-radius: 3px; cursor: pointer; font-weight: bold;" title="Reset Penalty & Cooldown">⚡ 리셋</button>
+                                            <span style="font-size: 0.85em; background: ${color}; color: black; padding: 1px 6px; border-radius: 3px; font-weight: bold;">
+                                                ${c.remain_sec}s
+                                            </span>
+                                        </div>
                                     </div>
                                     <div style="font-size: 0.78em; color: #aaa; margin-top: 4px; line-height: 1.3;">
                                         <div>• 실패 시각: <span style="color: #ffeb3b;">${c.failed_at}</span></div>
@@ -1265,6 +1294,56 @@ def index():
 def status():
     # Return the current parsed device states for seamless AJAX updates
     return jsonify({"slots": device_slots})
+
+@app.route('/api/reset_device_penalty', methods=['POST'])
+def reset_device_penalty():
+    try:
+        data = request.get_json() or {}
+        serial = data.get("serial")
+        if not serial:
+            return jsonify({"status": "error", "message": "Missing serial"}), 400
+            
+        # 1. External API 호출
+        external_url = f"http://114.207.112.245:8001/api/v1/admin/device/reset_penalty?device_id={serial}"
+        ext_status = "Skipped"
+        try:
+            import requests
+            r = requests.get(external_url, timeout=5)
+            ext_status = f"HTTP {r.status_code}: {r.text[:100]}"
+        except Exception as ex:
+            ext_status = f"Error: {ex}"
+            
+        # 2. Local Reset (current_task.json 갱신 또는 삭제)
+        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+        local_status = "No current_task.json file found"
+        if os.path.exists(task_info_path):
+            try:
+                with open(task_info_path, 'r') as f:
+                    cdata = json.load(f)
+                cdata["status"] = "IDLE"
+                with open(task_info_path, 'w') as f:
+                    json.dump(cdata, f, indent=4)
+                local_status = "Reset to IDLE successfully"
+            except Exception as lex:
+                try:
+                    os.remove(task_info_path)
+                    local_status = "Removed current_task.json successfully"
+                except Exception as rex:
+                    local_status = f"Failed to reset: {lex} / {rex}"
+        
+        # 3. 로컬 메모리 상태 즉시 갱신 (반응성 극대화)
+        refresh_device_slots()
+                   
+        return jsonify({
+            "status": "success",
+            "message": f"Penalty reset triggered for {serial}.",
+            "details": {
+                "external": ext_status,
+                "local": local_status
+            }
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/click/<dev_id>')
 def click(dev_id):
