@@ -108,7 +108,13 @@ if [ -z "$TARGET_DEVICE" ]; then
 fi
 # Ensure installation assets are present before initializing devices
 INSTALL_DIR="$BASE_DIR/install"
-if [ ! -d "$INSTALL_DIR" ] || [ ! -f "$INSTALL_DIR/com.nhn.android.nmap_6.6.1/base.apk" ]; then
+has_nmap_apk=false
+nmap_search_dir=$(find "$INSTALL_DIR" -maxdepth 2 -name "base.apk" 2>/dev/null | grep -E "naver_map|com.nhn.android.nmap" | head -n 1)
+if [ -n "$nmap_search_dir" ] && [ -f "$nmap_search_dir" ]; then
+    has_nmap_apk=true
+fi
+
+if [ "$has_nmap_apk" = false ]; then
     echo -e "${YELLOW}[*] Installation assets missing or incomplete. Triggering download...${NC}"
     if [ -f "$BASE_DIR/device_init/download_install_assets.sh" ]; then
         bash "$BASE_DIR/device_init/download_install_assets.sh"

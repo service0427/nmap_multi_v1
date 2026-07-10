@@ -16,9 +16,8 @@ init_app_installation() {
     local PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
     local INSTALL_DIR="$PROJECT_ROOT/install"
 
-    # Define packages and their files
+    # Define remaining packages (excluding Naver Map which is handled dynamically below)
     local APPS=(
-        "com.nhn.android.nmap:1:$INSTALL_DIR/com.nhn.android.nmap_6.6.1/base.apk $INSTALL_DIR/com.nhn.android.nmap_6.6.1/split_config.arm64_v8a.apk $INSTALL_DIR/com.nhn.android.nmap_6.6.1/split_config.xxhdpi.apk"
         "com.rosteam.gpsemulator:1:$INSTALL_DIR/gpsemulator/base.apk $INSTALL_DIR/gpsemulator/split_config.arm64_v8a.apk $INSTALL_DIR/gpsemulator/split_config.ko.apk $INSTALL_DIR/gpsemulator/split_config.xxhdpi.apk"
         "com.android.adbkeyboard:0:$INSTALL_DIR/ADBKeyboard.apk"
     )
@@ -80,8 +79,58 @@ init_app_installation() {
         echo -e "    [!] Failed to verify 'curl' on device."
     fi
 
-    # 3. App Installation with Pass Logic
+    # 3. Naver Map (com.nhn.android.nmap) Dynamic Version Check & Clean Install
+    local nmap_pkg="com.nhn.android.nmap"
     local installed_packages=$(adb -s "$serial" shell pm list packages | cut -d':' -f2 | tr -d '\r')
+    local nmap_dir=""
+    
+    if [ -d "$INSTALL_DIR/naver_map" ]; then
+        nmap_dir="$INSTALL_DIR/naver_map"
+    else
+        nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | head -n 1)
+    fi
+
+    if [ -n "$nmap_dir" ] && [ -d "$nmap_dir" ]; then
+        local nmap_apks=$(find "$nmap_dir" -maxdepth 1 -name "*.apk" | tr '\n' ' ' | xargs)
+        if [ -n "$nmap_apks" ]; then
+            if echo "$installed_packages" | grep -qx "$nmap_pkg"; then
+                local device_ver=$(adb -s "$serial" shell "dumpsys package $nmap_pkg 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" | tr -d '\r\n ' || true)
+                local target_ver=""
+                local folder_name=$(basename "$nmap_dir")
+                if [[ "$folder_name" =~ _([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                    target_ver="${BASH_REMATCH[1]}"
+                fi
+                
+                local needs_patch=false
+                if [ -n "$target_ver" ] && [ "$device_ver" != "$target_ver" ]; then
+                    echo -e "    - [!] Version mismatch detected (Device: $device_ver | Server Target: $target_ver). Triggering patch..."
+                    needs_patch=true
+                elif [ "$folder_name" = "naver_map" ]; then
+                    echo -e "    - [!] Custom naver_map patch folder detected. Re-installing..."
+                    needs_patch=true
+                fi
+                
+                if [ "$needs_patch" = true ]; then
+                    echo -e "    - Uninstalling old Naver Map..."
+                    adb -s "$serial" uninstall "$nmap_pkg" >/dev/null 2>&1
+                    echo -e "    - Installing new Naver Map from $folder_name..."
+                    adb -s "$serial" install-multiple $nmap_apks >/dev/null 2>&1
+                    adb -s "$serial" shell "$has_su -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
+                else
+                    echo -e "    [✓] Naver Map ($device_ver) is already installed & up-to-date. Skipping."
+                fi
+            else
+                echo -e "    - Naver Map not found. Installing from $nmap_dir..."
+                adb -s "$serial" install-multiple $nmap_apks >/dev/null 2>&1
+            fi
+        else
+            echo -e "    [!] Warning: No APKs found in $nmap_dir"
+        fi
+    else
+        echo -e "    [!] Warning: Naver Map install folder not found under $INSTALL_DIR"
+    fi
+
+    # 3.5. Other Apps Installation with Pass Logic
     for app in "${APPS[@]}"; do
         IFS=':' read -r pkg type files <<< "$app"
         if echo "$installed_packages" | grep -qx "$pkg"; then
