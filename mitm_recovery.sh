@@ -80,7 +80,7 @@ for serial in $DEVICES; do
     SERVER_MD5=$(md5sum "$CERT_PATH" | awk '{print $1}')
     USER_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum /data/misc/user/0/cacerts-added/$CERT_HASH.0 2>/dev/null'" | tr -d '\r' | awk '{print $1}')
     
-    HAS_MAGISK_DIR=$(adb -s "$serial" shell "[ -d /data/adb/modules/trustusercerts/system/etc/security/cacerts ] && echo 'yes' || echo 'no'" | tr -d '\r')
+    HAS_MAGISK_DIR=$(adb -s "$serial" shell "$HAS_SU -c '[ -d /data/adb/modules/trustusercerts/system/etc/security/cacerts ] && echo yes || echo no'" | tr -d '\r')
     if [ "$HAS_MAGISK_DIR" = "yes" ]; then
         MAGISK_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum /data/adb/modules/trustusercerts/system/etc/security/cacerts/$CERT_HASH.0 2>/dev/null'" | tr -d '\r' | awk '{print $1}')
     else
@@ -101,7 +101,7 @@ for serial in $DEVICES; do
 MOD_SCRIPT="/data/adb/modules/trustusercerts/post-fs-data.sh"
 
 if [ -f "$MOD_SCRIPT" ]; then
-    echo "[$serial] trustusercerts 모듈 스크립트를 교정합니다..."
+    echo "[*] trustusercerts 모듈 스크립트를 교정합니다..."
     
     # 올바른 순서의 스크립트로 덮어쓰기
     cat << 'INNER_EOF' > $MOD_SCRIPT
@@ -144,9 +144,9 @@ main
 INNER_EOF
 
     chmod 755 $MOD_SCRIPT
-    echo "[$serial] 스크립트 교정 완료."
+    echo "[*] 스크립트 교정 완료."
 else
-    echo "[$serial] trustusercerts 모듈을 찾을 수 없습니다. 무시하고 진행합니다."
+    echo "[*] trustusercerts 모듈을 찾을 수 없습니다. 무시하고 진행합니다."
 fi
 EOF
 
@@ -155,7 +155,7 @@ EOF
 #!/system/bin/sh
 CERT_FILE="$CERT_HASH.0"
 
-echo "[$serial] 기존 유저 및 Magisk 캐시 인증서를 삭제합니다..."
+echo "[*] 기존 유저 및 Magisk 캐시 인증서를 삭제합니다..."
 rm -f /data/misc/user/0/cacerts-added/*
 rm -f /data/adb/modules/trustusercerts/system/etc/security/cacerts/\$CERT_FILE
 EOF2
