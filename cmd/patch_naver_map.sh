@@ -61,7 +61,7 @@ fi
 
 for serial in $DEVICES; do
     echo "=================================================="
-    echo "🚀 [$serial] 네이버 지도 강제 패치 시작..."
+    echo "[$(date '+%H:%M:%S')] 🚀 [$serial] 네이버 지도 강제 패치 시작..."
     
     # su 권한 획득
     HAS_SU=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
@@ -69,25 +69,26 @@ for serial in $DEVICES; do
         HAS_SU=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
     fi
     if [ -z "$HAS_SU" ]; then
-        echo "[$serial] [!] su 권한을 찾을 수 없습니다. 루팅 환경이 아닌 기기는 패치하지 않습니다."
+        echo "[$(date '+%H:%M:%S')] [$serial] [!] su 권한을 찾을 수 없습니다. 루팅 환경이 아닌 기기는 패치하지 않습니다."
         continue
     fi
 
     # 1. 기존 앱 제거
-    echo "[$serial] 기존 Naver Map 앱 제거 중..."
+    echo "[$(date '+%H:%M:%S')] [$serial] 기존 Naver Map 앱 제거 중..."
     adb -s "$serial" uninstall com.nhn.android.nmap >/dev/null 2>&1
 
     # 2. 신규 앱 설치
-    echo "[$serial] 신규 Naver Map 앱 설치 중..."
+    echo "[$(date '+%H:%M:%S')] [$serial] 신규 Naver Map APK 파일들을 기기로 전송(Push) 중..."
+    echo "[$(date '+%H:%M:%S')] [$serial] 기기 내부에서 최적화 및 설치 실행 중 (약 10~15초 소요)..."
     adb -s "$serial" install-multiple $NMAP_APKS >/dev/null 2>&1
 
     # 3. 환경 설정 잔재 소거
     adb -s "$serial" shell "$HAS_SU -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
 
     # 4. 모듈을 통한 초기화 및 볼륨/권한 설정 재이식
-    echo "[$serial] 네이버 지도 권한 및 볼륨 0 뮤트 설정 재이식 중..."
+    echo "[$(date '+%H:%M:%S')] [$serial] 네이버 지도 권한 및 볼륨 0 뮤트 설정 재이식 중..."
     init_naver_map "$serial" "$HAS_SU"
     
-    echo "[$serial] [✓] 네이버 지도 강제 패치 및 설정 이식 완료!"
+    echo "[$(date '+%H:%M:%S')] [$serial] [✓] 네이버 지도 강제 패치 및 설정 이식 완료!"
     echo "=================================================="
 done
