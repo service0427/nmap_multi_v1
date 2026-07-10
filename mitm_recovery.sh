@@ -76,6 +76,25 @@ for serial in $DEVICES; do
         continue
     fi
 
+    # [인증서 일치 여부 사전 검증 - PASS 최적화]
+    SERVER_MD5=$(md5sum "$CERT_PATH" | awk '{print $1}')
+    USER_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum /data/misc/user/0/cacerts-added/$CERT_HASH.0 2>/dev/null'" | tr -d '\r' | awk '{print $1}')
+    
+    HAS_MAGISK_DIR=$(adb -s "$serial" shell "[ -d /data/adb/modules/trustusercerts/system/etc/security/cacerts ] && echo 'yes' || echo 'no'" | tr -d '\r')
+    if [ "$HAS_MAGISK_DIR" = "yes" ]; then
+        MAGISK_MD5=$(adb -s "$serial" shell "$HAS_SU -c 'md5sum /data/adb/modules/trustusercerts/system/etc/security/cacerts/$CERT_HASH.0 2>/dev/null'" | tr -d '\r' | awk '{print $1}')
+    else
+        MAGISK_MD5="MISSING"
+    fi
+
+    echo "[$serial] 인증서 대조: Server=$SERVER_MD5 | PhoneUser=$USER_MD5 | Magisk=$MAGISK_MD5"
+    
+    if [ -n "$SERVER_MD5" ] && [ "$SERVER_MD5" = "$USER_MD5" ] && [ "$SERVER_MD5" = "$MAGISK_MD5" ]; then
+        echo "[$serial] [✓] 인증서가 이미 최신 상태이며 서버와 완전히 일치합니다. 복구를 생략하고 [PASS] 합니다."
+        echo "=================================================="
+        continue
+    fi
+
     # 1. Magisk 모듈 post-fs-data.sh 복사 순서 교정 스크립트 작성
     cat << 'EOF' > /tmp/fix_script_$serial.sh
 #!/system/bin/sh
