@@ -1175,7 +1175,9 @@ def get_device_diagnostics(serial):
                             "reason": cooldown_reason,
                             "remain_sec": diff
                         }
-                        info["status"] = cstatus
+                        # ⚠️ 기기가 성공(SUCCESS)으로 완전히 마친 경우, 상태를 강제 PENALTY/COOLDOWN으로 덮어쓰지 않고 SUCCESS를 우선 유지합니다.
+                        if info["status"] != "SUCCESS":
+                            info["status"] = cstatus
     except Exception as e:
         print(f"Error compiling cooldown_info: {e}", flush=True)
             
