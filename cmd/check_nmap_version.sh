@@ -62,19 +62,23 @@ for serial in $DEVICES; do
 done
 wait
 
-# 임시 파일에서 내용 정렬하여 출력하면서 업데이트가 필요한 기기들 수집
+# 임시 파일에서 내용을 정렬하여 별도 파일에 쓰고 부모 쉘 루프로 파싱하여 변수 보존
+sorted_tmp=$(mktemp)
+sort "$tmp_file" > "$sorted_tmp"
+rm -f "$tmp_file"
+
 needs_update_count=0
 needs_update_list=()
 
 while IFS=: read -r serial version status; do
     printf "  %-15s | %-15s | %b\n" "$serial" "$version" "$status"
-    if [[ "$status" == *"${RED}Missing"* ]] || [[ "$status" == *"${YELLOW}Outdated"* ]]; then
+    if [[ "$status" == *"Missing"* ]] || [[ "$status" == *"Outdated"* ]]; then
         needs_update_count=$((needs_update_count + 1))
         needs_update_list+=("$serial")
     fi
-done < <(sort "$tmp_file")
+done < "$sorted_tmp"
 
-rm -f "$tmp_file"
+rm -f "$sorted_tmp"
 echo -e "========================================================\n"
 
 if [ $needs_update_count -gt 0 ]; then
