@@ -243,6 +243,16 @@ def main():
                 subprocess.run(["ip", "link", "set", iface, "name", new_name])
                 subprocess.run(["ip", "link", "set", new_name, "up"])
             
+            # Kill existing dhclient processes for this interface to avoid duplicates
+            try:
+                pgrep_out = subprocess.check_output(f"pgrep -f 'dhclient.*{new_name}'", shell=True).decode().strip()
+                if pgrep_out:
+                    for pid in pgrep_out.split():
+                        subprocess.run(["kill", "-9", pid])
+            except:
+                pass
+            # Clean up all existing IP addresses to prevent secondary IP accumulation
+            subprocess.run(["ip", "addr", "flush", "dev", new_name])
             subprocess.run(["dhclient", "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
             table_id = subnet

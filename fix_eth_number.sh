@@ -103,6 +103,7 @@ def fix_interface(iface, force_route=False):
     if not gw:
         # Try running dhclient once to get an IP/gateway
         print(f"[*] Interface {iface} has no IP/route. Requesting lease...")
+        subprocess.run(["sudo", "ip", "addr", "flush", "dev", iface])
         subprocess.run(["sudo", "dhclient", "-v", iface], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         gw = get_gateway_ip(iface)
         
@@ -170,6 +171,7 @@ def fix_interface(iface, force_route=False):
         
         # 5. Run dhclient on new interface
         print(f"[*] Starting dhclient on {new_name}...")
+        subprocess.run(["sudo", "ip", "addr", "flush", "dev", new_name])
         subprocess.run(["sudo", "dhclient", "-v", new_name], timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     # Clean up default route and add with proper metric (200 + subnet)
