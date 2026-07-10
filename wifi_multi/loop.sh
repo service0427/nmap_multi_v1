@@ -219,6 +219,23 @@ while true; do
 
         # --- Cooldown & Penalty Skip Check ---
         CURRENT_TIME=$(date +%s)
+        
+        # [NEW] 로컬 current_task.json이 리셋되었거나(IDLE/READY) 존재하지 않으면 메모리 쿨다운 강제 해제하여 즉시 할당 유도
+        TASK_JSON="logs/${DEV_ID}/current_task.json"
+        is_reset=false
+        if [ ! -f "$TASK_JSON" ]; then
+            is_reset=true
+        else
+            T_STATUS=$(jq -r '.status // empty' "$TASK_JSON" 2>/dev/null)
+            if [ "$T_STATUS" = "IDLE" ] || [ "$T_STATUS" = "READY" ]; then
+                is_reset=true
+            fi
+        fi
+        
+        if [ "$is_reset" = true ]; then
+            DEV_EXCLUDE_UNTIL[$DEV_ID]=0
+        fi
+
         EXCLUDE_UNTIL=${DEV_EXCLUDE_UNTIL[$DEV_ID]}
         if [ -n "$EXCLUDE_UNTIL" ] && [ "$CURRENT_TIME" -lt "$EXCLUDE_UNTIL" ]; then
             # Silent skip, no heavy polling
