@@ -168,8 +168,24 @@ else
         done
         echo -e "========================================================================="
         
-        read -p "Select device number(s) (e.g., 0, 1-10, 1,3,9-12) [Default: 0]: " dev_selection < /dev/tty
-        if [[ "$dev_selection" == "0" ]] || [ -z "$dev_selection" ]; then
+        # Determine dynamic default device numbers based on chosen SSID (e.g. -11 -> 1-10, -12 -> 11-20)
+        default_devs="0"
+        if [[ "$chosen_ssid" =~ -([0-9]+)$ ]]; then
+            suffix_num=${BASH_REMATCH[1]}
+            if [ "$suffix_num" -ge 11 ]; then
+                idx_offset=$((suffix_num - 11))
+                start_dev=$((idx_offset * 10 + 1))
+                end_dev=$(( (idx_offset + 1) * 10 ))
+                default_devs="${start_dev}-${end_dev}"
+            fi
+        fi
+
+        read -p "Select device number(s) (e.g., 0, 1-10, 1,3,9-12) [Default: $default_devs]: " dev_selection < /dev/tty
+        if [ -z "$dev_selection" ]; then
+            dev_selection="$default_devs"
+        fi
+
+        if [[ "$dev_selection" == "0" ]]; then
             devices_to_process=("${all_devices[@]}")
         else
             IFS=', ' read -ra ADDR <<< "$dev_selection"
