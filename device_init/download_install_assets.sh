@@ -22,8 +22,8 @@ if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/ADBKeyboard.apk" ] && [ -d "$TARGET
 fi
 
 has_nmap=false
-nmap_search_dir=$(find "$TARGET_DIR" -maxdepth 2 -name "base.apk" 2>/dev/null | grep -E "naver_map|com.nhn.android.nmap" | head -n 1)
-if [ -n "$nmap_search_dir" ]; then
+target_folder_name=$(basename "$NMAP_ARCHIVE" .tar.gz)
+if [ -d "$TARGET_DIR/$target_folder_name" ] && [ -f "$TARGET_DIR/$target_folder_name/base.apk" ]; then
     has_nmap=true
 fi
 
