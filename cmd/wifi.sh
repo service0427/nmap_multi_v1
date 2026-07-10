@@ -245,7 +245,9 @@ fi
 
 echo -e "\nConnecting devices to Wi-Fi SSID: \e[1;32m$chosen_ssid\e[0m (Password: 13241324)..."
 
-# Step A. Forget existing networks & trigger connect in parallel
+# Step A. Forget existing networks & trigger connect in parallel (with 10-device batch throttling)
+batch_size=10
+count=0
 for serial in "${final_devices[@]}"; do
     (
         echo "[$serial] Initializing Wi-Fi switch..."
@@ -281,11 +283,18 @@ for serial in "${final_devices[@]}"; do
             echo -e "\e[1;31m[$serial] [⚠️] Root (su) permission check failed. Skipping.\e[0m"
         fi
     ) &
+    
+    count=$((count + 1))
+    if [ $((count % batch_size)) -eq 0 ] && [ $count -lt ${#final_devices[@]} ]; then
+        echo -e "\e[1;33m[*] Throttling: 10 devices triggered. Waiting 4s to prevent network/adb overload...\e[0m"
+        sleep 4
+    fi
 done
 wait
 
-# Step B. Poll for connection state and run clicker in parallel
+# Step B. Poll for connection state and run clicker in parallel (with batch throttling)
 echo "Waiting for connection and handling UI prompts in parallel..."
+clicker_count=0
 for serial in "${final_devices[@]}"; do
     (
         for i in {1..5}; do
@@ -293,6 +302,11 @@ for serial in "${final_devices[@]}"; do
             python3 "$CMD_DIR/wifi_clicker.py" "$serial" >/dev/null 2>&1
         done
     ) &
+    
+    clicker_count=$((clicker_count + 1))
+    if [ $((clicker_count % batch_size)) -eq 0 ] && [ $clicker_count -lt ${#final_devices[@]} ]; then
+        sleep 2
+    fi
 done
 wait
 
