@@ -89,8 +89,11 @@ if [ $needs_update_count -gt 0 ]; then
         PATCH_RUNNER="$PROJECT_ROOT/cmd/patch_naver_map.sh"
         if [ -f "$PATCH_RUNNER" ]; then
             for target_dev in "${needs_update_list[@]}"; do
-                bash "$PATCH_RUNNER" "$target_dev"
+                # adb 서버 락 방지를 위해 1.2초 간격으로 병렬 배출 실행
+                bash "$PATCH_RUNNER" "$target_dev" &
+                sleep 1.2
             done
+            wait
         else
             echo -e "${RED}[- ] 에러: patch_naver_map.sh 런너가 존재하지 않습니다.${NC}"
         fi
