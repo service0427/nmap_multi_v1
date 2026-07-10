@@ -20,28 +20,6 @@ TARGET_DIR="$WORKSPACE_DIR/install"
 BASE_ARCHIVE="$WORKSPACE_DIR/install_base.tar.gz"
 NMAP_ARCHIVE="$WORKSPACE_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}.tar.gz"
 
-# Parse arguments for non-interactive flag
-interactive=true
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -y|--yes|--non-interactive)
-            interactive=false
-            shift
-            ;;
-        *)
-            shift
-            ;;
-    esac
-done
-
-if [ "$interactive" = true ]; then
-    read -p "[?] 정말로 구글 드라이브에서 네이버 지도 및 베이스 의존성 파일을 다운로드/업데이트하시겠습니까? (y/N): " confirm < /dev/tty
-    if [[ ! "$confirm" =~ ^[yY](es)?$ ]]; then
-        echo -e "\e[1;33m[*] 사용자가 작업을 취소했습니다. 종료합니다.\e[0m"
-        exit 0
-    fi
-fi
-
 # 1. Verification of existing local assets in install directory (Pre-detect local paths)
 has_base=false
 if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/ADBKeyboard.apk" ] && [ -d "$TARGET_DIR/gpsemulator" ]; then
@@ -74,6 +52,28 @@ fi
 if [ "$has_base" = true ] && [ "$has_nmap" = true ]; then
     echo -e "\e[1;32m[✓] 베이스 의존성 및 네이버 지도 설치 파일들이 이미 로컬에 존재합니다. 업데이트를 건너뜁니다.\e[0m"
     exit 0
+fi
+
+# Parse arguments for non-interactive flag (Run only if update is actually needed)
+interactive=true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y|--yes|--non-interactive)
+            interactive=false
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ "$interactive" = true ]; then
+    read -p "[?] 정말로 구글 드라이브에서 네이버 지도 및 베이스 의존성 파일을 다운로드/업데이트하시겠습니까? (y/N): " confirm < /dev/tty
+    if [[ ! "$confirm" =~ ^[yY](es)?$ ]]; then
+        echo -e "\e[1;33m[*] 사용자가 작업을 취소했습니다. 종료합니다.\e[0m"
+        exit 0
+    fi
 fi
 
 echo "[*] Google Drive에서 최적화 및 설치에 필요한 대용량 파일들을 다운로드합니다..."
