@@ -1,21 +1,41 @@
 #!/usr/bin/env bash
 # ============================================================
 # Naver Map Auto-Simulation Infrastructure (V2)
-# Google Drive Asset Downloader (Layered Version)
+# Google Drive Asset Downloader & Updater
 # ============================================================
 
-# ⚠️ 구글 드라이브에 업로드한 base 파일과 네이버 지도 파일의 고유 File ID를 입력해주세요.
-# (공유 상태를 반드시 "링크가 있는 모든 사용자"로 설정해야 합니다!)
+# ⚠️ 구글 드라이브에 업로드한 base 파일과 네이버 지도 파일의 고유 File ID
 GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
 GDRIVE_NMAP_ID="1uXV7Hsys5SqGMVx1SO-GHvMPIQ9SfpCQ"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
+WORKSPACE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 TARGET_DIR="$WORKSPACE_DIR/install"
 BASE_ARCHIVE="$WORKSPACE_DIR/install_base.tar.gz"
 NMAP_ARCHIVE="$WORKSPACE_DIR/com.nhn.android.nmap_6.7.3.tar.gz"
 
-# 1. Verification of existing local assets to skip redownload
+# Parse arguments for non-interactive flag
+interactive=true
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y|--yes|--non-interactive)
+            interactive=false
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ "$interactive" = true ]; then
+    read -p "[?] 정말로 구글 드라이브에서 네이버 지도 및 베이스 의존성 파일을 다운로드/업데이트하시겠습니까? (y/N): " confirm < /dev/tty
+    if [[ ! "$confirm" =~ ^[yY](es)?$ ]]; then
+        echo -e "\e[1;33m[*] 사용자가 작업을 취소했습니다. 종료합니다.\e[0m"
+        exit 0
+    fi
+fi
+
+# 1. Verification of existing local assets in install directory
 has_base=false
 if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/ADBKeyboard.apk" ] && [ -d "$TARGET_DIR/gpsemulator" ]; then
     has_base=true
@@ -28,11 +48,11 @@ if [ -d "$TARGET_DIR/$target_folder_name" ] && [ -f "$TARGET_DIR/$target_folder_
 fi
 
 if [ "$has_base" = true ] && [ "$has_nmap" = true ]; then
-    echo -e "\e[1;32m[✓] 베이스 의존성 및 네이버 지도 설치 파일들이 이미 로컬에 존재합니다. 다운로드를 건너뜁니다.\e[0m"
+    echo -e "\e[1;32m[✓] 베이스 의존성 및 네이버 지도 설치 파일들이 이미 로컬에 존재합니다. 업데이트를 건너뜁니다.\e[0m"
     exit 0
 fi
 
-echo "[*] Google Drive에서 최적화 및 설치에 필요한 대용량 파일들을 레이어링 다운로드합니다..."
+echo "[*] Google Drive에서 최적화 및 설치에 필요한 대용량 파일들을 다운로드합니다..."
 
 # Check and install gdown if not present
 if ! command -v gdown &> /dev/null && [ ! -f "$HOME/.local/bin/gdown" ]; then
@@ -74,7 +94,7 @@ if [ "$has_base" = false ]; then
         tar -xzf "$BASE_ARCHIVE" -C "$TARGET_DIR"
         rm -f "$BASE_ARCHIVE"
     else
-        echo -e "\e[1;31m[-] 베이스 의존성 다운로드 실패. Google Drive 파일 공유 설정이 '링크가 있는 모든 사용자'로 되어있는지 확인해주세요.\e[0m"
+        echo -e "\e[1;31m[-] 베이스 의존성 다운로드 실패. Google Drive 파일 공유 설정을 확인해주세요.\e[0m"
         exit 1
     fi
 fi
@@ -89,9 +109,9 @@ if [ "$has_nmap" = false ]; then
         tar -xzf "$NMAP_ARCHIVE" -C "$TARGET_DIR"
         rm -f "$NMAP_ARCHIVE"
     else
-        echo -e "\e[1;31m[-] 네이버 지도 다운로드 실패. Google Drive 파일 공유 설정이 '링크가 있는 모든 사용자'로 되어있는지 확인해주세요.\e[0m"
+        echo -e "\e[1;31m[-] 네이버 지도 다운로드 실패. Google Drive 파일 공유 설정을 확인해주세요.\e[0m"
         exit 1
     fi
 fi
 
-echo -e "\e[1;32m[✓] 레이어별 다운로드 및 압축 해제가 모두 성공적으로 완료되었습니다.\e[0m"
+echo -e "\e[1;32m[✓] 다운로드 및 파일 갱신 작업이 성공적으로 완료되었습니다.\e[0m"

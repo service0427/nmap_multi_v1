@@ -117,14 +117,14 @@ fi
 
 if [ "$has_nmap_apk" = false ]; then
     echo -e "${YELLOW}[*] Installation assets missing or incomplete. Triggering download...${NC}"
-    if [ -f "$BASE_DIR/device_init/download_install_assets.sh" ]; then
-        bash "$BASE_DIR/device_init/download_install_assets.sh"
+    if [ -f "$BASE_DIR/update_nmap.sh" ]; then
+        bash "$BASE_DIR/update_nmap.sh" --non-interactive
         if [ $? -ne 0 ]; then
             echo -e "\e[1;31m[-] Error: Failed to download installation assets from Google Drive.\e[0m"
             exit 1
         fi
     else
-        echo -e "\e[1;31m[-] Error: download_install_assets.sh not found.\e[0m"
+        echo -e "\e[1;31m[-] Error: update_nmap.sh not found.\e[0m"
         exit 1
     fi
 fi
