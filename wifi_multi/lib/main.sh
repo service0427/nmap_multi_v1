@@ -167,10 +167,9 @@ else
     echo "{\"real_ip\": \"$REAL_IP\"}" > "$SESSION_SUMMARY_JSON"
 fi
 
-# 3. Golden Template
-# [NEW] Clear App Data and Grant Permissions before applying Golden Template
-echo " [$DEV_ID] [🧹] Clearing Naver Map app data (pm clear)..."
-adb -s "$DEV_ID" shell pm clear com.nhn.android.nmap >/dev/null 2>&1
+# [OPTIMIZED] Keep cache for fast map loading under QoS limit. Force stop only.
+echo " [$DEV_ID] [🧹] Force stopping Naver Map to preserve map cache..."
+adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
 
 echo " [$DEV_ID] [🛡️] Granting location & system permissions..."
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_FINE_LOCATION >/dev/null 2>&1
