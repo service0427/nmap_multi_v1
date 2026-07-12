@@ -174,7 +174,7 @@ def check_adb_status():
         if res.returncode != 0:
             return False, f"adb devices failed with code {res.returncode}", [], 0
         
-        # Parse device count
+        # Parse device count (Ignore unauthorized status for recovery reset triggering)
         lines = res.stdout.strip().split("\n")
         device_count = 0
         unauthorized_serials = []
@@ -188,14 +188,9 @@ def check_adb_status():
                 if parts:
                     unauthorized_serials.append(parts[0])
 
-        if device_count > 0:
-            unauthorized_pct = len(unauthorized_serials) / device_count
-            if unauthorized_pct >= 0.20:
-                # 20% or more are unauthorized
-                return False, f"Global issue: {len(unauthorized_serials)}/{device_count} ({unauthorized_pct*100:.1f}%) devices are unauthorized", unauthorized_serials, device_count
-            elif len(unauthorized_serials) > 0:
-                # Less than 20% unauthorized
-                return False, f"Pinpoint issue: {len(unauthorized_serials)}/{device_count} devices are unauthorized", unauthorized_serials, device_count
+        # Log unauthorized serials for visualization, but do NOT trigger recovery/restarts
+        if unauthorized_serials:
+            log("INFO", f"Currently unauthorized devices (No recovery action taken): {unauthorized_serials}")
             
         return True, "OK", [], device_count
 
