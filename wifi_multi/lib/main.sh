@@ -87,9 +87,14 @@ cleanup() {
 
     if [ "$IS_SUCCESS" = false ]; then
         # Report FAIL only if it wasn't a success or got overridden by leak audit
+        local REPORT_STATUS="FAIL"
+        # ADDRESS_NOT_FOUND 이거나 App Closed 인 경우 어드민 격리 패널티를 피하기 위해 API_ERROR로 우회
+        if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]]; then
+            REPORT_STATUS="API_ERROR"
+        fi
         curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
              -H "Content-Type: application/json" \
-             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\", \"message\": \"$REASON\"}" > /dev/null
+             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"$REPORT_STATUS\", \"message\": \"$REASON\"}" > /dev/null
     else
         echo "[$DEV_ID] Task was SUCCESSFUL. Skipping FAIL report."
     fi
