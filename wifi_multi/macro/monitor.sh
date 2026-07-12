@@ -394,7 +394,12 @@ while true; do
                                 FAIL_REASON="ADDRESS_NOT_FOUND"
                             fi
                             echo "[$(NOW)] [🚨] Failure Reason Determined: $FAIL_REASON"
-                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
+                             if [ "$FAIL_REASON" = "ADDRESS_NOT_FOUND" ]; then
+                                 # ADDRESS_NOT_FOUND는 API 할당 키워드 문제이므로 단말기 패널티 방지를 위해 status를 API_ERROR로 우회 보고
+                                 send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"API_ERROR\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
+                             else
+                                 send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
+                             fi
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
                         fi
