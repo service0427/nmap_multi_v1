@@ -253,10 +253,10 @@ while true; do
     
     # [NEW] Universal Home Entry Recovery for Startup Popups/Keyboards/Hangs
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
-        local HOME_WAIT_TIME=$(( $(date +%s) - START_TS ))
+        HOME_WAIT_TIME=$(( $(date +%s) - START_TS ))
         if [ $HOME_WAIT_TIME -gt 25 ]; then
-            local NOW_SEC=$(date +%s)
-            local SEC_SINCE_HOME_RECOVERY=$(( NOW_SEC - LAST_HOME_CHECK_TS ))
+            NOW_SEC=$(date +%s)
+            SEC_SINCE_HOME_RECOVERY=$(( NOW_SEC - LAST_HOME_CHECK_TS ))
             if [ $SEC_SINCE_HOME_RECOVERY -ge 15 ]; then
                 LAST_HOME_CHECK_TS=$NOW_SEC
                 echo "[$(NOW)] [⚠️] Failed to reach Home screen within ${HOME_WAIT_TIME}s. Dismissing popups/keyboards..."
