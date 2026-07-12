@@ -186,7 +186,7 @@ sleep 1
 
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
 [ -z "$APP_UID" ] && APP_UID="root"
-./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ORIG_SSAID"
+./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ID_SSAID" "$NMAP_ID_IDFV" "$NMAP_ID_ADID"
 
 # 4. Proxy & Workers
 adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1

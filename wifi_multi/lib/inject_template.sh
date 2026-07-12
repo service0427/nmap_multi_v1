@@ -1,7 +1,7 @@
 #!/bin/bash
 # wifi_multi/lib/inject_template.sh: Surgical Golden Template Injection
 
-DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ORIG_SSAID=$4
+DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ID_SSAID=$4; NMAP_ID_IDFV=$5; NMAP_ID_ADID=$6
 [ -z "$DEV_ID" ] || [ -z "$PKG_NAME" ] && exit 1
 
 NC="\e[0m"; GREEN="\e[1;32m"
@@ -49,7 +49,7 @@ adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_prefs.xml" /data/local/tmp/prefs.xml >
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_navi.xml" /data/local/tmp/navi.xml >/dev/null 2>&1
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_navisettings.xml" /data/local/tmp/navisettings.xml >/dev/null 2>&1
 
-adb -s "$DEV_ID" shell "su -c 'cp /data/local/tmp/ConsentInfo.xml /data/data/$PKG_NAME/shared_prefs/ && cp /data/local/tmp/prefs.xml /data/data/$PKG_NAME/shared_prefs/com.nhn.android.nmap_preferences.xml && cp /data/local/tmp/navi.xml /data/data/$PKG_NAME/shared_prefs/NativeNaviDefaults.xml && cp /data/local/tmp/navisettings.xml /data/data/$PKG_NAME/shared_prefs/NaviSettingsInfo.xml && chown -R $APP_UID:$APP_UID /data/data/$PKG_NAME/shared_prefs && chmod -R 777 /data/data/$PKG_NAME/shared_prefs && restorecon -R /data/data/$PKG_NAME && setprop debug.nmap.ssaid $NMAP_ORIG_SSAID'"
+adb -s "$DEV_ID" shell "su -c 'cp /data/local/tmp/ConsentInfo.xml /data/data/$PKG_NAME/shared_prefs/ && cp /data/local/tmp/prefs.xml /data/data/$PKG_NAME/shared_prefs/com.nhn.android.nmap_preferences.xml && cp /data/local/tmp/navi.xml /data/data/$PKG_NAME/shared_prefs/NativeNaviDefaults.xml && cp /data/local/tmp/navisettings.xml /data/data/$PKG_NAME/shared_prefs/NaviSettingsInfo.xml && chown -R $APP_UID:$APP_UID /data/data/$PKG_NAME/shared_prefs && chmod -R 777 /data/data/$PKG_NAME/shared_prefs && restorecon -R /data/data/$PKG_NAME && setprop debug.nmap.ssaid $NMAP_ID_SSAID && setprop debug.nmap.idfv $NMAP_ID_IDFV && setprop debug.nmap.adid $NMAP_ID_ADID'"
 
 rm -f "${DEV_TMP_DIR}/tmp_consent.xml" "${DEV_TMP_DIR}/tmp_prefs.xml" "${DEV_TMP_DIR}/tmp_navi.xml" "${DEV_TMP_DIR}/tmp_navisettings.xml"
 echo -e "    > ${GREEN}[✓] Golden Template Injected.${NC}"
