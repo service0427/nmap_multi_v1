@@ -36,8 +36,6 @@ def get_adb_processes():
         log("ERROR", f"Failed to list processes: {e}")
     return processes
 
-# adbkey synchronization logic removed as per user preference (manual local verification only)
-
 def kill_processes(pids, use_sudo=False):
     """Kills a list of PIDs."""
     if not pids:
@@ -160,7 +158,7 @@ def reset_usb_device(usb_path):
 def check_adb_status():
     """
     Checks the adb server status.
-    Returns (is_ok, reason, unauthorized_serials, device_count)
+    Returns (is_ok, reason, offline_serials, device_count)
     """
     # 1. Check for root processes
     procs = get_adb_processes()
@@ -174,10 +172,11 @@ def check_adb_status():
         if res.returncode != 0:
             return False, f"adb devices failed with code {res.returncode}", [], 0
         
-        # Parse device count (Ignore unauthorized status for recovery reset triggering)
+        # Parse device count
         lines = res.stdout.strip().split("\n")
         device_count = 0
         unauthorized_serials = []
+        offline_serials = []
         for line in lines[1:]:
             line = line.strip()
             if not line or line.startswith("*"):
@@ -187,10 +186,18 @@ def check_adb_status():
                 parts = line.split()
                 if parts:
                     unauthorized_serials.append(parts[0])
+            elif "offline" in line:
+                parts = line.split()
+                if parts:
+                    offline_serials.append(parts[0])
 
-        # Log unauthorized serials for visualization, but do NOT trigger recovery/restarts
+        # Log unauthorized serials for visualization, but do NOT trigger recovery
         if unauthorized_serials:
-            log("INFO", f"Currently unauthorized devices (No recovery action taken): {unauthorized_serials}")
+            log("INFO", f"Currently unauthorized devices (No recovery action): {unauthorized_serials}")
+            
+        # If offline devices are detected, trigger recovery
+        if offline_serials:
+            return False, f"Offline devices detected: {offline_serials}", offline_serials, device_count
             
         return True, "OK", [], device_count
 
@@ -202,73 +209,57 @@ def check_adb_status():
 def main():
     log("INFO", "ADB Recovery Monitor Daemon started.")
     
-    # Run an initial check
-    
-    unauthorized_consecutive_counts = {}
-    global_unauthorized_streak = 0
+    offline_consecutive_counts = {}
     
     while True:
         try:
-            is_ok, reason, unauthorized_serials, dev_count = check_adb_status()
+            is_ok, reason, offline_serials, dev_count = check_adb_status()
             
-            # Update unauthorized serials counters
-            for serial in unauthorized_serials:
-                unauthorized_consecutive_counts[serial] = unauthorized_consecutive_counts.get(serial, 0) + 1
+            # Update offline serials counters
+            for serial in offline_serials:
+                offline_consecutive_counts[serial] = offline_consecutive_counts.get(serial, 0) + 1
             # Reset counters for successful/unseen devices
-            for serial in list(unauthorized_consecutive_counts.keys()):
-                if serial not in unauthorized_serials:
-                    unauthorized_consecutive_counts[serial] = 0
+            for serial in list(offline_consecutive_counts.keys()):
+                if serial not in offline_serials:
+                    offline_consecutive_counts[serial] = 0
 
             if not is_ok:
                 log("WARNING", f"ADB issue detected: {reason}")
                 
-                if "unauthorized" in reason:
-                    # If the issue is unauthorized devices, enforce a 3-minute grace period (6 checks * 30s)
+                # Handling offline devices (Pinpoint USB unbind recovery)
+                if "Offline" in reason and offline_serials:
                     target_resets = []
-                    for serial in unauthorized_serials:
-                        streak = unauthorized_consecutive_counts.get(serial, 0)
-                        if streak >= 6:  # 3 minutes
+                    for serial in offline_serials:
+                        streak = offline_consecutive_counts.get(serial, 0)
+                        if streak >= 6:  # 3 minutes (6 checks * 30s)
                             target_resets.append(serial)
                         else:
-                            log("INFO", f"Device {serial} is unauthorized. Streak: {streak}/6 (Waiting grace period...)")
+                            log("INFO", f"Device {serial} is offline. Streak: {streak}/6 (Waiting grace period...)")
                     
-                    if reason.startswith("Global issue"):
-                        # Global recovery: only perform if global issue persists
-                        global_unauthorized_streak += 1
-                        if global_unauthorized_streak >= 6:
-                            log("WARNING", "Global unauthorized issue persists for 3 minutes. Restarting ADB server...")
-                            perform_recovery()
-                            write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
-                            global_unauthorized_streak = 0
-                            time.sleep(10)
-                        else:
-                            log("INFO", f"Global unauthorized issue streak: {global_unauthorized_streak}/6. Waiting...")
-                    
-                    elif target_resets:
-                        log("INFO", f"Handling pinpoint recovery for persistent serials: {target_resets}")
+                    if target_resets:
+                        log("INFO", f"Handling pinpoint recovery for persistent offline serials: {target_resets}")
                         for serial in target_resets:
                             usb_path = get_usb_path_by_serial(serial)
                             if usb_path:
                                 log("INFO", f"Pinpoint reset for {serial} on USB path {usb_path}")
                                 success = reset_usb_device(usb_path)
                                 if success:
-                                    write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset {serial} at USB {usb_path}")
+                                    write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset offline {serial} at USB {usb_path}")
                                 else:
-                                    write_recovery_log("PINPOINT_FAILED", f"Failed reset {serial} at USB {usb_path}")
+                                    write_recovery_log("PINPOINT_FAILED", f"Failed reset offline {serial} at USB {usb_path}")
                             else:
-                                log("WARNING", f"Could not find USB path for serial {serial}")
+                                log("WARNING", f"Could not find USB path for offline serial {serial}")
                                 write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
                             # Reset counter after recovery attempt
-                            unauthorized_consecutive_counts[serial] = 0
+                            offline_consecutive_counts[serial] = 0
                         time.sleep(10)
                 else:
-                    # For non-unauthorized issues (e.g. adb hung, root process), perform recovery immediately
+                    # For non-offline issues (e.g. adb hung, root process), perform recovery immediately
                     log("WARNING", "Handling immediate recovery for system/hung adb issues...")
                     perform_recovery()
                     write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
                     time.sleep(10)
             else:
-                global_unauthorized_streak = 0
                 log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
         except Exception as e:
             log("ERROR", f"Exception in main loop: {e}")
