@@ -233,6 +233,10 @@ adb -s "$DEV_ID" shell settings put global http_proxy localhost:"$NMAP_MITM_PORT
 ) >/dev/null 2>&1 &
 WATCHDOG_PID=$!
 
+# [CRITICAL] Export identity variables to subshells so background mitmdump can access them
+export NMAP_ORIG_SSAID NMAP_ORIG_ADID NMAP_ORIG_IDFV NMAP_ORIG_NI NMAP_ORIG_TOKEN
+export NMAP_ID_SSAID NMAP_ID_ADID NMAP_ID_IDFV NMAP_ID_NI NMAP_ID_TOKEN
+
 BIND_OPT=""
 if [ -n "$NMAP_BIND_IP" ]; then
     BIND_OPT="--set connect_addr=$NMAP_BIND_IP"
