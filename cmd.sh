@@ -32,6 +32,9 @@ case "$1" in
     --imei)
         bash "$CMD_DIR/extract_device_info.sh"
         ;;
+    --adid)
+        bash "$CMD_DIR/extract_adid.sh"
+        ;;
     *)
         # 인자 없이 실행 시: 연결된 모든 기기의 화면을 그리드로 정렬하여 띄움
         python3 "$CMD_DIR/open_missing.py" --keep "$@"
