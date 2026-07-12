@@ -64,7 +64,8 @@ cleanup() {
     if [ -d "$CAPTURE_LOG_DIR" ]; then
         for VAL in "$NMAP_ORIG_SSAID" "$NMAP_ORIG_ADID" "$NMAP_ORIG_IDFV" "$NMAP_ORIG_NI"; do
             if [ -n "$VAL" ] && [ ${#VAL} -gt 6 ]; then
-                if grep -riq "$VAL" "$CAPTURE_LOG_DIR" 2>/dev/null; then
+                # 실제 네이버로 전송된 패킷들만 감사하기 위해 로컬 기록 파일들은 제외
+                if grep -riq --exclude="api_response.json" --exclude="session_summary.json" --exclude="execution.log" "$VAL" "$CAPTURE_LOG_DIR" 2>/dev/null; then
                     LEAK_DETECTED=true
                     LEAK_MSG="Original value leak: $VAL"
                     break
