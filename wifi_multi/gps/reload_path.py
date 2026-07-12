@@ -125,8 +125,8 @@ def run_reload(packet_file, device_id):
     # 2. Calculate Base Speed (Dynamic Recalculation strictly based on real path)
     base_speed_kmh = (initial_dist_km / (target_sec / 3600.0)) if target_sec > 0 else 60.0
     
-    # 3. Apply Speed (Simplified for V7.1 - Enforcing a 15km/h floor to prevent freezing)
-    base_speed_kmh = max(base_speed_kmh, 15.0)
+    # 3. Apply Speed (Simplified for V7.1 - Enforcing a 3km/h floor to prevent freezing)
+    base_speed_kmh = max(base_speed_kmh, 3.0)
     final_kmh = round(base_speed_kmh, 1)
     
     # [V7.1 Logging] Debug calculation info
