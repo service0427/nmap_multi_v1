@@ -78,11 +78,14 @@ def perform_recovery():
     # Wait a bit for sockets to free up
     time.sleep(2)
 
-    # 5. Start adb server as tech
+    # 5. Start adb server as tech with explicit HOME directory
     try:
-        log("INFO", "Starting adb server as tech user...")
-        # Explicitly run as tech
-        subprocess.run(["adb", "start-server"], check=True)
+        log("INFO", "Starting adb server as tech user with explicit HOME=/home/tech ...")
+        import os
+        env = os.environ.copy()
+        env["HOME"] = "/home/tech"
+        # Explicitly pass HOME environment variable to ensure consistent adbkey usage
+        subprocess.run(["adb", "start-server"], env=env, check=True)
     except Exception as e:
         log("ERROR", f"Failed to start adb server: {e}")
         return False
