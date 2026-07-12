@@ -258,18 +258,20 @@ while true; do
             CURRENT_TIME=$(date +%s)
             
             mkdir -p "logs/${DEV_ID}"
+            # [최적화] 웹 모니터 화면 시각화를 위해 current_task.json 에는 실제 격리 제한 시각을 저장하되,
+            # loop.sh 메모리 스킵 시간(DEV_EXCLUDE_UNTIL)은 어차피 API 서버가 최종 통제하므로 10초 대기만 먹여 빠른 재시도 유도.
             if [ "$MSG" = "COOLDOWN_ACTIVE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 60))
-                echo "[COOLDOWN] [$DEV_ID] Cooldown active. Excluding for 60 seconds."
-                echo "{\"status\": \"COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+                echo "[COOLDOWN] [$DEV_ID] Cooldown active. (Trying again in 10s)"
+                echo "{\"status\": \"COOLDOWN\", \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
             elif [ "$MSG" = "PENALTY_ACTIVE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 600))
-                echo "[🚨] [$DEV_ID] Penalty active (60+ fails). Excluding for 10 minutes."
-                echo "{\"status\": \"PENALTY\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+                echo "[🚨] [$DEV_ID] Penalty active (60+ fails). (Trying again in 10s)"
+                echo "{\"status\": \"PENALTY\", \"exclude_until\": $((CURRENT_TIME + 600))}" > "logs/${DEV_ID}/current_task.json"
             elif [ "$MSG" = "UNAUTHORIZED_DEVICE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 300))
-                echo "[⚠️] [$DEV_ID] Unauthorized device. Excluding for 5 minutes."
-                echo "{\"status\": \"UNAUTHORIZED\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
+                echo "[⚠️] [$DEV_ID] Unauthorized device. (Trying again in 10s)"
+                echo "{\"status\": \"UNAUTHORIZED\", \"exclude_until\": $((CURRENT_TIME + 300))}" > "logs/${DEV_ID}/current_task.json"
             elif [ "$MSG" = "NO_TASK_AVAILABLE" ]; then
                 # Temporary no tasks, fast polling but slight delay to prevent CPU spam
                 DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
