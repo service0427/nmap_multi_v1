@@ -35,6 +35,9 @@ case "$1" in
     --adid)
         bash "$CMD_DIR/extract_adid.sh"
         ;;
+    --idfv)
+        bash "$CMD_DIR/extract_real_idfv.sh"
+        ;;
     *)
         # 인자 없이 실행 시: 연결된 모든 기기의 화면을 그리드로 정렬하여 띄움
         python3 "$CMD_DIR/open_missing.py" --keep "$@"
