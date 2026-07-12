@@ -90,6 +90,83 @@ cleanup() {
         rm -f "$CURRENT_TASK_JSON" 2>/dev/null
     fi
 
+    # [NEW] result.json Audit Report Generator
+    if [ -d "$CAPTURE_LOG_DIR" ]; then
+        # 1. 캡처된 최신 v2_tokens.json 파일 탐색 및 쿠키 파싱
+        local TOKEN_FILE=$(find "$CAPTURE_LOG_DIR" -name "*_POST_v2_tokens.json" -type f | sort -r | head -n 1)
+        local COOKIE_STR=""
+        local DETECTED_NAPP_DI="null"
+        local DETECTED_NAC="null"
+        local DETECTED_NNB="null"
+        local DETECTED_BUC="null"
+        local DETECTED_NSCS="null"
+        
+        if [ -n "$TOKEN_FILE" ] && [ -f "$TOKEN_FILE" ]; then
+            COOKIE_STR=$(jq -r '.request.headers.cookie // empty' "$TOKEN_FILE" 2>/dev/null)
+            if [ -n "$COOKIE_STR" ]; then
+                DETECTED_NAPP_DI=$(echo "$COOKIE_STR" | grep -oE 'NAPP_DI=[^,; ]+' | cut -d'=' -f2 || echo "null")
+                DETECTED_NAC=$(echo "$COOKIE_STR" | grep -oE 'NAC=[^,; ]+' | cut -d'=' -f2 || echo "null")
+                DETECTED_NNB=$(echo "$COOKIE_STR" | grep -oE 'NNB=[^,; ]+' | cut -d'=' -f2 || echo "null")
+                DETECTED_BUC=$(echo "$COOKIE_STR" | grep -oE 'BUC=[^,; ]+' | cut -d'=' -f2 || echo "null")
+                DETECTED_NSCS=$(echo "$COOKIE_STR" | grep -oE 'NSCS=[^,; ]+' | cut -d'=' -f2 || echo "null")
+            fi
+        fi
+
+        # 2. JSON 생성 및 저장
+        local AUDIT_LEAK_STATUS="CLEAN"
+        if [ "$LEAK_DETECTED" = true ]; then
+            AUDIT_LEAK_STATUS="LEAK_DETECTED"
+        fi
+        
+        jq -n \
+            --arg task_id "$NMAP_LOG_ID" \
+            --arg device_id "$DEV_ID" \
+            --arg reason "$REASON" \
+            --arg leak_status "$AUDIT_LEAK_STATUS" \
+            --arg leak_msg "$LEAK_MSG" \
+            --arg orig_ssaid "$NMAP_ORIG_SSAID" \
+            --arg spoof_ssaid "$NMAP_ID_SSAID" \
+            --arg orig_adid "$NMAP_ORIG_ADID" \
+            --arg spoof_adid "$NMAP_ID_ADID" \
+            --arg orig_idfv "$NMAP_ORIG_IDFV" \
+            --arg spoof_idfv "$NMAP_ID_IDFV" \
+            --arg orig_ni "$NMAP_ORIG_NI" \
+            --arg spoof_ni "$NMAP_ID_NI" \
+            --arg orig_token "$NMAP_ORIG_TOKEN" \
+            --arg spoof_token "$NMAP_ID_TOKEN" \
+            --arg cookie_napp_di "$DETECTED_NAPP_DI" \
+            --arg cookie_nac "$DETECTED_NAC" \
+            --arg cookie_nnb "$DETECTED_NNB" \
+            --arg cookie_buc "$DETECTED_BUC" \
+            --arg cookie_nscs "$DETECTED_NSCS" \
+            '{
+                "task_metadata": {
+                    "task_id": $task_id,
+                    "device_id": $device_id,
+                    "termination_reason": $reason,
+                    "timestamp": (now | strflocaltime("%Y-%m-%d %H:%M:%S"))
+                },
+                "security_audit": {
+                    "leak_status": $leak_status,
+                    "leak_message": $leak_msg
+                },
+                "identity_spoofing_plan": {
+                    "ssaid": { "original": $orig_ssaid, "spoofed": $spoof_ssaid },
+                    "adid": { "original": $orig_adid, "spoofed": $spoof_adid },
+                    "idfv": { "original": $orig_idfv, "spoofed": $spoof_idfv },
+                    "ni": { "original": $orig_ni, "spoofed": $spoof_ni },
+                    "token": { "original": $orig_token, "spoofed": $spoof_token }
+                },
+                "actual_captured_cookies": {
+                    "NAPP_DI": $cookie_napp_di,
+                    "NAC": $cookie_nac,
+                    "NNB": $cookie_nnb,
+                    "BUC": $cookie_buc,
+                    "NSCS": $cookie_nscs
+                }
+            }' > "$CAPTURE_LOG_DIR/result.json" 2>/dev/null
+    fi
+
     if [ "$IS_SUCCESS" = false ]; then
         # Report FAIL only if it wasn't a success or got overridden by leak audit
         curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
