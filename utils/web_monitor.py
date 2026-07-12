@@ -1113,63 +1113,9 @@ def get_device_diagnostics(serial):
             info["status"] = "IDLE"
             info["current_task"] = None
 
-    # 3-5. Resolve failure reason and time for cooldown info if in a penalty or cooldown state
+    # 3-5. Local cooldown status override and exclude_until tracking removed as requested.
+    # Server manages all allocation blocking, so client monitor does not lock status.
     info["cooldown_info"] = None
-    try:
-        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
-        if os.path.exists(task_info_path):
-            with open(task_info_path, 'r') as f:
-                cdata = json.load(f)
-                cstatus = cdata.get("status")
-                if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
-                    until = cdata.get("exclude_until", 0)
-                    diff = int(until - time.time())
-                    if diff > 0:
-                        cooldown_reason = "UNKNOWN"
-                        failed_time_str = "N/A"
-                        
-                        if cstatus == "IP_COOLDOWN":
-                            cooldown_reason = "NETWORK_TIMEOUT"
-                            failed_time_str = time.strftime("%H:%M:%S", time.localtime(until - 180))
-                        else:
-                            # Try parsing latest session logs for details
-                            if latest_session_dir and os.path.exists(latest_session_dir):
-                                base_name = os.path.basename(latest_session_dir)
-                                parts = base_name.split("_")
-                                if len(parts) >= 2 and len(parts[0]) == 6:
-                                    t = parts[0]
-                                    failed_time_str = f"{t[0:2]}:{t[2:4]}:{t[4:6]}"
-                                    
-                                exec_log_path = os.path.join(latest_session_dir, "execution.log")
-                                if os.path.exists(exec_log_path):
-                                    try:
-                                        with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as log_f:
-                                            log_lines = log_f.readlines()[-100:]
-                                            for line in log_lines:
-                                                if "Failure Reason Determined:" in line:
-                                                    cooldown_reason = line.split("Failure Reason Determined:")[-1].strip()
-                                                    break
-                                                elif "Terminating. Reason:" in line:
-                                                    cooldown_reason = line.split("Terminating. Reason:")[-1].strip()
-                                    except:
-                                        pass
-                            
-                            # Fallback estimation
-                            if failed_time_str == "N/A":
-                                duration = 600 if cstatus == "PENALTY" else (300 if cstatus == "UNAUTHORIZED" else 60)
-                                failed_time_str = time.strftime("%H:%M:%S", time.localtime(until - duration))
-                        
-                        info["cooldown_info"] = {
-                            "status": cstatus,
-                            "failed_at": failed_time_str,
-                            "reason": cooldown_reason,
-                            "remain_sec": diff
-                        }
-                        # ⚠️ 기기가 성공(SUCCESS)으로 완전히 마친 경우, 상태를 강제 PENALTY/COOLDOWN으로 덮어쓰지 않고 SUCCESS를 우선 유지합니다.
-                        if info["status"] != "SUCCESS":
-                            info["status"] = cstatus
-    except Exception as e:
-        print(f"Error compiling cooldown_info: {e}", flush=True)
             
     return info
 
