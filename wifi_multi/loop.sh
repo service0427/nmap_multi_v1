@@ -236,11 +236,8 @@ while true; do
             DEV_EXCLUDE_UNTIL[$DEV_ID]=0
         fi
 
-        EXCLUDE_UNTIL=${DEV_EXCLUDE_UNTIL[$DEV_ID]}
-        if [ -n "$EXCLUDE_UNTIL" ] && [ "$CURRENT_TIME" -lt "$EXCLUDE_UNTIL" ]; then
-            # Silent skip, no heavy polling
-            continue
-        fi
+        # [LOCK REMOVED] Local exclude_until checks completely disabled as requested.
+        # Server now manages all pass/allocation policies directly.
 
         RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \
              -H "Content-Type: application/json" \

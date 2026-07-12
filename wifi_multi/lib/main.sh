@@ -60,7 +60,7 @@ cleanup() {
     local LEAK_DETECTED=false
     local LEAK_MSG=""
     if [ -d "$CAPTURE_LOG_DIR" ]; then
-        python3 wifi_multi/lib/report.py "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON"
+        python3 "$LIB_DIR/report.py" "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON"
         if [ $? -eq 1 ]; then
             LEAK_DETECTED=true
             LEAK_MSG=$(jq -r '.security_audit.leak_message // empty' "$CAPTURE_LOG_DIR/report.json" 2>/dev/null)
@@ -82,7 +82,7 @@ cleanup() {
         REASON="IDENTITY_LEAK_DETECTED ($LEAK_MSG)"
         rm -f "$CURRENT_TASK_JSON" 2>/dev/null
         # report.json 다시 생성해서 실패 원인 업데이트
-        python3 wifi_multi/lib/report.py "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON" > /dev/null 2>&1
+        python3 "$LIB_DIR/report.py" "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON" > /dev/null 2>&1
     fi
 
     if [ "$IS_SUCCESS" = false ]; then
