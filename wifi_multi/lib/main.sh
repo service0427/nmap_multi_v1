@@ -56,14 +56,41 @@ cleanup() {
     local REASON=$1
     echo -e "\n[$DEV_ID] Terminating. Reason: $REASON"
     
+    # [NEW] 100% 철통 Identity Leak Audit (Fail-safe Safety Gate)
+    # 주행 폴더 내의 모든 로그 파일에 물리 기기 고유 식별자가 평문 노출되었는지 전수 스캔
+    local LEAK_DETECTED=false
+    local LEAK_MSG=""
+    
+    if [ -d "$CAPTURE_LOG_DIR" ]; then
+        for VAL in "$NMAP_ORIG_SSAID" "$NMAP_ORIG_ADID" "$NMAP_ORIG_IDFV" "$NMAP_ORIG_NI"; do
+            if [ -n "$VAL" ] && [ ${#VAL} -gt 6 ]; then
+                if grep -riq "$VAL" "$CAPTURE_LOG_DIR" 2>/dev/null; then
+                    LEAK_DETECTED=true
+                    LEAK_MSG="Original value leak: $VAL"
+                    break
+                fi
+            fi
+        done
+    fi
+
     # Check if the task already finished successfully
     local IS_SUCCESS=false
     if grep -q "SUCCESS" "$CURRENT_TASK_JSON" 2>/dev/null; then
         IS_SUCCESS=true
     fi
 
+    # 보안 누설이 1건이라도 감지되면 성공 판정을 강제로 취소하고 무조건 FAIL 처리!
+    if [ "$LEAK_DETECTED" = true ]; then
+        echo -e "\n[🚨🚨🚨] CRITICAL SECURITY LEAK DETECTED!"
+        echo -e "[🚨🚨🚨] $LEAK_MSG"
+        echo -e "[🚨🚨🚨] FORCING TASK RESULT TO 'FAIL' TO PROTECT IDENTITY ANONYMITY!\n"
+        IS_SUCCESS=false
+        REASON="IDENTITY_LEAK_DETECTED ($LEAK_MSG)"
+        rm -f "$CURRENT_TASK_JSON" 2>/dev/null
+    fi
+
     if [ "$IS_SUCCESS" = false ]; then
-        # Report FAIL only if it wasn't a success
+        # Report FAIL only if it wasn't a success or got overridden by leak audit
         curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
              -H "Content-Type: application/json" \
              -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"FAIL\", \"message\": \"$REASON\"}" > /dev/null
