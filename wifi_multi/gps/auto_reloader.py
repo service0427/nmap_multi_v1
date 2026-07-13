@@ -61,13 +61,14 @@ def get_current_mock_location(device_id):
     except: return None, None
 
 def set_simulator_speed(device_id, kmh):
-    speed_mps = round(kmh / 3.6, 6)
+    speed_mps = round(kmh / 3.6, 4)
+    speed_mps = max(speed_mps, 0.8333) # Double Protection: Enforce 3.0 km/h floor at m/s level
     pkg = "com.rosteam.gpsemulator"
     su_cmd = get_su_cmd(device_id)
     cmd = ["adb", "-s", device_id, "shell", su_cmd, "-c", 
            f"am start-foreground-service -n {pkg}/.servicex2484 -a ACTION_START_CONTINUOUS --es uy.digitools.RUTA 'ruta0' --ef velocidad {speed_mps} --ei loopMode 0"]
     subprocess.run(cmd, capture_output=True)
-    log_print(f"[*] [🚀] Speed Adjusted: {kmh} km/h")
+    log_print(f"[*] [🚀] Speed Adjusted: {kmh} km/h (m/s: {speed_mps})")
 
 def move_gps_to_target(device_id, target_lat, target_lng):
     """2단계: 목적지 좌표로 GPS 순간이동"""
@@ -257,17 +258,19 @@ def main(log_dir, device_id):
                         set_simulator_speed(device_id, slowdown_speed)
                         slowdown_applied = True
                     
-                    # Stuck Detection Logic
+                    # Stuck Detection Logic (Optimized for slow speed floor 3km/h = 8.3m/10s)
                     if remaining_dist > 0.0:
                         if last_remaining_dist == 99999.9:
                             last_remaining_dist = remaining_dist
                         
                         dist_diff = last_remaining_dist - remaining_dist
-                        if 0.0 <= dist_diff < 0.01: # less than 10m
+                        
+                        # 40초 미만 극초반 렉 구간은 stuck 판단 제외, 임계치는 5m 미만 이동으로 세밀화
+                        if elapsed > 40 and 0.0 <= dist_diff < 0.005: # less than 5m
                             stuck_count += 1
-                            log_print(f"[⏳] Stuck warning: progress {dist_diff*1000:.1f}m < 10m. Stuck count: {stuck_count}/9")
-                            # Self-healing: 30s stuck -> teleport to end
-                            if stuck_count == 3 and safety_stage == 0:
+                            log_print(f"[⏳] Stuck warning: progress {dist_diff*1000:.1f}m < 5m. Stuck count: {stuck_count}/9")
+                            # Self-healing: 60s stuck (6 counts) -> teleport to end
+                            if stuck_count == 6 and safety_stage == 0:
                                 move_gps_to_target(device_id, coords_list[-1][0], coords_list[-1][1])
                                 safety_stage = 1
                         else:

@@ -16,11 +16,12 @@ import random
 from datetime import datetime
 
 # Configuration
-CHECK_INTERVAL = 300  # 5 minutes
+CHECK_INTERVAL = 60  # 1 minute
 MIN_ROTATION_MINUTES = 120  # 2 hours
 MAX_ROTATION_MINUTES = 180  # 3 hours
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATE_FILE = os.path.join(PROJECT_ROOT, "wifi_multi", "logs", "lte_rotator_state.json")
+
 
 def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -86,20 +87,79 @@ def run_smart_toggle(subnet):
         log(f"[{subnet}] Exception running smart_toggle.py: {e}")
     return False, None
 
+def to_timestamp(dt_str):
+    if not dt_str:
+        return 0.0
+    try:
+        return datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").timestamp()
+    except:
+        return 0.0
+
+def to_datetime_str(ts):
+    if not ts or ts <= 0:
+        return ""
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+import fcntl
+
 def load_state():
+    state = {}
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, 'r') as f:
-                return json.load(f)
+            with open(STATE_FILE, 'r', encoding='utf-8') as f:
+                # Shared Lock (읽기 락)
+                fcntl.flock(f, fcntl.LOCK_SH)
+                state = json.load(f)
         except:
             pass
-    return {}
+            
+    # Normalize structure to nested dicts automatically with human-readable dates
+    for key in ["lte11", "lte12", "lte13", "lte14"]:
+        if key not in state:
+            state[key] = {}
+            
+        # Backward migration for old numerical values
+        if isinstance(state[key], (int, float)):
+            state[key] = {
+                "next_scheduled_rotation": to_datetime_str(float(state[key])),
+                "last_toggle": "",
+                "current_ip": "UNKNOWN",
+                "ip_score": 0,
+                "last_score_update": ""
+            }
+        elif not isinstance(state[key], dict):
+            state[key] = {}
+            
+        # Migrate old _ts keys if they exist
+        if "next_scheduled_rotation_ts" in state[key]:
+            old_ts = state[key].pop("next_scheduled_rotation_ts", 0.0)
+            state[key]["next_scheduled_rotation"] = to_datetime_str(old_ts)
+        if "last_toggle_ts" in state[key]:
+            old_ts = state[key].pop("last_toggle_ts", 0.0)
+            state[key]["last_toggle"] = to_datetime_str(old_ts)
+            
+        state[key].setdefault("next_scheduled_rotation", "")
+        state[key].setdefault("last_toggle", "")
+        state[key].setdefault("current_ip", "UNKNOWN")
+        state[key].setdefault("ip_score", 0)
+        state[key].setdefault("last_score_update", "")
+        
+    return state
 
 def save_state(state):
     try:
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f)
+         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+         # Ensure file exists
+         if not os.path.exists(STATE_FILE):
+             with open(STATE_FILE, 'w', encoding='utf-8') as f:
+                 json.dump({}, f)
+                 
+         with open(STATE_FILE, 'r+', encoding='utf-8') as f:
+             # Exclusive Lock (쓰기 배타 락)
+             fcntl.flock(f, fcntl.LOCK_EX)
+             f.seek(0)
+             f.truncate()
+             json.dump(state, f, indent=2, ensure_ascii=False)
     except Exception as e:
         log(f"Error saving state: {e}")
 
@@ -180,34 +240,114 @@ def run_rotation():
     ensure_ip_rules()
     state = load_state()
     interfaces = get_lte_interfaces()
+    state_changed = False
+    
+    rotated_interfaces = set()
+    toggle_triggered = False # 이번 1분 주기 내 물리 토글 집행 여부 플래그
     
     for name, subnet in interfaces:
-        next_rotate = state.get(name, 0)
+        details = state[name]
+        next_rotate = to_timestamp(details.get("next_scheduled_rotation", ""))
+        last_toggle = to_timestamp(details.get("last_toggle", ""))
         now_ts = time.time()
         
-        # Check if rotation is needed
+        # 1. 헬스체크 및 실시간 퍼블릭 IP 조회
+        curr_ip = get_public_ip(name)
+        
+        # 2. 오프라인 상태 복구 (IP가 안 잡히는 먹통 상태)
+        if not curr_ip:
+            if toggle_triggered:
+                log(f"[{name}] Interface offline but another rotation is already in progress. Skipping for next check.")
+                continue
+                
+            log(f"[{name}] Interface offline. Triggering smart_toggle.py for recovery...")
+            toggle_triggered = True
+            success, new_ip = run_smart_toggle(subnet)
+            if success:
+                log(f"[{name}] Recovery Success! New IP: {new_ip}")
+                details["last_toggle"] = to_datetime_str(now_ts)
+                details["next_scheduled_rotation"] = to_datetime_str(get_next_rotation_ts())
+                details["current_ip"] = new_ip
+                details["ip_score"] = 0
+                state_changed = True
+                rotated_interfaces.add(name)
+            else:
+                log(f"[{name}] Recovery failed.")
+            continue
+            
+        # Update current_ip in state dynamically if it changed
+        if details.get("current_ip") != curr_ip:
+            details["current_ip"] = curr_ip
+            state_changed = True
+            
+        # 3. 지능형 IP 점수 기반 토글 판정 (Threshold >= 100, Cooldown >= 10 minutes)
+        ip_score = details.get("ip_score", 0)
+        cooldown_elapsed = (now_ts - last_toggle) >= 600 # 10 minutes
+        
+        if ip_score >= 100:
+            if cooldown_elapsed:
+                if toggle_triggered:
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 100) but another rotation is already in progress. Skipping for next check.")
+                    continue
+                    
+                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= 100) and cooldown elapsed. Initiating early rotation...")
+                toggle_triggered = True
+                success, new_ip = run_smart_toggle(subnet)
+                if success:
+                    log(f"[{name}] Score-based Rotation Success! New IP: {new_ip}")
+                    details["last_toggle"] = to_datetime_str(now_ts)
+                    details["next_scheduled_rotation"] = to_datetime_str(get_next_rotation_ts())
+                    details["current_ip"] = new_ip
+                    details["ip_score"] = 0
+                    state_changed = True
+                    rotated_interfaces.add(name)
+                else:
+                    log(f"[{name}] Score-based Rotation failed. Will retry.")
+            else:
+                remaining = int(600 - (now_ts - last_toggle))
+                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= 100) but cooling down. Waiting {remaining}s for 10-minute cap.")
+            continue
+            
+        # 4. 정기 스케줄 로테이션 (2~3시간 주기)
         if now_ts >= next_rotate:
+            if toggle_triggered:
+                log(f"[{name}] Scheduled rotation pending but another rotation is already in progress. Skipping for next check.")
+                continue
                 
             log(f"[{name}] Starting scheduled IP rotation (subnet {subnet})...")
+            toggle_triggered = True
             success, new_ip = run_smart_toggle(subnet)
             if success:
                 log(f"[{name}] Rotation Success! New IP: {new_ip}")
-                state[name] = get_next_rotation_ts()
-                next_dt = datetime.fromtimestamp(state[name]).strftime("%Y-%m-%d %H:%M:%S")
-                log(f"[{name}] Next rotation scheduled at {next_dt}")
+                details["last_toggle"] = to_datetime_str(now_ts)
+                details["next_scheduled_rotation"] = to_datetime_str(get_next_rotation_ts())
+                details["current_ip"] = new_ip
+                details["ip_score"] = 0
+                log(f"[{name}] Next rotation scheduled at {details['next_scheduled_rotation']}")
+                state_changed = True
+                rotated_interfaces.add(name)
             else:
-                log(f"[{name}] Rotation failed. Will retry next cycle or via health check.")
+                log(f"[{name}] Rotation failed. Will retry.")
         else:
-            # Not yet time for rotation, check health
-            if not get_public_ip(name):
-                log(f"[{name}] Interface offline during health check. Triggering smart_toggle.py for recovery...")
-                success, new_ip = run_smart_toggle(subnet)
-                if success:
-                    log(f"[{name}] Recovery Success! New IP: {new_ip}")
-                else:
-                    log(f"[{name}] Recovery failed.")
+            # IP가 깨끗하게 작동 중인 정상 상태
+            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < 100). Keeping alive.")
                 
-    save_state(state)
+    if state_changed:
+        # [🛡️ Concurrency Safety] Merge latest scores from disk before writing to prevent wiping out updates from report.py
+        try:
+            latest_disk_state = load_state()
+            for key in ["lte11", "lte12", "lte13", "lte14"]:
+                # 이번 루프에서 방금 실제로 토글/리셋(0점화)된 모뎀은 디스크의 옛날 점수를 합치지 않고 0점 보존
+                if key in rotated_interfaces:
+                    continue
+                if key in latest_disk_state and isinstance(latest_disk_state[key], dict):
+                    # 디스크상의 최신 스코어 및 채점 업데이트 시간 보존
+                    state[key]["ip_score"] = latest_disk_state[key].get("ip_score", 0)
+                    state[key]["last_score_update"] = latest_disk_state[key].get("last_score_update", "")
+        except Exception as merge_err:
+            log(f"Error merging scores from disk during save: {merge_err}")
+            
+        save_state(state)
 
 def main():
     log("LTE IP Rotator started (Randomized Interval: 120-180m)")

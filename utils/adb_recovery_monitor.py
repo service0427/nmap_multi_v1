@@ -137,40 +137,55 @@ def get_usb_path_by_serial(serial):
 
 def reset_usb_device(usb_path):
     unbind_file = "/sys/bus/usb/drivers/usb/unbind"
-    log("INFO", f"Targeting USB port {usb_path} for unbind reset...")
+    bind_file = "/sys/bus/usb/drivers/usb/bind"
+    log("INFO", f"Targeting USB port {usb_path} for hardware unbind/bind reset...")
     try:
-        # Since monitor runs as tech, write via sudo tee
-        res = subprocess.run(
+        # 1. Unbind port
+        res_unbind = subprocess.run(
             ["sudo", "tee", unbind_file],
             input=usb_path.encode(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE
         )
-        if res.returncode == 0:
+        if res_unbind.returncode == 0:
             log("INFO", f"Successfully sent unbind to {usb_path}")
+        else:
+            log("ERROR", f"Unbind failed for {usb_path}: {res_unbind.stderr.decode().strip()}")
+            return False
+
+        # Wait 2 seconds for hardware power down
+        time.sleep(2)
+
+        # 2. Bind port
+        res_bind = subprocess.run(
+            ["sudo", "tee", bind_file],
+            input=usb_path.encode(),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE
+        )
+        if res_bind.returncode == 0:
+            log("INFO", f"Successfully sent bind to {usb_path}")
             return True
         else:
-            log("ERROR", f"Unbind failed for {usb_path}: {res.stderr.decode().strip()}")
+            log("ERROR", f"Bind failed for {usb_path}: {res_bind.stderr.decode().strip()}")
     except Exception as e:
-        log("ERROR", f"Failed to execute unbind for {usb_path}: {e}")
+        log("ERROR", f"Failed to execute hardware reset for {usb_path}: {e}")
     return False
 
 def check_adb_status():
     """
     Checks the adb server status.
-    Returns (is_ok, reason, offline_serials, device_count)
+    Returns (is_ok, reason, bad_serials, device_count, root_pids)
     """
-    # 1. Check for root processes
+    # 1. Check for root processes (Collect but don't fail immediately, we will kill them target-selectively)
     procs = get_adb_processes()
-    root_procs = [p for p in procs if p[1] == "root"]
-    if root_procs:
-        return False, f"Root-owned adb process detected (PID: {root_procs[0][0]})", [], 0
+    root_pids = [p[0] for p in procs if p[1] == "root"]
 
     # 2. Check for adb hanging
     try:
         res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=ADB_TIMEOUT_SEC)
         if res.returncode != 0:
-            return False, f"adb devices failed with code {res.returncode}", [], 0
+            return False, f"adb devices failed with code {res.returncode}", [], 0, root_pids
         
         # Parse device count
         lines = res.stdout.strip().split("\n")
@@ -191,75 +206,96 @@ def check_adb_status():
                 if parts:
                     offline_serials.append(parts[0])
 
-        # Log unauthorized serials for visualization, but do NOT trigger recovery
-        if unauthorized_serials:
-            log("INFO", f"Currently unauthorized devices (No recovery action): {unauthorized_serials}")
+        bad_serials = list(set(unauthorized_serials + offline_serials))
+        if bad_serials:
+            return False, f"Problematic devices (unauthorized/offline) detected: {bad_serials}", bad_serials, device_count, root_pids
             
-        # If offline devices are detected, trigger recovery
-        if offline_serials:
-            return False, f"Offline devices detected: {offline_serials}", offline_serials, device_count
-            
-        return True, "OK", [], device_count
+        return True, "OK", [], device_count, root_pids
 
     except subprocess.TimeoutExpired:
-        return False, "adb devices command timed out", [], 0
+        return False, "adb devices command timed out", [], 0, root_pids
     except Exception as e:
-        return False, f"adb check encountered error: {e}", [], 0
+        return False, f"adb check encountered error: {e}", [], 0, root_pids
 
 def main():
-    log("INFO", "ADB Recovery Monitor Daemon started.")
+    log("INFO", "ADB Recovery Monitor Daemon started (Pinpoint Targeted Healing active).")
     
-    offline_consecutive_counts = {}
+    bad_consecutive_counts = {}
+    global_hang_streak = 0
     
     while True:
         try:
-            is_ok, reason, offline_serials, dev_count = check_adb_status()
+            is_ok, reason, bad_serials, dev_count, root_pids = check_adb_status()
             
-            # Update offline serials counters
-            for serial in offline_serials:
-                offline_consecutive_counts[serial] = offline_consecutive_counts.get(serial, 0) + 1
+            # 1. Root adb 프로세스가 발견되면 전체 리셋 대신 해당 Root PID만 조용히 저격 사살
+            if root_pids:
+                log("WARNING", f"Root-owned adb process detected (PIDs: {root_pids}). Targeted kill...")
+                kill_processes(root_pids, use_sudo=True)
+                write_recovery_log("TARGETED_ROOT_KILL", f"Killed root adb PIDs: {root_pids}")
+                time.sleep(2)
+                continue
+            
+            # Update bad serials counters
+            for serial in bad_serials:
+                bad_consecutive_counts[serial] = bad_consecutive_counts.get(serial, 0) + 1
             # Reset counters for successful/unseen devices
-            for serial in list(offline_consecutive_counts.keys()):
-                if serial not in offline_serials:
-                    offline_consecutive_counts[serial] = 0
+            for serial in list(bad_consecutive_counts.keys()):
+                if serial not in bad_serials:
+                    bad_consecutive_counts[serial] = 0
 
             if not is_ok:
-                log("WARNING", f"ADB issue detected: {reason}")
+                log("WARNING", f"ADB issues/deviations detected: {reason}")
                 
-                # Handling offline devices (Pinpoint USB unbind recovery)
-                if "Offline" in reason and offline_serials:
+                # Case A: 개별 단말기 꼬임 (Offline / Unauthorized) ➡️ 기기별 저격 치유 (전체 리셋 안 함!)
+                if bad_serials and "Problematic" in reason:
+                    global_hang_streak = 0 # ADB 서버 자체는 통신이 되므로 행상태 아님
                     target_resets = []
-                    for serial in offline_serials:
-                        streak = offline_consecutive_counts.get(serial, 0)
-                        if streak >= 6:  # 3 minutes (6 checks * 30s)
+                    for serial in bad_serials:
+                        streak = bad_consecutive_counts.get(serial, 0)
+                        
+                        # 1단계: 초반 1~2회 오동작 시 가벼운 소프트웨어 reconnect 재시도
+                        if streak <= 2:
+                            log("INFO", f"Attempting quick software reconnect for {serial} (Streak: {streak})")
+                            subprocess.run(["adb", "-s", serial, "reconnect"], capture_output=True)
+                            subprocess.run(["adb", "-s", serial, "reconnect", "device"], capture_output=True)
+                        
+                        # 2단계: 1분(2회) 이상 꼬임 지속 시 하드웨어 USB unbind/bind 리셋
+                        if streak >= 2:
                             target_resets.append(serial)
                         else:
-                            log("INFO", f"Device {serial} is offline. Streak: {streak}/6 (Waiting grace period...)")
+                            log("INFO", f"Device {serial} is problematic. Streak: {streak}/2 (Waiting grace period...)")
                     
                     if target_resets:
-                        log("INFO", f"Handling pinpoint recovery for persistent offline serials: {target_resets}")
+                        log("INFO", f"Handling pinpoint recovery for persistent offline/unauthorized serials: {target_resets}")
                         for serial in target_resets:
                             usb_path = get_usb_path_by_serial(serial)
                             if usb_path:
-                                log("INFO", f"Pinpoint reset for {serial} on USB path {usb_path}")
+                                log("INFO", f"Pinpoint USB reset for {serial} on USB path {usb_path}")
                                 success = reset_usb_device(usb_path)
                                 if success:
-                                    write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset offline {serial} at USB {usb_path}")
+                                    write_recovery_log("PINPOINT_RECOVERY", f"Successfully reset problematic {serial} at USB {usb_path}")
                                 else:
-                                    write_recovery_log("PINPOINT_FAILED", f"Failed reset offline {serial} at USB {usb_path}")
+                                    write_recovery_log("PINPOINT_FAILED", f"Failed reset problematic {serial} at USB {usb_path}")
                             else:
-                                log("WARNING", f"Could not find USB path for offline serial {serial}")
+                                log("WARNING", f"Could not find USB path for serial {serial}")
                                 write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
                             # Reset counter after recovery attempt
-                            offline_consecutive_counts[serial] = 0
+                            bad_consecutive_counts[serial] = 0
                         time.sleep(10)
+                
+                # Case B: ADB 서버 자체가 완전히 먹통(Timeout/Failed) ➡️ 3회 연속 지속 시에만 전체 리셋 단행!
                 else:
-                    # For non-offline issues (e.g. adb hung, root process), perform recovery immediately
-                    log("WARNING", "Handling immediate recovery for system/hung adb issues...")
-                    perform_recovery()
-                    write_recovery_log("GLOBAL_RECOVERY", f"Restarted ADB server due to: {reason}")
-                    time.sleep(10)
+                    global_hang_streak += 1
+                    if global_hang_streak >= 3:
+                        log("CRITICAL", f"ADB server is unresponsive for 3 consecutive check cycles ({reason}). Executing GLOBAL RECOVERY...")
+                        perform_recovery()
+                        write_recovery_log("GLOBAL_RECOVERY", f"Restarted entire ADB server due to: {reason}")
+                        global_hang_streak = 0
+                        time.sleep(10)
+                    else:
+                        log("WARNING", f"ADB server unresponsive. Streak: {global_hang_streak}/3. Waiting next cycle before global recovery...")
             else:
+                global_hang_streak = 0
                 log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
         except Exception as e:
             log("ERROR", f"Exception in main loop: {e}")

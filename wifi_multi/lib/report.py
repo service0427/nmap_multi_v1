@@ -118,6 +118,190 @@ def main():
         
     print(f"[✓] report.json generated successfully. Leak Status: {report['security_audit']['leak_status']}")
     
+    # [🚀 Unified Score-based IP Rotator Integration with Exclusive File Lock]
+    # Update lte_rotator_state.json dynamically based on the session execution result
+    try:
+        real_ip = "UNKNOWN"
+        bind_ip = "UNKNOWN"
+        has_429 = False
+        is_success = False
+        
+        # 1. Parse real_ip and 429 occurrences from session_summary.json
+        summary_path = os.path.join(log_dir, "session_summary.json")
+        if os.path.exists(summary_path):
+            with open(summary_path, 'r', encoding='utf-8', errors='ignore') as sf:
+                summary_data = json.load(sf)
+                real_ip = summary_data.get("real_ip", "UNKNOWN")
+                
+                # Check packets first (used in session_summary.json), fallback to requests
+                items = summary_data.get("packets", [])
+                if not items:
+                    items = summary_data.get("requests", [])
+                    
+                for item in items:
+                    if item.get("status") == 429:
+                        has_429 = True
+                        break
+        
+        # 2. Parse bind_ip and is_success from execution.log
+        exec_log_path = os.path.join(log_dir, "execution.log")
+        if os.path.exists(exec_log_path):
+            with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as ef:
+                exec_content = ef.read()
+                if real_ip == "UNKNOWN":
+                    ip_match = re.search(r'Real IPv4:\s*([0-9\.]+)', exec_content)
+                    if ip_match:
+                        real_ip = ip_match.group(1)
+                
+                # BIND_IP 파싱 (예: BIND_IP:192.168.11.106)
+                bind_match = re.search(r'BIND_IP:([0-9\.]+)', exec_content)
+                if bind_match:
+                    bind_ip = bind_match.group(1)
+                
+                if "SUCCESS" in exec_content or "Goal Reached" in exec_content or "routeend" in exec_content:
+                    is_success = True
+
+        # Determine modem interface by BIND_IP subnet
+        modem_name = None
+        if bind_ip != "UNKNOWN":
+            parts = bind_ip.split('.')
+            if len(parts) >= 3:
+                subnet_num = parts[2] # 11, 12, 13, 14
+                if subnet_num.isdigit() and 11 <= int(subnet_num) <= 20:
+                    modem_name = f"lte{subnet_num}"
+
+        state_file = "/home/tech/nmap_multi_v1/wifi_multi/logs/lte_rotator_state.json"
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        
+        # [🛡️ Unix Exclusive File Lock Implementation]
+        import fcntl
+        
+        # Ensure file exists first
+        if not os.path.exists(state_file):
+            with open(state_file, 'w', encoding='utf-8') as f:
+                json.dump({}, f)
+                
+        with open(state_file, 'r+', encoding='utf-8') as s_f:
+            # 락 획득 (대기 상태 진입)
+            fcntl.flock(s_f, fcntl.LOCK_EX)
+            
+            try:
+                state_data = json.load(s_f)
+            except:
+                state_data = {}
+                
+            # 만약 기존 1세대(단순 타임스탬프) 구조가 남아있다면 정규화 객체 구조로 즉시 자동 변환
+            for key in ["lte11", "lte12", "lte13", "lte14"]:
+                if key not in state_data:
+                    state_data[key] = {}
+                if isinstance(state_data[key], (int, float)):
+                    state_data[key] = {
+                        "next_scheduled_rotation": "",
+                        "last_toggle": "",
+                        "current_ip": "UNKNOWN",
+                        "ip_score": 0,
+                        "last_score_update": ""
+                    }
+                elif not isinstance(state_data[key], dict):
+                    state_data[key] = {}
+                    
+                # 필수 디렉토리 키 보장
+                state_data[key].setdefault("next_scheduled_rotation", "")
+                state_data[key].setdefault("last_toggle", "")
+                state_data[key].setdefault("current_ip", "UNKNOWN")
+                state_data[key].setdefault("ip_score", 0)
+                state_data[key].setdefault("last_score_update", "")
+                
+            # 모뎀 특정 (IP 매치 혹은 서브넷 매치)
+            if not modem_name and real_ip != "UNKNOWN":
+                for name, details in state_data.items():
+                    if isinstance(details, dict) and details.get("current_ip") == real_ip:
+                        modem_name = name
+                        break
+                        
+            if modem_name and modem_name in state_data:
+                details = state_data[modem_name]
+                registered_ip = details.get("current_ip", "UNKNOWN")
+                
+                # [🛡️ Timing Issue Guard]
+                if registered_ip != "UNKNOWN" and real_ip != "UNKNOWN" and registered_ip != real_ip:
+                    print(f"[⚪ IP SCORING] Skipped score update: Session IP {real_ip} does not match current registered IP {registered_ip} on {modem_name} (likely rotated during drive).")
+                else:
+                    curr_score = details.get("ip_score", 0)
+                    
+                    # Scoring Logic (Success: -2, 429: +1)
+                    change_amount = 0
+                    event_type = "INCOMPLETE"
+                    
+                    if has_429:
+                        new_score = min(100, curr_score + 1)
+                        change_amount = 1
+                        event_type = "429_BLOCK"
+                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit 429. Score: {curr_score} -> {new_score}"
+                    elif is_success:
+                        new_score = max(-100, curr_score - 2)
+                        change_amount = -2
+                        event_type = "SUCCESS"
+                        log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) SUCCESS. Score: {curr_score} -> {new_score}"
+                    else:
+                        new_score = curr_score
+                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) incomplete. Score: {curr_score}"
+                        
+                    details["ip_score"] = new_score
+                    details["last_score_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    if real_ip != "UNKNOWN":
+                        details["current_ip"] = real_ip
+                    
+                    # [📜 Daily Partitioning Score History Record Logger]
+                    # nmap-log-cleaner의 청소 영향성을 차단하기 위해 logs/rotator_history/ 격리 폴더 내에 누적합니다.
+                    try:
+                        today_str = datetime.now().strftime("%Y%m%d")
+                        history_dir = os.path.join(os.path.dirname(state_file), "rotator_history")
+                        os.makedirs(history_dir, exist_ok=True)
+                        history_file = os.path.join(history_dir, f"scoring_history_{today_str}.log")
+                        
+                        sign_str = f"+{change_amount}" if change_amount > 0 else str(change_amount)
+                        
+                        # [🕒 HH:MM:SS.FFF 포맷 및 칼줄 정렬 적용]
+                        now_dt = datetime.now()
+                        time_stamp = now_dt.strftime("%H:%M:%S") + f".{now_dt.microsecond // 1000:03d}"
+                        
+                        # 기동 폴더명 파싱을 통한 시작 시각(Start Time) 획득
+                        start_time_str = "UNKNOWN"
+                        try:
+                            base_name = os.path.basename(log_dir)
+                            time_match = re.match(r'^(\d{2})(\d{2})(\d{2})_', base_name)
+                            if time_match:
+                                start_time_str = f"{time_match.group(1)}:{time_match.group(2)}:{time_match.group(3)}"
+                        except:
+                            pass
+                        
+                        end_time_str = now_dt.strftime("%H:%M:%S")
+                        time_range_str = f"({start_time_str} ~ {end_time_str})"
+                        
+                        padded_ip = f"{real_ip:<15}"
+                        padded_modem = f"{modem_name:<5}"
+                        padded_event = f"{event_type:<9}"
+                        padded_sign = f"{sign_str:<4}"
+                        
+                        # 오직 점수 변동이 실제 있는 경우에만 일자별 레코드를 기입합니다 (Change != 0)
+                        if change_amount != 0:
+                            record_line = f"[{time_stamp}] [{padded_modem}] ({padded_ip}) {padded_event} {time_range_str} -> Score: {curr_score:4d} -> {new_score:4d} (Change: {padded_sign})\n"
+                            with open(history_file, 'a', encoding='utf-8') as h_f:
+                                h_f.write(record_line)
+                    except Exception as history_err:
+                        print(f"[-] Error writing history record: {history_err}", file=sys.stderr)
+                    
+                    print(log_msg)
+                    s_f.seek(0)
+                    s_f.truncate()
+                    json.dump(state_data, s_f, indent=2, ensure_ascii=False)
+            else:
+                print(f"[⚪ IP SCORING] Could not map real_ip {real_ip} or bind_ip {bind_ip} to any modem interface.")
+                
+    except Exception as score_err:
+        print(f"[-] Error writing unified IP scores: {score_err}", file=sys.stderr)
+        
     if leak_detected:
         sys.exit(1)
     else:

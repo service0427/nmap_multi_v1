@@ -152,7 +152,8 @@ def run_reload(packet_file, device_id):
         su_cmd = get_su_cmd(device_id)
         subprocess.run(["adb", "-s", device_id, "shell", f"{su_cmd} -c 'cp {android_tmp} {prefs_path} && chown $(stat -c %u:%g /data/data/{pkg}) {prefs_path} && chmod 660 {prefs_path} && rm {android_tmp}'"], check=True)
         
-        speed_mps = round(final_kmh / 3.6, 6)
+        speed_mps = round(final_kmh / 3.6, 4)
+        speed_mps = max(speed_mps, 0.8333) # Double Protection: Enforce 3.0 km/h floor at m/s level
         subprocess.run(["adb", "-s", device_id, "shell", su_cmd, "-c", f"am start-foreground-service -n {pkg}/.servicex2484 -a ACTION_START_CONTINUOUS --es uy.digitools.RUTA 'ruta0' --ef velocidad {speed_mps} --ei loopMode 0"], check=True)
 
         log_id = os.environ.get("NMAP_LOG_ID")
