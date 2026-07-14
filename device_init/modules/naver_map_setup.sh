@@ -167,10 +167,14 @@ init_naver_map() {
 #!/system/bin/sh
 DEFAULTS_FILE="/data/data/com.nhn.android.nmap/shared_prefs/NativeNaviDefaults.xml"
 SETTINGS_FILE="/data/data/com.nhn.android.nmap/shared_prefs/NaviSettingsInfo.xml"
+CONSENT_FILE="/data/data/com.nhn.android.nmap/shared_prefs/ConsentInfo.xml"
+PREFS_FILE="/data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml"
 
 # Ensure files exist
 touch "$DEFAULTS_FILE"
 touch "$SETTINGS_FILE"
+touch "$CONSENT_FILE"
+touch "$PREFS_FILE"
 
 # A. Disable Voice Guidance in NativeNaviDefaults.xml
 if [ ! -s "$DEFAULTS_FILE" ] || ! grep -q "<map>" "$DEFAULTS_FILE"; then
@@ -205,6 +209,46 @@ else
     else
         sed -i 's|<int name="PREF_NAVI_VOLUME" value="[0-9]*"|<int name="PREF_NAVI_VOLUME" value="0"|' "$SETTINGS_FILE"
     fi
+fi
+
+# C. Inject/Bypass terms in ConsentInfo.xml (Location, Clova consent)
+if [ ! -s "$CONSENT_FILE" ] || ! grep -q "<map>" "$CONSENT_FILE"; then
+    echo '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>' > "$CONSENT_FILE"
+    echo '<map>' >> "$CONSENT_FILE"
+    echo '    <string name="PREF_CONSENT_GUEST_MAP_TERMS_AGREEMENT_STATUS">2026-04-17</string>' >> "$CONSENT_FILE"
+    echo '    <string name="PREF_CONSENT_GUEST_LOCATION_TERMS_AGREEMENT_STATUS">2026-04-17</string>' >> "$CONSENT_FILE"
+    echo '    <string name="PREF_CONSENT_GUEST_MAP_LOCATION_TERMS_AGREEMENT_STATUS">2026-04-17</string>' >> "$CONSENT_FILE"
+    echo '    <boolean name="PREF_CONSENT_CLOVA_CHECKED" value="true" />' >> "$CONSENT_FILE"
+    echo '    <boolean name="PREF_CONSENT_CLOVA_AGREED" value="true" />' >> "$CONSENT_FILE"
+    echo '    <boolean name="PREF_CONSENT_NEW_MAP_LOCATION_TERROD_AGREED" value="true" />' >> "$CONSENT_FILE"
+    echo '    <boolean name="PREF_CONSENT_NEW_MAP_LOCATION_TERMS_AGREED" value="true" />' >> "$CONSENT_FILE"
+    echo '</map>' >> "$CONSENT_FILE"
+else
+    for key in "PREF_CONSENT_CLOVA_CHECKED" "PREF_CONSENT_CLOVA_AGREED" "PREF_CONSENT_NEW_MAP_LOCATION_TERMS_AGREED"; do
+        if ! grep -q "name=\"$key\"" "$CONSENT_FILE"; then
+            sed -i "s|</map>|    <boolean name=\"$key\" value=\"true\" />\n</map>|" "$CONSENT_FILE"
+        else
+            sed -i "s|<boolean name=\"$key\" value=\"[a-zA-Z]*\"|<boolean name=\"$key\" value=\"true\"|" "$CONSENT_FILE"
+        fi
+    done
+fi
+
+# D. Inject/Bypass darkmode alert, hipass warning, and first-run tutorial in com.nhn.android.nmap_preferences.xml
+if [ ! -s "$PREFS_FILE" ] || ! grep -q "<map>" "$PREFS_FILE"; then
+    echo '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>' > "$PREFS_FILE"
+    echo '<map>' >> "$PREFS_FILE"
+    echo '    <boolean name="THEME_CHANGE_POPUP_NEVER_SHOW_AGAIN" value="true" />' >> "$PREFS_FILE"
+    echo '    <boolean name="HIPASS_POPUP_SHOWN" value="true" />' >> "$PREFS_FILE"
+    echo '    <boolean name="PREF_NOT_FIRST_RUN" value="true" />' >> "$PREFS_FILE"
+    echo '</map>' >> "$PREFS_FILE"
+else
+    for key in "THEME_CHANGE_POPUP_NEVER_SHOW_AGAIN" "HIPASS_POPUP_SHOWN" "PREF_NOT_FIRST_RUN"; do
+        if ! grep -q "name=\"$key\"" "$PREFS_FILE"; then
+            sed -i "s|</map>|    <boolean name=\"$key\" value=\"true\" />\n</map>|" "$PREFS_FILE"
+        else
+            sed -i "s|<boolean name=\"$key\" value=\"[a-zA-Z]*\"|<boolean name=\"$key\" value=\"true\"|" "$PREFS_FILE"
+        fi
+    done
 fi
 EOF
 
