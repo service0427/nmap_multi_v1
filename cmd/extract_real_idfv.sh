@@ -23,6 +23,8 @@ printf "   %-3s | %-16s | %-36s\n" "No" "Device ID" "Actual Original IDFV"
 echo "   ---------------------------------------------------------------------"
 
 IDX=1
+SQL_QUERIES=()
+
 # Get device directories sorted
 for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
     DEV_ID=$(basename "$DEV_DIR")
@@ -50,9 +52,20 @@ for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
         printf "   %02d. %-16s | ${YELLOW}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
     else
         printf "   %02d. %-16s | ${GREEN}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
-        echo -e "       ${CYAN}SQL: UPDATE \`devices\` SET \`orig_idfv\`='$REAL_IDFV' WHERE \`device_id\`='$DEV_ID';${NC}"
+        SQL_QUERIES+=("UPDATE \`devices\` SET \`orig_idfv\`='$REAL_IDFV' WHERE \`device_id\`='$DEV_ID';")
     fi
     ((IDX++))
 done
 echo "   ---------------------------------------------------------------------"
 echo -e "   Scan completed.\n"
+
+# Output aggregated SQL Query Block at the very end
+if [ ${#SQL_QUERIES[@]} -gt 0 ]; then
+    echo -e "${BOLD}${CYAN}   📋  Generated SQL UPDATE Queries (Copy Block):${NC}"
+    echo "   ====================================================================="
+    for query in "${SQL_QUERIES[@]}"; do
+        echo -e "   $query"
+    done
+    echo "   ====================================================================="
+    echo ""
+fi
