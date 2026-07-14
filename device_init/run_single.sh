@@ -230,10 +230,14 @@ while true; do
             echo -e "$SQL"
             echo -e "${CYAN}----------------------------${NC}\n"
             
-            # Cumulative Log in device_init/logs/insert.txt
+            # Cumulative Log in device_init/logs/insert.txt & logs/update.txt
             mkdir -p "logs"
             echo "$SQL" >> "logs/insert.txt"
             echo -e "${YELLOW}[!] Query appended to: logs/insert.txt${NC}"
+            
+            SQL_UPDATE="UPDATE \`devices\` SET \`alias\`='$ALIAS', \`orig_ssaid\`='$SSAID', \`orig_adid\`='$ADID', \`orig_idfv\`='$IDFV', \`orig_ni\`='$NI', \`orig_token\`='$TOKEN' WHERE \`device_id\`='$DEV_ID';"
+            echo "$SQL_UPDATE" >> "logs/update.txt"
+            echo -e "${YELLOW}[!] Query appended to: logs/update.txt${NC}"
             
             # Auto-cleanup and exit
             cleanup
