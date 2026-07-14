@@ -19,15 +19,19 @@ if [ ! -d "$LOGS_DIR" ]; then
     exit 1
 fi
 
-printf "   %-16s | %-36s\n" "Device ID" "Actual Original IDFV"
+printf "   %-3s | %-16s | %-36s\n" "No" "Device ID" "Actual Original IDFV"
 echo "   ---------------------------------------------------------------------"
 
+IDX=1
 # Get device directories sorted
 for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
     DEV_ID=$(basename "$DEV_DIR")
     [ "$DEV_ID" = "logs" ] && continue
     [ "$DEV_ID" = "tmp" ] && continue
     [ "$DEV_ID" = "FAKE1234" ] && continue
+    [ "$DEV_ID" = "logs_sample" ] && continue
+    [ "$DEV_ID" = "rotator_history" ] && continue
+    [ "$DEV_ID" = "scratch" ] && continue
     
     # Find the most recent events.log containing "iv="
     REAL_IDFV=""
@@ -43,10 +47,12 @@ for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
     
     if [ -z "$REAL_IDFV" ]; then
         REAL_IDFV="UNKNOWN (No logs with iv=)"
-        printf "   %-16s | ${YELLOW}%-36s${NC}\n" "$DEV_ID" "$REAL_IDFV"
+        printf "   %02d. %-16s | ${YELLOW}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
     else
-        printf "   %-16s | ${GREEN}%-36s${NC}\n" "$DEV_ID" "$REAL_IDFV"
+        printf "   %02d. %-16s | ${GREEN}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
+        echo -e "       ${CYAN}SQL: UPDATE \`devices\` SET \`orig_idfv\`='$REAL_IDFV' WHERE \`device_id\`='$DEV_ID';${NC}"
     fi
+    ((IDX++))
 done
 echo "   ---------------------------------------------------------------------"
 echo -e "   Scan completed.\n"
