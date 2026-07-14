@@ -11,12 +11,28 @@ BOLD="\e[1m"
 TARGET_DEVICE="$1"
 
 echo -e "\n${BOLD}${CYAN}========================================================================${NC}"
-echo -e "${BOLD}${CYAN}   🔍  Real Original IDFV Extractor (From Local Logs)                   ${NC}"
+echo -e "${BOLD}${CYAN}   🔍  Real Original IDFV Extractor (From Active ADB Devices)           ${NC}"
 echo -e "${BOLD}${CYAN}========================================================================${NC}"
+
+# Get active connected devices via ADB
+CONNECTED_DEVICES=$(adb devices | grep -v "List of devices attached" | grep -w "device" | awk '{print $1}')
+
+if [ -z "$CONNECTED_DEVICES" ]; then
+    echo -e "   ${YELLOW}[!] No connected ADB devices found.${NC}\n"
+    exit 1
+fi
+
 if [ -n "$TARGET_DEVICE" ]; then
-    echo -e "   Scanning events.log for Device: ${BOLD}${YELLOW}${TARGET_DEVICE}${NC} (iv=)... Please wait.\n"
+    # Verify target device is actually online
+    if ! echo "$CONNECTED_DEVICES" | grep -q -w "$TARGET_DEVICE"; then
+        echo -e "   ${YELLOW}[!] Target device $TARGET_DEVICE is offline or not connected.${NC}\n"
+        exit 1
+    fi
+    DEVICES_TO_SCAN="$TARGET_DEVICE"
+    echo -e "   Scanning events.log for Active Device: ${BOLD}${YELLOW}${TARGET_DEVICE}${NC} (iv=)... Please wait.\n"
 else
-    echo -e "   Scanning events.log for genuine IDFVs (iv=)... Please wait.\n"
+    DEVICES_TO_SCAN="$CONNECTED_DEVICES"
+    echo -e "   Scanning events.log for active connected devices (iv=)... Please wait.\n"
 fi
 
 LOGS_DIR="wifi_multi/logs"
@@ -31,18 +47,14 @@ echo "   ---------------------------------------------------------------------"
 IDX=1
 SQL_QUERIES=()
 
-# Get device directories sorted
-for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
-    DEV_ID=$(basename "$DEV_DIR")
-    [ "$DEV_ID" = "logs" ] && continue
-    [ "$DEV_ID" = "tmp" ] && continue
-    [ "$DEV_ID" = "FAKE1234" ] && continue
-    [ "$DEV_ID" = "logs_sample" ] && continue
-    [ "$DEV_ID" = "rotator_history" ] && continue
-    [ "$DEV_ID" = "scratch" ] && continue
+# Scan only active connected devices
+for DEV_ID in $DEVICES_TO_SCAN; do
+    DEV_DIR="$LOGS_DIR/$DEV_ID"
     
-    # Filter by target device if provided
-    if [ -n "$TARGET_DEVICE" ] && [ "$DEV_ID" != "$TARGET_DEVICE" ]; then
+    # If the active device doesn't have a log folder yet
+    if [ ! -d "$DEV_DIR" ]; then
+        printf "   %02d. %-16s | ${YELLOW}%-36s${NC}\n" "$IDX" "$DEV_ID" "UNKNOWN (No logs directory)"
+        ((IDX++))
         continue
     fi
     
