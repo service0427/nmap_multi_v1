@@ -103,9 +103,13 @@ init_app_installation() {
                 fi
                 
                 local needs_patch=false
-                if [ -n "$target_ver" ] && [ "$device_ver" != "$target_ver" ]; then
-                    echo -e "    - [!] Version mismatch detected (Device: $device_ver | Server Target: $target_ver). Triggering patch..."
-                    needs_patch=true
+                if [ -n "$target_ver" ]; then
+                    local device_ver_short=$(echo "$device_ver" | cut -d'.' -f1-3)
+                    local target_ver_short=$(echo "$target_ver" | cut -d'.' -f1-3)
+                    if [ "$device_ver_short" != "$target_ver_short" ]; then
+                        echo -e "    - [!] Version mismatch detected (Device: $device_ver | Server Target: $target_ver). Triggering patch..."
+                        needs_patch=true
+                    fi
                 elif [ "$folder_name" = "naver_map" ]; then
                     echo -e "    - [!] Custom naver_map patch folder detected. Re-installing..."
                     needs_patch=true
