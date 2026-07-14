@@ -58,6 +58,7 @@ if [ -z "$TARGET_DEVICE" ]; then
     FAILED_DEVICES=()
     NO_SU_DEVICES=()
     
+    IDX=1
     for serial in $DEVICES; do
         # Find su
         HAS_SU=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
@@ -65,20 +66,23 @@ if [ -z "$TARGET_DEVICE" ]; then
             HAS_SU=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
         fi
         
+        formatted_idx=$(printf "%02d" $IDX)
         if [ -z "$HAS_SU" ]; then
-            echo -e "  - ${serial}: ${YELLOW}su not found${NC}"
+            echo -e "  - ${formatted_idx}. ${serial}: ${YELLOW}su not found${NC}"
             NO_SU_DEVICES+=("$serial")
+            ((IDX++))
             continue
         fi
         
         # Test su with a 3-second timeout. If it's waiting for approval, it will time out and trigger the prompt on device.
         SU_TEST=$(timeout 3 adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
         if [[ "$SU_TEST" == *"uid=0"* ]]; then
-            echo -e "  - ${serial}: ${GREEN}Root shell authorization OK${NC}"
+            echo -e "  - ${formatted_idx}. ${serial}: ${GREEN}Root shell authorization OK${NC}"
         else
-            echo -e "  - ${serial}: ${YELLOW}Root shell authorization failed / Requesting popup...${NC}"
+            echo -e "  - ${formatted_idx}. ${serial}: ${YELLOW}Root shell authorization failed / Requesting popup...${NC}"
             FAILED_DEVICES+=("$serial")
         fi
+        ((IDX++))
     done
     
     # Check if there are failures
