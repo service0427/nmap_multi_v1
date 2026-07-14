@@ -27,12 +27,8 @@ case "$1" in
         bash "$CMD_DIR/wifi.sh" "$@"
         ;;
     --nmap)
-        if [ -n "$2" ]; then
-            shift
-            bash "$CMD_DIR/extract_real_idfv.sh" "$@"
-        else
-            bash "$CMD_DIR/check_nmap_version.sh"
-        fi
+        shift
+        bash "$CMD_DIR/check_nmap_version.sh" "$@"
         ;;
     --imei)
         bash "$CMD_DIR/extract_device_info.sh"

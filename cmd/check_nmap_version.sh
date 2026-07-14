@@ -22,8 +22,21 @@ else
     fi
 fi
 
+TARGET_DEVICE="$1"
+
 # 연결된 기기 리스팅
-DEVICES=$(adb devices | grep -v "List of devices attached" | grep -w "device" | awk '{print $1}')
+if [ -n "$TARGET_DEVICE" ]; then
+    # 특정 디바이스가 지정된 경우 연결 여부 검증
+    if adb devices | grep -w "device" | grep -q -w "$TARGET_DEVICE"; then
+        DEVICES="$TARGET_DEVICE"
+    else
+        echo -e "\e[1;31m[-] 에러: 지정된 디바이스 ${TARGET_DEVICE}가 연결되어 있지 않거나 오프라인입니다.\e[0m"
+        exit 1
+    fi
+else
+    # 지정되지 않은 경우 기존대로 전체 연결 기기 획득
+    DEVICES=$(adb devices | grep -v "List of devices attached" | grep -w "device" | awk '{print $1}')
+fi
 
 if [ -z "$DEVICES" ]; then
     echo -e "\e[1;31m[-] 에러: 연결된 adb 디바이스가 없습니다.\e[0m"
