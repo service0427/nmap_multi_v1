@@ -8,10 +8,16 @@ CYAN="\e[1;96m"
 NC="\e[0m"
 BOLD="\e[1m"
 
+TARGET_DEVICE="$1"
+
 echo -e "\n${BOLD}${CYAN}========================================================================${NC}"
 echo -e "${BOLD}${CYAN}   🔍  Real Original IDFV Extractor (From Local Logs)                   ${NC}"
 echo -e "${BOLD}${CYAN}========================================================================${NC}"
-echo -e "   Scanning events.log for genuine IDFVs (iv=)... Please wait.\n"
+if [ -n "$TARGET_DEVICE" ]; then
+    echo -e "   Scanning events.log for Device: ${BOLD}${YELLOW}${TARGET_DEVICE}${NC} (iv=)... Please wait.\n"
+else
+    echo -e "   Scanning events.log for genuine IDFVs (iv=)... Please wait.\n"
+fi
 
 LOGS_DIR="wifi_multi/logs"
 if [ ! -d "$LOGS_DIR" ]; then
@@ -34,6 +40,11 @@ for DEV_DIR in $(find "$LOGS_DIR" -maxdepth 1 -type d | sort); do
     [ "$DEV_ID" = "logs_sample" ] && continue
     [ "$DEV_ID" = "rotator_history" ] && continue
     [ "$DEV_ID" = "scratch" ] && continue
+    
+    # Filter by target device if provided
+    if [ -n "$TARGET_DEVICE" ] && [ "$DEV_ID" != "$TARGET_DEVICE" ]; then
+        continue
+    fi
     
     # Find the most recent events.log containing "iv="
     REAL_IDFV=""

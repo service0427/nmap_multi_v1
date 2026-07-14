@@ -27,7 +27,12 @@ case "$1" in
         bash "$CMD_DIR/wifi.sh" "$@"
         ;;
     --nmap)
-        bash "$CMD_DIR/check_nmap_version.sh"
+        if [ -n "$2" ]; then
+            shift
+            bash "$CMD_DIR/extract_real_idfv.sh" "$@"
+        else
+            bash "$CMD_DIR/check_nmap_version.sh"
+        fi
         ;;
     --imei)
         bash "$CMD_DIR/extract_device_info.sh"
@@ -36,7 +41,8 @@ case "$1" in
         bash "$CMD_DIR/extract_adid.sh"
         ;;
     --idfv)
-        bash "$CMD_DIR/extract_real_idfv.sh"
+        shift
+        bash "$CMD_DIR/extract_real_idfv.sh" "$@"
         ;;
     *)
         # 인자 없이 실행 시: 연결된 모든 기기의 화면을 그리드로 정렬하여 띄움
