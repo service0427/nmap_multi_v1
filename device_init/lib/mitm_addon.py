@@ -43,6 +43,12 @@ class ProxyCoreWash:
             print(f"[🛡️] TTS EXOPLAYER BLOCKED: {flow.request.path[:40]}")
             return
 
+        # 2. [PROMOTION BANNER BLOCK] Block Linchpin and Braze In-App Promotion Popups
+        if "linchpin-client/v2/popups" in flow.request.path or "inappv5" in flow.request.path:
+            flow.response = http.Response.make(200, b"[]", {"Content-Type": "application/json"})
+            print(f"[🛡️] PROMOTION POPUP BLOCKED: {flow.request.path[:50]}")
+            return
+
         if os.environ.get("NMAP_NO_FILTER") == "true":
             return
 
