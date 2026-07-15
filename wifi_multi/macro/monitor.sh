@@ -454,7 +454,7 @@ while true; do
 
                     echo "[$(NOW)] [Action] Selecting Address: $CLEANED_ADDR (Original: $NMAP_DEST_ADDR)"
                     $MACRO_EXEC "$DEV_ID" "contains:$CLEANED_ADDR" "$CAT"
-                    local CLICK_RES=$?
+                    CLICK_RES=$?
                     if [ $CLICK_RES -ne 0 ]; then
                         # Fallback to original address just in case
                         echo "[$(NOW)] [Action] Cleaned address not found. Retrying with original: $NMAP_DEST_ADDR"
