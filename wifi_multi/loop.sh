@@ -33,6 +33,15 @@ pkill -9 -f "main.sh"
 pkill -9 -f "mitmdump"
 sleep 2
 
+# Clean up any leftover LAUNCHING states from previous interrupted runs
+if [ -d "logs" ]; then
+    find logs/ -name "current_task.json" 2>/dev/null | while read -r f; do
+        if [ -f "$f" ] && jq -e '.status == "LAUNCHING"' "$f" >/dev/null 2>&1; then
+            rm -f "$f"
+        fi
+    done
+fi
+
 get_ip() {
     ip -4 addr show "$1" 2>/dev/null | grep inet | awk '{print $2}' | cut -d/ -f1 | head -n 1
 }
@@ -221,8 +230,18 @@ while true; do
         # --- Cooldown & Penalty Skip Check ---
         CURRENT_TIME=$(date +%s)
         
-        # [NEW] 로컬 current_task.json이 리셋되었거나(IDLE/READY) 존재하지 않으면 메모리 쿨다운 강제 해제하여 즉시 할당 유도
+        # Skip if the device is already in allocation or launch phase
         TASK_JSON="logs/${DEV_ID}/current_task.json"
+        if [ -f "$TASK_JSON" ]; then
+            T_STATUS=$(jq -r '.status // empty' "$TASK_JSON" 2>/dev/null)
+            if [ "$T_STATUS" = "LAUNCHING" ] || [ "$T_STATUS" = "ALLOCATED" ]; then
+                DEV_INDEX=$((DEV_INDEX + 1))
+                continue
+            fi
+        fi
+
+        # --- Cooldown & Penalty Skip Check ---
+        CURRENT_TIME=$(date +%s)
         is_reset=false
         if [ ! -f "$TASK_JSON" ]; then
             is_reset=true
@@ -237,108 +256,92 @@ while true; do
             DEV_EXCLUDE_UNTIL[$DEV_ID]=0
         fi
 
-        # [LOCK REMOVED] Local exclude_until checks completely disabled as requested.
-        # Server now manages all pass/allocation policies directly.
+        # Mark as LAUNCHING immediately in the main loop to prevent duplicate spawns
+        mkdir -p "logs/${DEV_ID}"
+        echo "{\"status\": \"LAUNCHING\"}" > "$TASK_JSON"
 
-        RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \
-             -H "Content-Type: application/json" \
-             -d "{\"device_id\":\"$DEV_ID\"}")
-        
-        if [ -z "$RESPONSE" ]; then
-            # Temporary server/network error, wait 10s before retry
-            DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-            continue
-        fi
+        # Spawn background subshell to request task and boot main.sh in parallel
+        (
+            # 1. Acquire subnet launch lock to stagger launches on the same modem
+            exec 8>>"logs/subnet_${MODEM_IDX}_launch.lock"
+            flock -x 8
 
-        STATUS=$(echo "$RESPONSE" | jq -r '.status')
-        if [ "$STATUS" != "ok" ]; then
-            MSG=$(echo "$RESPONSE" | jq -r '.msg')
-            CURRENT_TIME=$(date +%s)
+            RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"device_id\":\"$DEV_ID\"}")
             
-            mkdir -p "logs/${DEV_ID}"
-            # [최적화] 웹 모니터 화면 시각화를 위해 current_task.json 에는 실제 격리 제한 시각을 저장하되,
-            # loop.sh 메모리 스킵 시간(DEV_EXCLUDE_UNTIL)은 어차피 API 서버가 최종 통제하므로 10초 대기만 먹여 빠른 재시도 유도.
-            if [ "$MSG" = "COOLDOWN_ACTIVE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-                echo "[COOLDOWN] [$DEV_ID] Cooldown active. (Trying again in 10s)"
-                echo "{\"status\": \"COOLDOWN\", \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
-            elif [ "$MSG" = "PENALTY_ACTIVE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-                echo "[🚨] [$DEV_ID] Penalty active (60+ fails). (Trying again in 10s)"
-                echo "{\"status\": \"PENALTY\", \"exclude_until\": $((CURRENT_TIME + 600))}" > "logs/${DEV_ID}/current_task.json"
-            elif [ "$MSG" = "UNAUTHORIZED_DEVICE" ]; then
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-                echo "[⚠️] [$DEV_ID] Unauthorized device. (Trying again in 10s)"
-                echo "{\"status\": \"UNAUTHORIZED\", \"exclude_until\": $((CURRENT_TIME + 300))}" > "logs/${DEV_ID}/current_task.json"
-            elif [ "$MSG" = "NO_TASK_AVAILABLE" ]; then
-                # Temporary no tasks, fast polling but slight delay to prevent CPU spam
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-                echo "{\"status\": \"IDLE\"}" > "logs/${DEV_ID}/current_task.json"
-            else
-                DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 10))
-                echo "{\"status\": \"IDLE\"}" > "logs/${DEV_ID}/current_task.json"
+            if [ -z "$RESPONSE" ]; then
+                echo "{\"status\": \"IDLE\"}" > "$TASK_JSON"
+                exit 0
             fi
-            continue
-        fi
 
-        TASK_ID=$(echo "$RESPONSE" | jq -r '.task_id')
-        DEST_NAME=$(echo "$RESPONSE" | jq -r '.destination.target_name')
-        DEVICE_SEQ=$(echo "$RESPONSE" | jq -r '.device_seq')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status')
+            if [ "$STATUS" != "ok" ]; then
+                MSG=$(echo "$RESPONSE" | jq -r '.msg')
+                CURRENT_TIME=$(date +%s)
+                if [ "$MSG" = "COOLDOWN_ACTIVE" ]; then
+                    echo "[COOLDOWN] [$DEV_ID] Cooldown active. (Trying again in 10s)"
+                    echo "{\"status\": \"COOLDOWN\", \"exclude_until\": $((CURRENT_TIME + 60))}" > "$TASK_JSON"
+                elif [ "$MSG" = "PENALTY_ACTIVE" ]; then
+                    echo "[🚨] [$DEV_ID] Penalty active (60+ fails). (Trying again in 10s)"
+                    echo "{\"status\": \"PENALTY\", \"exclude_until\": $((CURRENT_TIME + 600))}" > "$TASK_JSON"
+                elif [ "$MSG" = "UNAUTHORIZED_DEVICE" ]; then
+                    echo "[⚠️] [$DEV_ID] Unauthorized device."
+                    echo "{\"status\": \"UNAUTHORIZED\", \"exclude_until\": $((CURRENT_TIME + 300))}" > "$TASK_JSON"
+                elif [ "$MSG" = "NO_TASK_AVAILABLE" ]; then
+                    echo "{\"status\": \"IDLE\"}" > "$TASK_JSON"
+                else
+                    echo "{\"status\": \"IDLE\"}" > "$TASK_JSON"
+                fi
+                exit 0
+            fi
 
-        # =================================================================================
-        # [포트 할당 설계 원칙 - 절대 수정 및 롤백 금지]
-        # - device_seq는 DB 서버에서 각 device_id에 1:1로 할당되어 절대 변하지 않는 고유 Sequence ID입니다.
-        # - FRIDA_PORT = 10000 + device_seq
-        # - MITM_PORT = 20000 + device_seq
-        # - 이 정적 매핑 방식은 전체 인프라(수십 대의 PC, 수백 대의 폰)에서 포트 충돌 가능성이 0%입니다.
-        # - 이전의 cksum 해시 방식(6000 + cksum % 1000)은 해시 충돌(예: R3CR70M3FZH와 R3CRB0ETRZJ 충돌)로 인해
-        #   서로의 프로세스를 강제 종료(pkill)시키는 무한 재시작 루프가 발생하였으므로 절대 롤백하지 마십시오.
-        # =================================================================================
-        FRIDA_PORT=$((10000 + DEVICE_SEQ))
-        
-        DATE_STR=$(date +%Y%m%d)
-        TIME_STR=$(date +%H%M%S)
-        DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id')
+            TASK_ID=$(echo "$RESPONSE" | jq -r '.task_id')
+            DEST_NAME=$(echo "$RESPONSE" | jq -r '.destination.target_name')
+            DEVICE_SEQ=$(echo "$RESPONSE" | jq -r '.device_seq')
+            FRIDA_PORT=$((10000 + DEVICE_SEQ))
+            
+            DATE_STR=$(date +%Y%m%d)
+            TIME_STR=$(date +%H%M%S)
+            DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id')
 
-        echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
-        echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${DEST_ID}/"
+            echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
+            echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${DEST_ID}/"
 
-        # Ensure log directory exists before redirecting output
-        mkdir -p "logs/${DEV_ID}/tmp"
+            mkdir -p "logs/${DEV_ID}/tmp"
+            echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\"}" > "$TASK_JSON"
 
-        # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
-        # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
-        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
-
-        # [Security Warning] NMAP_ORIG_TOKEN and NMAP_ID_TOKEN are crucial for identity washing.
-        # Ensure these are passed properly to prevent raw tracking token leaks.
-        NMAP_DATE_STR="$DATE_STR" \
-        NMAP_TIME_STR="$TIME_STR" \
-        NMAP_BIND_IP="$BIND_IP" \
-        NMAP_API_RESPONSE="$RESPONSE" \
-        NMAP_TASK_ID="$TASK_ID" \
-        NMAP_LOG_ID="$TASK_ID" \
-        NMAP_DEST_ID="$DEST_ID" \
-        NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
-        NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
-        NMAP_DEST_NAME="$DEST_NAME" \
-        NMAP_DEST_ADDR="$(echo "$RESPONSE" | jq -r '.destination.address' | sed "s/\"/\\\"/g")" \
-        NMAP_START_LAT=$(echo "$RESPONSE" | jq -r '.start_pos.lat') \
-        NMAP_START_LNG=$(echo "$RESPONSE" | jq -r '.start_pos.lng') \
-        NMAP_START_SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh') \
-        NMAP_ARRIVAL_TIME=$(echo "$RESPONSE" | jq -r '.arrival_time') \
-        NMAP_FRIDA_PORT="$FRIDA_PORT" \
-        NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid') \
-        NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
-        NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
-        NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
-        NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token') \
-        NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
-        NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
-        NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
-        NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
-        NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
-        setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
+            NMAP_DATE_STR="$DATE_STR" \
+            NMAP_TIME_STR="$TIME_STR" \
+            NMAP_BIND_IP="$BIND_IP" \
+            NMAP_API_RESPONSE="$RESPONSE" \
+            NMAP_TASK_ID="$TASK_ID" \
+            NMAP_LOG_ID="$TASK_ID" \
+            NMAP_DEST_ID="$DEST_ID" \
+            NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
+            NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
+            NMAP_DEST_NAME="$DEST_NAME" \
+            NMAP_DEST_ADDR="$(echo "$RESPONSE" | jq -r '.destination.address' | sed "s/\"/\\\"/g")" \
+            NMAP_START_LAT=$(echo "$RESPONSE" | jq -r '.start_pos.lat') \
+            NMAP_START_LNG=$(echo "$RESPONSE" | jq -r '.start_pos.lng') \
+            NMAP_START_SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh') \
+            NMAP_ARRIVAL_TIME=$(echo "$RESPONSE" | jq -r '.arrival_time') \
+            NMAP_FRIDA_PORT="$FRIDA_PORT" \
+            NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid') \
+            NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
+            NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
+            NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
+            NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token') \
+            NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
+            NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
+            NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
+            NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
+            NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
+            setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
+            
+            # Sleep 5 seconds to space out launches of devices sharing the same subnet
+            sleep 5
+        ) &
         
         DEV_INDEX=$((DEV_INDEX + 1))
         if [ -n "$DEVICE_START_DELAY" ] && [ "$DEVICE_START_DELAY" -gt 0 ]; then
