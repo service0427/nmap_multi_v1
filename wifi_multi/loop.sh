@@ -296,23 +296,29 @@ while true; do
         # =================================================================================
         FRIDA_PORT=$((10000 + DEVICE_SEQ))
         
+        DATE_STR=$(date +%Y%m%d)
+        TIME_STR=$(date +%H%M%S)
+        DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id')
+
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
-        echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/"
+        echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${DEST_ID}/"
 
         # Ensure log directory exists before redirecting output
         mkdir -p "logs/${DEV_ID}/tmp"
 
         # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
         # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
-        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
+        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
 
         # [Security Warning] NMAP_ORIG_TOKEN and NMAP_ID_TOKEN are crucial for identity washing.
         # Ensure these are passed properly to prevent raw tracking token leaks.
+        NMAP_DATE_STR="$DATE_STR" \
+        NMAP_TIME_STR="$TIME_STR" \
         NMAP_BIND_IP="$BIND_IP" \
         NMAP_API_RESPONSE="$RESPONSE" \
         NMAP_TASK_ID="$TASK_ID" \
         NMAP_LOG_ID="$TASK_ID" \
-        NMAP_DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id') \
+        NMAP_DEST_ID="$DEST_ID" \
         NMAP_DEST_LAT=$(echo "$RESPONSE" | jq -r '.destination.lat') \
         NMAP_DEST_LNG=$(echo "$RESPONSE" | jq -r '.destination.lng') \
         NMAP_DEST_NAME="$DEST_NAME" \

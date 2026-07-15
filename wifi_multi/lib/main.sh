@@ -110,7 +110,7 @@ cleanup() {
 trap "cleanup 'SigTerm'" INT TERM
 
 # 1. Setup Logs
-DATE_STR=$(date +%Y%m%d); TIME_STR=$(date +%H%M%S)
+DATE_STR=${NMAP_DATE_STR:-$(date +%Y%m%d)}; TIME_STR=${NMAP_TIME_STR:-$(date +%H%M%S)}
 export CAPTURE_LOG_DIR="$ENGINE_ROOT/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${NMAP_DEST_ID}"
 mkdir -p "$CAPTURE_LOG_DIR"
 EXEC_LOG="$CAPTURE_LOG_DIR/execution.log"
