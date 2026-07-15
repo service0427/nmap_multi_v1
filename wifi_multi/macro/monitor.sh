@@ -34,6 +34,16 @@ if [ -f "$CURRENT_TASK_JSON" ]; then
     fi
 fi
 
+# [🔒 Robust Lock Janitor] Force release subnet lock when monitor.sh exits under any conditions
+release_lock_on_exit() {
+    if [ "$HAS_SUBNET_LOCK" == "true" ]; then
+        echo "[$(date +'%H:%M:%S.%3N')] [🔓] Clean Up: Force releasing Subnet Lock on subnet_${SUBNET_IDX} due to exit."
+        exec 9>&-
+        HAS_SUBNET_LOCK="false"
+    fi
+}
+trap release_lock_on_exit EXIT INT TERM
+
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
