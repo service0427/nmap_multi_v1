@@ -24,59 +24,6 @@ SCHEDULE_JSON="macro/action_schedule.json"
 
 CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
 
-# --- [SUBNET LOCK SETUP] ---
-SUBNET_IDX=""
-if [ -n "$NMAP_BIND_IP" ]; then
-    SUBNET_IDX=$(echo "$NMAP_BIND_IP" | cut -d. -f3)
-fi
-if [ -z "$SUBNET_IDX" ] || ! [[ "$SUBNET_IDX" =~ ^[0-9]+$ ]]; then
-    IP=$(timeout 3 adb -s "$DEV_ID" shell "ip route get 1.1.1.1 2>/dev/null" | grep -oE "src [0-9.]+" | awk '{print $2}')
-    if [ -z "$IP" ]; then
-        IP=$(timeout 3 adb -s "$DEV_ID" shell "ip addr show wlan0 2>/dev/null" | grep -oE 'inet [0-9./]+' | head -n 1 | awk '{print $2}' | cut -d/ -f1)
-    fi
-    if [ -n "$IP" ]; then
-        SUBNET_IDX=$(echo "$IP" | cut -d. -f3)
-    fi
-fi
-# --- [SUBNET LOCK FUNCTIONS] ---
-is_subnet_locked() {
-    [ -z "$SUBNET_IDX" ] && return 1
-    local LOCK_FILE="logs/subnet_${SUBNET_IDX}.lock"
-    [ ! -f "$LOCK_FILE" ] && return 1
-    
-    local LOCK_TS
-    LOCK_TS=$(cat "$LOCK_FILE" 2>/dev/null)
-    if ! [[ "$LOCK_TS" =~ ^[0-9]+$ ]]; then
-        return 1
-    fi
-    
-    local NOW_TS=$(date +%s)
-    local DIFF=$((NOW_TS - LOCK_TS))
-    if [ $DIFF -lt 30 ]; then
-        return 0 # Locked
-    fi
-    return 1 # Unlocked (expired)
-}
-
-wait_for_subnet_lock() {
-    [ -z "$SUBNET_IDX" ] && return 0
-    local LOCK_FILE="logs/subnet_${SUBNET_IDX}.lock"
-    
-    while is_subnet_locked; do
-        local LOCK_TS=$(cat "$LOCK_FILE" 2>/dev/null)
-        local NOW_TS=$(date +%s)
-        local REMAINING=$((30 - (NOW_TS - LOCK_TS)))
-        echo "[$(NOW)] [🔒] Subnet ${SUBNET_IDX} is locked. Waiting ${REMAINING}s before selecting address..."
-        sleep 2
-    done
-}
-
-set_subnet_lock() {
-    [ -z "$SUBNET_IDX" ] && return 0
-    echo "[$(NOW)] [🔒] Setting Subnet Lock for subnet_${SUBNET_IDX} (30s duration)."
-    date +%s > "logs/subnet_${SUBNET_IDX}.lock"
-}
-
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
@@ -280,20 +227,6 @@ check_app_survival() {
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
     fi
-
-    # [🛡️ Strict Fail-Fast on any client-logger errorLog or HTTP 429 before driving starts]
-    if [ "$IS_DRIVING" = false ]; then
-        # 1. Check for any client-logger errorLog
-        local ERROR_LOG_FILE=$(ls -1 "$ABS_LOG_DIR"/*_errorLog.json 2>/dev/null | head -n 1)
-        if [ -n "$ERROR_LOG_FILE" ]; then
-            local ERR_RAW=$(cat "$ERROR_LOG_FILE" 2>/dev/null)
-            local MATCHED_CODE=$(echo "$ERR_RAW" | grep -o -E "err-[0-9]+" | head -n 1)
-            [ -z "$MATCHED_CODE" ] && MATCHED_CODE="UNKNOWN_ERR"
-            echo "[$(NOW)] [🚨] Strict Fail-Fast: Captcha/Webview errorLog detected ($MATCHED_CODE) before driving started in $(basename "$ERROR_LOG_FILE")."
-            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ERROR_LOG_BEFORE_DRIVING: $MATCHED_CODE\"}"
-            stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
-        fi
-    fi
 }
 
 human_random_sleep() {
@@ -436,12 +369,8 @@ while true; do
 
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
-                if [ "$ACTION" == "TYPE_DESTINATION" ]; then
-                    type_destination_only
+                if [ "$ACTION" == "TYPE_DESTINATION" ]; then type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
-                    # 1. Wait for subnet lock before clicking the address item
-                    wait_for_subnet_lock
-
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
                     for word in $NMAP_DEST_ADDR; do
@@ -454,19 +383,12 @@ while true; do
 
                     echo "[$(NOW)] [Action] Selecting Address: $CLEANED_ADDR (Original: $NMAP_DEST_ADDR)"
                     $MACRO_EXEC "$DEV_ID" "contains:$CLEANED_ADDR" "$CAT"
-                    CLICK_RES=$?
-                    if [ $CLICK_RES -ne 0 ]; then
+                    if [ $? -ne 0 ]; then
                         # Fallback to original address just in case
                         echo "[$(NOW)] [Action] Cleaned address not found. Retrying with original: $NMAP_DEST_ADDR"
                         $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
-                        CLICK_RES=$?
-                    fi
-
-                    # 2. If click succeeded, set/refresh the 30-second subnet lock
-                    if [ $CLICK_RES -eq 0 ]; then
-                        set_subnet_lock
-                    else
-                        # [CROSS VALIDATION] Determine specific cause of failure from instantSearchV2 packets
+                        if [ $? -ne 0 ]; then
+                            # [CROSS VALIDATION] Determine specific cause of failure from instantSearchV2 packets
                             FAIL_REASON=$(python3 macro/ui_clicker.py "$DEV_ID" "CHECK_FAILURE" "$ABS_LOG_DIR" 2>/dev/null | xargs)
                             if [ -z "$FAIL_REASON" ]; then
                                 FAIL_REASON="ADDRESS_NOT_FOUND"
@@ -480,6 +402,7 @@ while true; do
                              fi
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
+                        fi
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
                     echo "[$(NOW)] [Action] Clicking '도착' (Arrival)..."

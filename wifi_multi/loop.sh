@@ -5,22 +5,7 @@
 # --- [CONFIGURATION] ---
 MANUAL_COUNTS=(5 5 5 5)
 API_SERVER="114.207.112.245:8013"
-
-# --- [CLI ARGUMENT PARSING] ---
-LIMIT_START=""
-LIMIT_END=""
-for arg in "$@"; do
-    if [ "$arg" = "--first" ] || [ "$arg" = "-f" ]; then
-        LIMIT_START=1
-        LIMIT_END=1
-    elif [[ "$arg" =~ ^[0-9]+-[0-9]+$ ]]; then
-        LIMIT_START=$(echo "$arg" | cut -d- -f1)
-        LIMIT_END=$(echo "$arg" | cut -d- -f2)
-    elif [[ "$arg" =~ ^[0-9]+$ ]]; then
-        LIMIT_START=1
-        LIMIT_END="$arg"
-    fi
-done
+DEVICE_START_DELAY=15
 
 # --- [CACHING] ---
 declare -A SSID_CACHE
@@ -137,10 +122,6 @@ while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
-    if [ -n "$LIMIT_START" ] && [ -n "$LIMIT_END" ]; then
-        DEVICES=$(echo "$DEVICES" | sed -n "${LIMIT_START},${LIMIT_END}p")
-    fi
-
     IP_LIST=()
     MODEM_STR=""
     for i in "${!MANUAL_COUNTS[@]}"; do
@@ -152,11 +133,6 @@ while true; do
     MODEM_STR=${MODEM_STR%,}
 
     echo "------------------------------------------------------------"
-    if [ -n "$LIMIT_START" ] && [ -n "$LIMIT_END" ]; then
-        echo -e "\e[1;33m[⚠️ TEST MODE] Scanning restricted to devices: ${LIMIT_START} to ${LIMIT_END}\e[0m"
-        # Print the serials on a single line for verification
-        echo -e "              Serials: $(echo $DEVICES | tr '\n' ' ')"
-    fi
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
     echo "Current Modems:$MODEM_STR"
 
@@ -327,7 +303,7 @@ while true; do
 
         # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
         # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
-        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\", \"subnet\": $SUBNET_IDX}" > "logs/${DEV_ID}/current_task.json"
+        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
 
         # [Security Warning] NMAP_ORIG_TOKEN and NMAP_ID_TOKEN are crucial for identity washing.
         # Ensure these are passed properly to prevent raw tracking token leaks.
@@ -358,7 +334,12 @@ while true; do
         setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
         
         DEV_INDEX=$((DEV_INDEX + 1))
-        sleep 2
+        if [ -n "$DEVICE_START_DELAY" ] && [ "$DEVICE_START_DELAY" -gt 0 ]; then
+            echo "[$(date +%T)] [Stagger] Waiting ${DEVICE_START_DELAY}s before starting the next device..."
+            sleep "$DEVICE_START_DELAY"
+        else
+            sleep 2
+        fi
     done
     sleep 20
 done
