@@ -7,10 +7,18 @@ MANUAL_COUNTS=(5 5 5 5)
 API_SERVER="114.207.112.245:8013"
 
 # --- [CLI ARGUMENT PARSING] ---
-RUN_FIRST_ONLY=false
+LIMIT_START=""
+LIMIT_END=""
 for arg in "$@"; do
-    if [ "$arg" = "--first" ] || [ "$arg" = "-f" ] || [ "$arg" = "1" ]; then
-        RUN_FIRST_ONLY=true
+    if [ "$arg" = "--first" ] || [ "$arg" = "-f" ]; then
+        LIMIT_START=1
+        LIMIT_END=1
+    elif [[ "$arg" =~ ^[0-9]+-[0-9]+$ ]]; then
+        LIMIT_START=$(echo "$arg" | cut -d- -f1)
+        LIMIT_END=$(echo "$arg" | cut -d- -f2)
+    elif [[ "$arg" =~ ^[0-9]+$ ]]; then
+        LIMIT_START=1
+        LIMIT_END="$arg"
     fi
 done
 
@@ -129,8 +137,8 @@ while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
-    if [ "$RUN_FIRST_ONLY" = true ]; then
-        DEVICES=$(echo "$DEVICES" | head -n 1)
+    if [ -n "$LIMIT_START" ] && [ -n "$LIMIT_END" ]; then
+        DEVICES=$(echo "$DEVICES" | sed -n "${LIMIT_START},${LIMIT_END}p")
     fi
 
     IP_LIST=()
@@ -144,8 +152,10 @@ while true; do
     MODEM_STR=${MODEM_STR%,}
 
     echo "------------------------------------------------------------"
-    if [ "$RUN_FIRST_ONLY" = true ]; then
-        echo -e "\e[1;33m[⚠️ 1:1 TEST MODE] Scanning is restricted to the FIRST device only: $DEVICES\e[0m"
+    if [ -n "$LIMIT_START" ] && [ -n "$LIMIT_END" ]; then
+        echo -e "\e[1;33m[⚠️ TEST MODE] Scanning restricted to devices: ${LIMIT_START} to ${LIMIT_END}\e[0m"
+        # Print the serials on a single line for verification
+        echo -e "              Serials: $(echo $DEVICES | tr '\n' ' ')"
     fi
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
     echo "Current Modems:$MODEM_STR"
