@@ -38,7 +38,44 @@ if [ -z "$SUBNET_IDX" ] || ! [[ "$SUBNET_IDX" =~ ^[0-9]+$ ]]; then
         SUBNET_IDX=$(echo "$IP" | cut -d. -f3)
     fi
 fi
-HAS_SUBNET_LOCK="false"
+# --- [SUBNET LOCK FUNCTIONS] ---
+is_subnet_locked() {
+    [ -z "$SUBNET_IDX" ] && return 1
+    local LOCK_FILE="logs/subnet_${SUBNET_IDX}.lock"
+    [ ! -f "$LOCK_FILE" ] && return 1
+    
+    local LOCK_TS
+    LOCK_TS=$(cat "$LOCK_FILE" 2>/dev/null)
+    if ! [[ "$LOCK_TS" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+    
+    local NOW_TS=$(date +%s)
+    local DIFF=$((NOW_TS - LOCK_TS))
+    if [ $DIFF -lt 30 ]; then
+        return 0 # Locked
+    fi
+    return 1 # Unlocked (expired)
+}
+
+wait_for_subnet_lock() {
+    [ -z "$SUBNET_IDX" ] && return 0
+    local LOCK_FILE="logs/subnet_${SUBNET_IDX}.lock"
+    
+    while is_subnet_locked; do
+        local LOCK_TS=$(cat "$LOCK_FILE" 2>/dev/null)
+        local NOW_TS=$(date +%s)
+        local REMAINING=$((30 - (NOW_TS - LOCK_TS)))
+        echo "[$(NOW)] [🔒] Subnet ${SUBNET_IDX} is locked. Waiting ${REMAINING}s before selecting address..."
+        sleep 2
+    done
+}
+
+set_subnet_lock() {
+    [ -z "$SUBNET_IDX" ] && return 0
+    echo "[$(NOW)] [🔒] Setting Subnet Lock for subnet_${SUBNET_IDX} (30s duration)."
+    date +%s > "logs/subnet_${SUBNET_IDX}.lock"
+}
 
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
@@ -402,27 +439,16 @@ while true; do
             esac
 
             # 주행 시작 시점 마킹
-            if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ] || [ "$ID" == "STEP_08_DRIVING" ]; then
-                IS_DRIVING=true
-                if [ "$HAS_SUBNET_LOCK" == "true" ]; then
-                    echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started)."
-                    exec 9>&-
-                    HAS_SUBNET_LOCK="false"
-                fi
-            fi
+            if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ] || [ "$ID" == "STEP_08_DRIVING" ]; then IS_DRIVING=true; fi
 
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
                 if [ "$ACTION" == "TYPE_DESTINATION" ]; then
-                    if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
-                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
-                        exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
-                        flock -x 9
-                        HAS_SUBNET_LOCK="true"
-                        echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
-                    fi
                     type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
+                    # 1. Wait for subnet lock before clicking the address item
+                    wait_for_subnet_lock
+
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
                     for word in $NMAP_DEST_ADDR; do
@@ -435,12 +461,19 @@ while true; do
 
                     echo "[$(NOW)] [Action] Selecting Address: $CLEANED_ADDR (Original: $NMAP_DEST_ADDR)"
                     $MACRO_EXEC "$DEV_ID" "contains:$CLEANED_ADDR" "$CAT"
-                    if [ $? -ne 0 ]; then
+                    local CLICK_RES=$?
+                    if [ $CLICK_RES -ne 0 ]; then
                         # Fallback to original address just in case
                         echo "[$(NOW)] [Action] Cleaned address not found. Retrying with original: $NMAP_DEST_ADDR"
                         $MACRO_EXEC "$DEV_ID" "contains:$NMAP_DEST_ADDR" "$CAT"
-                        if [ $? -ne 0 ]; then
-                            # [CROSS VALIDATION] Determine specific cause of failure from instantSearchV2 packets
+                        CLICK_RES=$?
+                    fi
+
+                    # 2. If click succeeded, set/refresh the 30-second subnet lock
+                    if [ $CLICK_RES -eq 0 ]; then
+                        set_subnet_lock
+                    else
+                        # [CROSS VALIDATION] Determine specific cause of failure from instantSearchV2 packets
                             FAIL_REASON=$(python3 macro/ui_clicker.py "$DEV_ID" "CHECK_FAILURE" "$ABS_LOG_DIR" 2>/dev/null | xargs)
                             if [ -z "$FAIL_REASON" ]; then
                                 FAIL_REASON="ADDRESS_NOT_FOUND"
@@ -454,7 +487,6 @@ while true; do
                              fi
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
-                        fi
                     fi
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
                     echo "[$(NOW)] [Action] Clicking '도착' (Arrival)..."
