@@ -293,13 +293,6 @@ check_app_survival() {
             send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ERROR_LOG_BEFORE_DRIVING: $MATCHED_CODE\"}"
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
-
-        # 2. Check for early 429 Too Many Requests
-        if grep -q '"status_code": 429' "$ABS_LOG_DIR"/*.json 2>/dev/null; then
-            echo "[$(NOW)] [🚨] Strict Fail-Fast: HTTP 429 detected before driving started."
-            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"HTTP_429_BEFORE_DRIVING\"}"
-            stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
-        fi
     fi
 }
 
