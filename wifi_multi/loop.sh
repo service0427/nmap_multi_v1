@@ -6,6 +6,14 @@
 MANUAL_COUNTS=(5 5 5 5)
 API_SERVER="114.207.112.245:8013"
 
+# --- [CLI ARGUMENT PARSING] ---
+RUN_FIRST_ONLY=false
+for arg in "$@"; do
+    if [ "$arg" = "--first" ] || [ "$arg" = "-f" ] || [ "$arg" = "1" ]; then
+        RUN_FIRST_ONLY=true
+    fi
+done
+
 # --- [CACHING] ---
 declare -A SSID_CACHE
 declare -A DEVICE_MODEL_CACHE
@@ -121,6 +129,10 @@ while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
+    if [ "$RUN_FIRST_ONLY" = true ]; then
+        DEVICES=$(echo "$DEVICES" | head -n 1)
+    fi
+
     IP_LIST=()
     MODEM_STR=""
     for i in "${!MANUAL_COUNTS[@]}"; do
@@ -132,6 +144,9 @@ while true; do
     MODEM_STR=${MODEM_STR%,}
 
     echo "------------------------------------------------------------"
+    if [ "$RUN_FIRST_ONLY" = true ]; then
+        echo -e "\e[1;33m[⚠️ 1:1 TEST MODE] Scanning is restricted to the FIRST device only: $DEVICES\e[0m"
+    fi
     echo "[$(date +%T)] Scanning $(echo $DEVICES | wc -w) devices..."
     echo "Current Modems:$MODEM_STR"
 
