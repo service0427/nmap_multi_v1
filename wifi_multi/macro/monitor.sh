@@ -396,9 +396,14 @@ while true; do
                     if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
                         echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
                         exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
-                        flock -x 9
-                        HAS_SUBNET_LOCK="true"
-                        echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
+                        flock -w 60 -x 9
+                        if [ $? -ne 0 ]; then
+                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (60s). Previous device might be hung. Proceeding anyway..."
+                            HAS_SUBNET_LOCK="false"
+                        else
+                            HAS_SUBNET_LOCK="true"
+                            echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
+                        fi
                     fi
                     type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
