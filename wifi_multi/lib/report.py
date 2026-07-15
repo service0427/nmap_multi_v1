@@ -144,27 +144,15 @@ def main():
     try:
         real_ip = "UNKNOWN"
         bind_ip = "UNKNOWN"
-        has_429 = False
-        is_success = False
         
-        # 1. Parse real_ip and 429 occurrences from session_summary.json
+        # 1. Parse real_ip from session_summary.json
         summary_path = os.path.join(log_dir, "session_summary.json")
         if os.path.exists(summary_path):
             with open(summary_path, 'r', encoding='utf-8', errors='ignore') as sf:
                 summary_data = json.load(sf)
                 real_ip = summary_data.get("real_ip", "UNKNOWN")
-                
-                # Check packets first (used in session_summary.json), fallback to requests
-                items = summary_data.get("packets", [])
-                if not items:
-                    items = summary_data.get("requests", [])
-                    
-                for item in items:
-                    if item.get("status") == 429:
-                        has_429 = True
-                        break
         
-        # 2. Parse bind_ip and is_success from execution.log
+        # 2. Parse bind_ip and real_ip from execution.log
         exec_log_path = os.path.join(log_dir, "execution.log")
         if os.path.exists(exec_log_path):
             with open(exec_log_path, 'r', encoding='utf-8', errors='ignore') as ef:
@@ -178,9 +166,36 @@ def main():
                 bind_match = re.search(r'BIND_IP:([0-9\.]+)', exec_content)
                 if bind_match:
                     bind_ip = bind_match.group(1)
-                
-                if "SUCCESS" in exec_content or "Goal Reached" in exec_content or "routeend" in exec_content:
-                    is_success = True
+        
+        # 3. Check for errorLog and accessLog
+        has_real_error_log = False
+        has_access_log = False
+        
+        error_log_files = glob.glob(os.path.join(log_dir, "**/*_POST_client-logger_errorLog.json"), recursive=True)
+        for ef in error_log_files:
+            try:
+                with open(ef, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.load(f)
+                    if data.get("url") == "https://ncpt.naver.com/client-logger/errorLog":
+                        body = data.get("request", {}).get("body", {})
+                        if isinstance(body, dict):
+                            msg = body.get("message")
+                            if msg:
+                                has_real_error_log = True
+                                break
+            except:
+                pass
+
+        access_log_files = glob.glob(os.path.join(log_dir, "**/*_POST_client-logger_accessLog.json"), recursive=True)
+        for af in access_log_files:
+            try:
+                with open(af, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.load(f)
+                    if data.get("url") == "https://ncpt.naver.com/client-logger/accessLog":
+                        has_access_log = True
+                        break
+            except:
+                pass
 
         # Determine modem interface by BIND_IP subnet
         modem_name = None
@@ -274,23 +289,23 @@ def main():
                 else:
                     curr_score = details.get("ip_score", 0)
                     
-                    # Scoring Logic (Success: -2, 429: +1)
+                    # Scoring Logic (errorLog: +1, accessLog: -2, neither: 0)
                     change_amount = 0
-                    event_type = "INCOMPLETE"
+                    event_type = "NEUTRAL"
                     
-                    if has_429:
+                    if has_real_error_log:
                         new_score = min(100, curr_score + 1)
                         change_amount = 1
-                        event_type = "429_BLOCK"
-                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit 429. Score: {curr_score} -> {new_score}"
-                    elif is_success:
+                        event_type = "ERR_LOG"
+                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit errorLog. Score: {curr_score} -> {new_score}"
+                    elif has_access_log:
                         new_score = max(-100, curr_score - 2)
                         change_amount = -2
-                        event_type = "SUCCESS"
-                        log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) SUCCESS. Score: {curr_score} -> {new_score}"
+                        event_type = "ACC_LOG"
+                        log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) accessLog SUCCESS. Score: {curr_score} -> {new_score}"
                     else:
                         new_score = curr_score
-                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) incomplete. Score: {curr_score}"
+                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral. Score: {curr_score}"
                         
                     details["ip_score"] = new_score
                     details["last_score_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
