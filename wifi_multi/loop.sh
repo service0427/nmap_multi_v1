@@ -302,7 +302,7 @@ while true; do
 
         # Pre-create current_task.json with basic metadata to prevent N/A screens before verification
         # device_seq도 함께 기록하여 stale_cleaner가 포트를 올바르게 복원하도록 합니다.
-        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\"}" > "logs/${DEV_ID}/current_task.json"
+        echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$(echo "$RESPONSE" | jq -r '.destination.id')\", \"real_ip\": \"$BIND_IP\", \"subnet\": $SUBNET_IDX}" > "logs/${DEV_ID}/current_task.json"
 
         # [Security Warning] NMAP_ORIG_TOKEN and NMAP_ID_TOKEN are crucial for identity washing.
         # Ensure these are passed properly to prevent raw tracking token leaks.

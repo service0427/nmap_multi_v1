@@ -247,6 +247,35 @@ def ensure_ip_rules():
     except Exception as e:
         log(f"Error in ensure_ip_rules: {e}")
 
+def is_subnet_active(subnet):
+    try:
+        # Get list of running main.sh processes to extract active devices
+        running_devices = []
+        ps_output = subprocess.getoutput("ps -eo args | grep 'main.sh' | grep -v grep")
+        for line in ps_output.strip().split('\n'):
+            if not line.strip():
+                continue
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                dev_id = parts[-1]
+                if len(dev_id) > 5:
+                    running_devices.append(dev_id)
+        
+        # Check logs of running devices for active task matching this subnet
+        logs_dir = os.path.join(PROJECT_ROOT, "wifi_multi", "logs")
+        for dev_id in running_devices:
+            task_file = os.path.join(logs_dir, dev_id, "current_task.json")
+            if os.path.exists(task_file):
+                with open(task_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.load(f)
+                    if data.get("subnet") == subnet:
+                        status = data.get("status", "IDLE")
+                        if status not in ["SUCCESS", "FAIL", "IDLE", "IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                            return True
+    except Exception as e:
+        log(f"Error checking subnet active state for {subnet}: {e}")
+    return False
+
 def run_rotation():
     ensure_ip_rules()
     state = load_state()
@@ -297,6 +326,9 @@ def run_rotation():
         
         if ip_score >= 100:
             if cooldown_elapsed:
+                if is_subnet_active(subnet):
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 100) but subnet has active tasks. Postponing rotation.")
+                    continue
                 if toggle_triggered:
                     log(f"[{name}] Dirty IP (Score: {ip_score} >= 100) but another rotation is already in progress. Skipping for next check.")
                     continue
@@ -321,6 +353,9 @@ def run_rotation():
             
         # 4. 정기 스케줄 로테이션 (2~3시간 주기)
         if now_ts >= next_rotate:
+            if is_subnet_active(subnet):
+                log(f"[{name}] Scheduled rotation due but subnet has active tasks. Postponing rotation.")
+                continue
             if toggle_triggered:
                 log(f"[{name}] Scheduled rotation pending but another rotation is already in progress. Skipping for next check.")
                 continue

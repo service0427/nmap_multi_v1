@@ -24,6 +24,22 @@ SCHEDULE_JSON="macro/action_schedule.json"
 
 CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
 
+# --- [SUBNET LOCK SETUP] ---
+SUBNET_IDX=""
+if [ -n "$NMAP_BIND_IP" ]; then
+    SUBNET_IDX=$(echo "$NMAP_BIND_IP" | cut -d. -f3)
+fi
+if [ -z "$SUBNET_IDX" ] || ! [[ "$SUBNET_IDX" =~ ^[0-9]+$ ]]; then
+    IP=$(timeout 3 adb -s "$DEV_ID" shell "ip route get 1.1.1.1 2>/dev/null" | grep -oE "src [0-9.]+" | awk '{print $2}')
+    if [ -z "$IP" ]; then
+        IP=$(timeout 3 adb -s "$DEV_ID" shell "ip addr show wlan0 2>/dev/null" | grep -oE 'inet [0-9./]+' | head -n 1 | awk '{print $2}' | cut -d/ -f1)
+    fi
+    if [ -n "$IP" ]; then
+        SUBNET_IDX=$(echo "$IP" | cut -d. -f3)
+    fi
+fi
+HAS_SUBNET_LOCK="false"
+
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
@@ -365,11 +381,26 @@ while true; do
             esac
 
             # 주행 시작 시점 마킹
-            if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ] || [ "$ID" == "STEP_08_DRIVING" ]; then IS_DRIVING=true; fi
+            if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ] || [ "$ID" == "STEP_08_DRIVING" ]; then
+                IS_DRIVING=true
+                if [ "$HAS_SUBNET_LOCK" == "true" ]; then
+                    echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started)."
+                    exec 9>&-
+                    HAS_SUBNET_LOCK="false"
+                fi
+            fi
 
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
-                if [ "$ACTION" == "TYPE_DESTINATION" ]; then type_destination_only
+                if [ "$ACTION" == "TYPE_DESTINATION" ]; then
+                    if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
+                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
+                        exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
+                        flock -x 9
+                        HAS_SUBNET_LOCK="true"
+                        echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
+                    fi
+                    type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
