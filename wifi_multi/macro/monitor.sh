@@ -24,6 +24,16 @@ SCHEDULE_JSON="macro/action_schedule.json"
 
 CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
 
+# --- [SUBNET LOCK SETUP] ---
+SUBNET_IDX=""
+HAS_SUBNET_LOCK="false"
+if [ -f "$CURRENT_TASK_JSON" ]; then
+    IP=$(jq -r '.real_ip // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
+    if [ -n "$IP" ] && [[ "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        SUBNET_IDX=$(echo "$IP" | cut -d. -f3)
+    fi
+fi
+
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
@@ -382,7 +392,15 @@ while true; do
 
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
-                if [ "$ACTION" == "TYPE_DESTINATION" ]; then type_destination_only
+                if [ "$ACTION" == "TYPE_DESTINATION" ]; then
+                    if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
+                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
+                        exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
+                        flock -x 9
+                        HAS_SUBNET_LOCK="true"
+                        echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
+                    fi
+                    type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
@@ -432,6 +450,11 @@ while true; do
                         NAVI_START_TS=$(date +%s)
                         # Signal auto_reloader.py to start GPS
                         touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        if [ "$HAS_SUBNET_LOCK" == "true" ]; then
+                            echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started)."
+                            exec 9>&-
+                            HAS_SUBNET_LOCK="false"
+                        fi
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
