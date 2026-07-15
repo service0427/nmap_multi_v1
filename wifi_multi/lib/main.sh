@@ -205,6 +205,8 @@ adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_C
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.READ_PHONE_STATE >/dev/null 2>&1
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.RECORD_AUDIO >/dev/null 2>&1
+# Grant Draw Over Other Apps (SYSTEM_ALERT_WINDOW) since pm clear resets AppOps
+adb -s "$DEV_ID" shell appops set com.nhn.android.nmap SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
 sleep 1
 
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
