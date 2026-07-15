@@ -87,8 +87,8 @@ init_app_installation() {
     if [ -d "$INSTALL_DIR/naver_map" ]; then
         nmap_dir="$INSTALL_DIR/naver_map"
     else
-        # Use version sort in reverse to ensure the highest version is picked first (e.g. 6.7.3 over 6.6.1)
-        nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
+        # Use version sort in reverse to ensure the highest version is picked first (e.g. naver_map_6.8.0.5 over 6.7.3)
+        nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) | sort -V -r | head -n 1)
     fi
 
     if [ -n "$nmap_dir" ] && [ -d "$nmap_dir" ]; then
@@ -98,15 +98,18 @@ init_app_installation() {
                 local device_ver=$(adb -s "$serial" shell "dumpsys package $nmap_pkg 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" | tr -d '\r\n ' || true)
                 local target_ver=""
                 local folder_name=$(basename "$nmap_dir")
-                if [[ "$folder_name" =~ _([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+                if [[ "$folder_name" =~ _([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
                     target_ver="${BASH_REMATCH[1]}"
+                elif [ "$folder_name" = "naver_map" ]; then
+                    target_ver=""
+                else
+                    echo -e "    \e[1;31m[-] Error: Invalid Naver Map folder name '$folder_name'. Target version must be in 4-digit format (e.g. naver_map_6.8.0.5 or com.nhn.android.nmap_6.8.0.5).\e[0m" >&2
+                    exit 1
                 fi
                 
                 local needs_patch=false
                 if [ -n "$target_ver" ]; then
-                    local device_ver_short=$(echo "$device_ver" | cut -d'.' -f1-3)
-                    local target_ver_short=$(echo "$target_ver" | cut -d'.' -f1-3)
-                    if [ "$device_ver_short" != "$target_ver_short" ]; then
+                    if [ "$device_ver" != "$target_ver" ]; then
                         echo -e "    - [!] Version mismatch detected (Device: $device_ver | Server Target: $target_ver). Triggering patch..."
                         needs_patch=true
                     fi

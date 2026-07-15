@@ -11,9 +11,9 @@ if [ -f "$WORKSPACE_DIR/version.conf" ]; then
     source "$WORKSPACE_DIR/version.conf"
 else
     # Fallbacks in case config is missing
-    TARGET_NMAP_VERSION="6.7.3"
+    TARGET_NMAP_VERSION="6.8.0.5"
     GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
-    GDRIVE_NMAP_ID="1uXV7Hsys5SqGMVx1SO-GHvMPIQ9SfpCQ"
+    GDRIVE_NMAP_ID="1Trii2SMADiVPjzLrwOntYguPAN35CQqT"
 fi
 
 TARGET_DIR="$WORKSPACE_DIR/install"
@@ -34,18 +34,23 @@ if [ -d "$TARGET_DIR/naver_map" ] && [ -f "$TARGET_DIR/naver_map/base.apk" ]; th
 fi
 
 # B. Priority 2: Check target version directory
-target_folder_name="com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
-if [ "$has_nmap" = false ] && [ -d "$TARGET_DIR/$target_folder_name" ] && [ -f "$TARGET_DIR/$target_folder_name/base.apk" ]; then
-    has_nmap=true
-    echo "[*] 로컬에서 ${TARGET_NMAP_VERSION} 목표 버전 경로를 확인했습니다: install/$target_folder_name"
+target_folder_name1="com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
+target_folder_name2="naver_map_${TARGET_NMAP_VERSION}"
+if [ "$has_nmap" = false ]; then
+    if [ -d "$TARGET_DIR/$target_folder_name1" ] && [ -f "$TARGET_DIR/$target_folder_name1/base.apk" ]; then
+        has_nmap=true
+        echo "[*] 로컬에서 ${TARGET_NMAP_VERSION} 목표 버전 경로를 확인했습니다: install/$target_folder_name1"
+    elif [ -d "$TARGET_DIR/$target_folder_name2" ] && [ -f "$TARGET_DIR/$target_folder_name2/base.apk" ]; then
+        has_nmap=true
+        echo "[*] 로컬에서 ${TARGET_NMAP_VERSION} 목표 버전 경로를 확인했습니다: install/$target_folder_name2"
+    fi
 fi
 
-# C. Priority 3: Scan dynamically for other manual versions under com.nhn.android.nmap_*
+# C. Priority 3: Scan dynamically for other manual versions under com.nhn.android.nmap_* or naver_map_* (Informational log only, do not skip target version download)
 if [ "$has_nmap" = false ]; then
-    highest_local_nmap=$(find "$TARGET_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" 2>/dev/null | sort -V -r | head -n 1)
+    highest_local_nmap=$(find "$TARGET_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) 2>/dev/null | sort -V -r | head -n 1)
     if [ -n "$highest_local_nmap" ] && [ -f "$highest_local_nmap/base.apk" ]; then
-        has_nmap=true
-        echo "[*] 로컬에서 수동 배치된 타겟 버전 경로를 동적 탐지했습니다: install/$(basename "$highest_local_nmap")"
+        echo "[*] 로컬에서 다른 버전 경로를 동적 탐지했습니다: install/$(basename "$highest_local_nmap")"
     fi
 fi
 
