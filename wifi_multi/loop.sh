@@ -337,7 +337,7 @@ while true; do
             NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
             NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
             NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
-            setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
+            setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" 8>&- > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
             
             # Sleep 5 seconds to space out launches of devices sharing the same subnet
             sleep 5
