@@ -245,7 +245,8 @@ check_app_survival() {
             local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
             if [ -n "$ERR_MSG" ]; then
                 echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected in $(basename "$ERROR_POST_FILE"): $ERR_MSG"
-                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ERROR_LOG_DETECTED: $ERR_MSG\"}"
+                local SAFE_ERR_MSG=$(echo "$ERR_MSG" | sed 's/"/\\"/g' | tr -d '\r\n')
+                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ERROR_LOG_DETECTED: $SAFE_ERR_MSG\"}"
                 stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
             fi
         fi
