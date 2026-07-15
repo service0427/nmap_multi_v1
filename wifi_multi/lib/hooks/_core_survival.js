@@ -71,6 +71,21 @@ function hook_stealth() {
                 console.log("[-] Location.isFromMockProvider Hook Error: " + err);
             }
 
+            // [🛡️ Locale getCountry Null/Empty Bypass]
+            try {
+                var Locale = Java.use("java.util.Locale");
+                Locale.getCountry.implementation = function() {
+                    var country = this.getCountry.call(this);
+                    if (!country || country === "") {
+                        return "KR";
+                    }
+                    return country;
+                };
+                console.log("[✓] java.util.Locale.getCountry fallback to KR applied successfully");
+            } catch (err) {
+                console.log("[-] Locale Hook Error: " + err);
+            }
+
             // [핵심 생존 방어] WebView Sandbox (libmonochrome) Seccomp-BPF 충돌 원천 차단
             // ExoPlayer가 TTS 엔진 혹은 알림음을 위해 MediaCodec을 초기화할 때, libstagefright가 
             // WebView 샌드박스의 검열을 받아 SIGBUS를 유발합니다. 이를 막기 위해 MediaCodec 객체 생성을 Java 단에서 차단합니다.
