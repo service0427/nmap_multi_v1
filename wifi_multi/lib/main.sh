@@ -195,14 +195,9 @@ else
     echo "{\"real_ip\": \"$REAL_IP\"}" > "$SESSION_SUMMARY_JSON"
 fi
 
-# [OPTIMIZED] Keep map tile caches for QoS speed limits, but purge webview cookies (NAC) and sessions to always act as a new device
-echo " [$DEV_ID] [🧹] Force stopping Naver Map..."
-adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
-
-echo " [$DEV_ID] [🧼] Purging WebView cookies (NAC) and session databases..."
-# app_webview (WebView 쿠키/토큰 보관), databases (세션 DB), shared_prefs (설정) 만 선택적 삭제!
-# (cache/ 및 files/ 하위의 지도 타일 이미지 캐시는 온전히 유지되어 빠른 맵 로딩 보장)
-adb -s "$DEV_ID" shell "su -c 'rm -rf /data/data/com.nhn.android.nmap/app_webview /data/data/com.nhn.android.nmap/databases /data/data/com.nhn.android.nmap/shared_prefs'" >/dev/null 2>&1
+# Restore robust pm clear method to guarantee 100% clean identity laundering on every run
+echo " [$DEV_ID] [🧹] Clearing Naver Map app data (pm clear)..."
+adb -s "$DEV_ID" shell pm clear com.nhn.android.nmap >/dev/null 2>&1
 
 echo " [$DEV_ID] [🛡️] Granting location & system permissions..."
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_FINE_LOCATION >/dev/null 2>&1

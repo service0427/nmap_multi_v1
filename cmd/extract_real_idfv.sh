@@ -29,57 +29,64 @@ if [ -n "$TARGET_DEVICE" ]; then
         exit 1
     fi
     DEVICES_TO_SCAN="$TARGET_DEVICE"
-    echo -e "   Scanning events.log for Active Device: ${BOLD}${YELLOW}${TARGET_DEVICE}${NC} (iv=)... Please wait.\n"
+    echo -e "   Scanning logs for Active Device: ${BOLD}${YELLOW}${TARGET_DEVICE}${NC} (iv=)... Please wait.\n"
 else
     DEVICES_TO_SCAN="$CONNECTED_DEVICES"
-    echo -e "   Scanning events.log for active connected devices (iv=)... Please wait.\n"
+    echo -e "   Scanning logs for active connected devices (iv=)... Please wait.\n"
 fi
 
-LOGS_DIR="wifi_multi/logs"
-if [ ! -d "$LOGS_DIR" ]; then
-    echo -e "   ${YELLOW}[!] Logs directory not found.${NC}\n"
-    exit 1
-fi
+INIT_LOGS_DIR="device_init/logs"
+RUN_LOGS_DIR="wifi_multi/logs"
 
-printf "   %-3s | %-16s | %-36s\n" "No" "Device ID" "Actual Original IDFV"
-echo "   ---------------------------------------------------------------------"
+printf "   %-3s | %-16s | %-36s | %-10s\n" "No" "Device ID" "Actual Original IDFV" "Source"
+echo "   ----------------------------------------------------------------------------------------"
 
 IDX=1
 SQL_QUERIES=()
 
 # Scan only active connected devices
 for DEV_ID in $DEVICES_TO_SCAN; do
-    DEV_DIR="$LOGS_DIR/$DEV_ID"
-    
-    # If the active device doesn't have a log folder yet
-    if [ ! -d "$DEV_DIR" ]; then
-        printf "   %02d. %-16s | ${YELLOW}%-36s${NC}\n" "$IDX" "$DEV_ID" "UNKNOWN (No logs directory)"
-        ((IDX++))
-        continue
+    REAL_IDFV=""
+    LOG_SOURCE=""
+
+    # 1. 1st Priority: Scan device initialization origin packet logs (device_init/logs)
+    INIT_DEV_DIR="$INIT_LOGS_DIR/$DEV_ID"
+    if [ -d "$INIT_DEV_DIR" ]; then
+        # Search all_packets.jsonl, mitm.log, or *.json files
+        LATEST_INIT_LOGS=$(find "$INIT_DEV_DIR" -type f \( -name "all_packets.jsonl" -o -name "mitm.log" -o -name "*.json" \) | sort -r | head -n 50)
+        for LOG_FILE in $LATEST_INIT_LOGS; do
+            REAL_IDFV=$(grep -oE "[?&]iv=[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}" "$LOG_FILE" 2>/dev/null | head -n 1 | cut -d'=' -f2)
+            if [ -n "$REAL_IDFV" ]; then
+                LOG_SOURCE="Init Logs"
+                break
+            fi
+        done
+    fi
+
+    # 2. 2nd Priority (Fallback): Scan real-time simulator runtime logs (wifi_multi/logs)
+    RUN_DEV_DIR="$RUN_LOGS_DIR/$DEV_ID"
+    if [ -z "$REAL_IDFV" ] && [ -d "$RUN_DEV_DIR" ]; then
+        LATEST_RUN_LOGS=$(find "$RUN_DEV_DIR" -name "events.log" -type f | sort -r | head -n 50)
+        for LOG_FILE in $LATEST_RUN_LOGS; do
+            REAL_IDFV=$(grep -oE "[?&]iv=[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}" "$LOG_FILE" 2>/dev/null | head -n 1 | cut -d'=' -f2)
+            if [ -n "$REAL_IDFV" ]; then
+                LOG_SOURCE="Run Logs"
+                break
+            fi
+        done
     fi
     
-    # Find the most recent events.log containing "iv="
-    REAL_IDFV=""
-    # Scan up to 50 logs to find one with iv=
-    LATEST_LOGS=$(find "$DEV_DIR" -name "events.log" -type f | sort -r | head -n 50)
-    for LOG_FILE in $LATEST_LOGS; do
-        # Extract iv parameter from events.log (matches UUID pattern)
-        REAL_IDFV=$(grep -oE "[?&]iv=[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}" "$LOG_FILE" 2>/dev/null | head -n 1 | cut -d'=' -f2)
-        if [ -n "$REAL_IDFV" ]; then
-            break
-        fi
-    done
-    
+    # Render Output
     if [ -z "$REAL_IDFV" ]; then
         REAL_IDFV="UNKNOWN (No logs with iv=)"
-        printf "   %02d. %-16s | ${YELLOW}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
+        printf "   %02d. %-16s | ${YELLOW}%-36s${NC} | %-10s\n" "$IDX" "$DEV_ID" "$REAL_IDFV" "N/A"
     else
-        printf "   %02d. %-16s | ${GREEN}%-36s${NC}\n" "$IDX" "$DEV_ID" "$REAL_IDFV"
+        printf "   %02d. %-16s | ${GREEN}%-36s${NC} | %-10s\n" "$IDX" "$DEV_ID" "$REAL_IDFV" "$LOG_SOURCE"
         SQL_QUERIES+=("UPDATE \`devices\` SET \`orig_idfv\`='$REAL_IDFV' WHERE \`device_id\`='$DEV_ID';")
     fi
     ((IDX++))
 done
-echo "   ---------------------------------------------------------------------"
+echo "   ----------------------------------------------------------------------------------------"
 echo -e "   Scan completed.\n"
 
 # Output aggregated SQL Query Block at the very end

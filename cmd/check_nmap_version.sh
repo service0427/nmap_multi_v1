@@ -61,11 +61,14 @@ for serial in $DEVICES; do
         # 패키지 버전명 획득
         version=$(adb -s "$serial" shell "dumpsys package com.nhn.android.nmap 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" | tr -d '\r\n ')
         
+        version_short=$(echo "$version" | cut -d'.' -f1-3)
+        target_ver_short=$(echo "$TARGET_VER" | cut -d'.' -f1-3)
+        
         if [ -z "$version" ]; then
             # 설치 안 됨
             printf "%s:Not Installed:${RED}Missing${NC}\n" "$serial" >> "$tmp_file"
-        elif [ "$version" = "$TARGET_VER" ]; then
-            # 서버 버전과 완전 일치 (최신)
+        elif [ "$version_short" = "$target_ver_short" ]; then
+            # 서버 버전과 메이저/마이너 3자리 일치 (최신)
             printf "%s:%s:${GREEN}Latest${NC}\n" "$serial" "$version" >> "$tmp_file"
         else
             # 구버전

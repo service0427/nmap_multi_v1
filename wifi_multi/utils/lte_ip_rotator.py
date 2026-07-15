@@ -114,9 +114,20 @@ def load_state():
             pass
             
     # Normalize structure to nested dicts automatically with human-readable dates
-    for key in ["lte11", "lte12", "lte13", "lte14"]:
-        if key not in state:
-            state[key] = {}
+    lte_keys = [name for name, _ in get_lte_interfaces()]
+    for k in state.keys():
+        if k.startswith("lte") and k not in lte_keys:
+            lte_keys.append(k)
+            
+    def extract_num(s):
+        m = re.search(r'\d+', s)
+        return int(m.group(0)) if m else 0
+    lte_keys = sorted(lte_keys, key=extract_num)
+    
+    if not lte_keys:
+        lte_keys = ["lte11", "lte12", "lte13", "lte14"]
+        
+    for key in lte_keys:
             
         # Backward migration for old numerical values
         if isinstance(state[key], (int, float)):
@@ -336,7 +347,7 @@ def run_rotation():
         # [🛡️ Concurrency Safety] Merge latest scores from disk before writing to prevent wiping out updates from report.py
         try:
             latest_disk_state = load_state()
-            for key in ["lte11", "lte12", "lte13", "lte14"]:
+            for key in state.keys():
                 # 이번 루프에서 방금 실제로 토글/리셋(0점화)된 모뎀은 디스크의 옛날 점수를 합치지 않고 0점 보존
                 if key in rotated_interfaces:
                     continue

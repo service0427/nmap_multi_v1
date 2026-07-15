@@ -30,7 +30,7 @@ def main():
     actual_replacements = {}
     
     # Target files to audit (ignore local log/debug files)
-    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json"}
+    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log"}
     target_files = []
     for root, _, files in os.walk(log_dir):
         for f in files:
@@ -42,7 +42,28 @@ def main():
     for fpath in target_files:
         try:
             with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-                all_content += f.read() + "\n"
+                content = f.read()
+                
+                # JSON 로그 파일의 경우, 원래 유출 감시를 위해 저장해둔 로컬 디버깅용 복제 키(original_*)를 제외하고 실제 송신값만 검사
+                if fpath.endswith(".json"):
+                    try:
+                        obj = json.loads(content)
+                        def clean_original_logs(item):
+                            if isinstance(item, dict):
+                                for k in list(item.keys()):
+                                    if k.startswith("original_") or k == "_raw":
+                                        item.pop(k)
+                                    else:
+                                        clean_original_logs(item[k])
+                            elif isinstance(item, list):
+                                for x in item:
+                                    clean_original_logs(x)
+                        clean_original_logs(obj)
+                        content = json.dumps(obj)
+                    except:
+                        pass
+                
+                all_content += content + "\n"
         except: pass
         
     # Analyze replacement status for each identifier
@@ -190,8 +211,32 @@ def main():
             except:
                 state_data = {}
                 
+            # ip에서 lte가 붙은 인터페이스들을 순서대로 탐색 (예: lte11, lte12...)
+            lte_keys = []
+            try:
+                for name in os.listdir('/sys/class/net'):
+                    if name.startswith("lte"):
+                        lte_keys.append(name)
+            except:
+                pass
+            
+            # 숫자 기반 정렬 (문자열 정렬 시 lte100이 lte2보다 앞에 오는 문제 방지)
+            def extract_num(s):
+                m = re.search(r'\d+', s)
+                return int(m.group(0)) if m else 0
+            lte_keys = sorted(list(set(lte_keys)), key=extract_num)
+            
+            # 기존 상태 데이터에 등록되어 있는 lte* 키들도 누락되지 않도록 통합 및 재정렬
+            for k in state_data.keys():
+                if k.startswith("lte") and k not in lte_keys:
+                    lte_keys.append(k)
+            lte_keys = sorted(lte_keys, key=extract_num)
+            
+            if not lte_keys:
+                lte_keys = ["lte11", "lte12", "lte13", "lte14"]
+                
             # 만약 기존 1세대(단순 타임스탬프) 구조가 남아있다면 정규화 객체 구조로 즉시 자동 변환
-            for key in ["lte11", "lte12", "lte13", "lte14"]:
+            for key in lte_keys:
                 if key not in state_data:
                     state_data[key] = {}
                 if isinstance(state_data[key], (int, float)):
