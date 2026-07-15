@@ -195,9 +195,21 @@ else
     echo "{\"real_ip\": \"$REAL_IP\"}" > "$SESSION_SUMMARY_JSON"
 fi
 
-# Restore robust pm clear method to guarantee 100% clean identity laundering on every run
-echo " [$DEV_ID] [🧹] Clearing Naver Map app data (pm clear)..."
-adb -s "$DEV_ID" shell pm clear com.nhn.android.nmap >/dev/null 2>&1
+# [🧼 Smart Purge] Purge WebView cookies, session DBs, and tracking SDK identifiers (Nelo, Firebase, Braze, AppsFlyer)
+# while preserving the map tile caches (NaverNavi/ and naviguide/) to prevent massive download traffic and nCaptcha time-outs under QoS.
+echo " [$DEV_ID] [🧹] Force stopping Naver Map..."
+adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
+
+echo " [$DEV_ID] [🧼] Performing Smart Purge (preserving offline map tiles cache)..."
+adb -s "$DEV_ID" shell "su -c '
+    rm -rf /data/data/com.nhn.android.nmap/app_webview \
+           /data/data/com.nhn.android.nmap/databases \
+           /data/data/com.nhn.android.nmap/shared_prefs \
+           /data/data/com.nhn.android.nmap/cache/* \
+           /data/data/com.nhn.android.nmap/no_backup/* \
+           /data/data/com.nhn.android.nmap/code_cache/*
+    find /data/data/com.nhn.android.nmap/files/ -maxdepth 1 ! -name \"files\" ! -name \"NaverNavi\" ! -name \"naviguide\" -exec rm -rf {} +
+'" >/dev/null 2>&1
 
 echo " [$DEV_ID] [🛡️] Granting location & system permissions..."
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.ACCESS_FINE_LOCATION >/dev/null 2>&1

@@ -56,6 +56,30 @@ send_api_request() {
     echo "[$(NOW)] [API_RES] $response"
 }
 
+send_report_result() {
+    local status=$1
+    local message=$2
+    local extra_fields=$3
+    local payload
+    if [ -n "$extra_fields" ]; then
+        payload=$(jq -n \
+            --argjson task_id "$NMAP_LOG_ID" \
+            --arg status "$status" \
+            --arg device_id "$DEV_ID" \
+            --arg message "$message" \
+            --argjson extra "{$extra_fields}" \
+            '{task_id: $task_id, status: $status, device_id: $device_id, message: $message} + $extra')
+    else
+        payload=$(jq -n \
+            --argjson task_id "$NMAP_LOG_ID" \
+            --arg status "$status" \
+            --arg device_id "$DEV_ID" \
+            --arg message "$message" \
+            '{task_id: $task_id, status: $status, device_id: $device_id, message: $message}')
+    fi
+    send_api_request "/api/v1/report_result" "$payload"
+}
+
 update_live_status() {
     local msg=$1
     if [ -f "$CURRENT_TASK_JSON" ]; then
@@ -105,7 +129,7 @@ check_app_survival() {
     # 1. Global Timeout
     if [ $ELAPSED -gt "$GLOBAL_TIMEOUT" ]; then
         echo "[$(NOW)] [🚨] GLOBAL TIMEOUT EXCEEDED (${ELAPSED}s / ${GLOBAL_TIMEOUT}s). Force killing..."
-        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GLOBAL_TIMEOUT\"}"
+        send_report_result "FAIL" "GLOBAL_TIMEOUT"
         adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
     fi
 
@@ -163,7 +187,7 @@ check_app_survival() {
                     local MATCHED_MSG
                     MATCHED_MSG=$(echo "$XML_CONTENT" | grep -o -E "$FATAL_PATTERN" | head -n 1)
                     echo "[$(NOW)] [🚨] Fatal UI State Detected ('$MATCHED_MSG'). Fail-fast."
-                    send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"NO_ROUTE_FOUND: $MATCHED_MSG\"}"
+                    send_report_result "FAIL" "NO_ROUTE_FOUND: $MATCHED_MSG"
                     echo "[$(NOW)] [*] Immediate Exit for FAIL due to Fatal UI. Letting main.sh handle cleanup."
                     exit 0
                 fi
@@ -191,7 +215,7 @@ check_app_survival() {
                     fi
                     if [ $DRIVING_SIZE -lt 5000 ]; then
                         echo "[$(NOW)] [🚨] Route calculation failed/hung! links.json exists for ${AGE}s but driving.json is missing or invalid (Size: ${DRIVING_SIZE}B). Fail-fast."
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ROUTE_CALCULATION_FAILED_OR_HUNG\"}"
+                        send_report_result "FAIL" "ROUTE_CALCULATION_FAILED_OR_HUNG"
                         echo "[$(NOW)] [*] Immediate Exit for FAIL due to Route Calculation Fail/Hang. Letting main.sh handle cleanup."
                         exit 0
                     fi
@@ -243,7 +267,7 @@ check_app_survival() {
         
         if [ $STUCK_COUNT -ge $MAX_STUCK ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED ($((MAX_STUCK * 5))s). No new packet JSONs. Killing session."
-            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"PACKET_STUCK\"}"
+            send_report_result "FAIL" "PACKET_STUCK"
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
     fi
@@ -255,8 +279,7 @@ check_app_survival() {
             local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
             if [ -n "$ERR_MSG" ]; then
                 echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected in $(basename "$ERROR_POST_FILE"): $ERR_MSG"
-                local SAFE_ERR_MSG=$(echo "$ERR_MSG" | sed 's/"/\\"/g' | tr -d '\r\n')
-                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"ERROR_LOG_DETECTED: $SAFE_ERR_MSG\"}"
+                send_report_result "FAIL" "ERROR_LOG_DETECTED: $ERR_MSG"
                 stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
             fi
         fi
@@ -407,9 +430,9 @@ while true; do
                     if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
                         echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
                         exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
-                        flock -w 60 -x 9
+                        flock -w 180 -x 9
                         if [ $? -ne 0 ]; then
-                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (60s). Previous device might be hung. Proceeding anyway..."
+                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (180s). Previous device might be hung. Proceeding anyway..."
                             HAS_SUBNET_LOCK="false"
                         else
                             HAS_SUBNET_LOCK="true"
@@ -443,9 +466,9 @@ while true; do
                             echo "[$(NOW)] [🚨] Failure Reason Determined: $FAIL_REASON"
                              if [ "$FAIL_REASON" = "ADDRESS_NOT_FOUND" ]; then
                                  # ADDRESS_NOT_FOUND는 API 할당 키워드 문제이므로 단말기 패널티 방지를 위해 status를 API_ERROR로 우회 보고
-                                 send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"API_ERROR\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
+                                 send_report_result "API_ERROR" "$FAIL_REASON"
                              else
-                                 send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"$FAIL_REASON\"}"
+                                 send_report_result "FAIL" "$FAIL_REASON"
                              fi
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
@@ -459,7 +482,7 @@ while true; do
                     echo "[$(NOW)] [Action] Clicking '안내시작' (Guidance Start)..."
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"GUIDANCE_NOT_FOUND\"}"
+                        send_report_result "FAIL" "GUIDANCE_NOT_FOUND"
                         echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                         exit 0
                     else
@@ -518,10 +541,11 @@ while true; do
                             FINAL_CALC_SPEED=$(awk "BEGIN {printf \"%.2f\", ($ACTUAL_DIST / 1000) / ($ACTUAL_TIME / 3600)}")
                         fi
                         
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"SUCCESS\", \"device_id\": \"$DEV_ID\", \"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED, \"message\": \"정상 도착 및 클릭 완료\"}"
+                        local extra_json="\"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED"
+                        send_report_result "SUCCESS" "정상 도착 및 클릭 완료" "$extra_json"
                     else
                         echo "[$(NOW)] [🚨] IDENTITY VALIDATION FAILED: $IDENTITY_ERROR"
-                        send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"IDENTITY_MISMATCH: $IDENTITY_ERROR\"}"
+                        send_report_result "FAIL" "IDENTITY_MISMATCH: $IDENTITY_ERROR"
                     fi
 
                     # Exit immediately to avoid crashes overwriting status
@@ -534,7 +558,7 @@ while true; do
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
                         if [ "$ACTION" == "entry_search_field" ]; then
-                            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"SEARCH_FIELD_NOT_FOUND\"}"
+                            send_report_result "FAIL" "SEARCH_FIELD_NOT_FOUND"
                             echo "[$(NOW)] [*] Immediate Exit for FAIL. Letting main.sh handle cleanup."
                             exit 0
                         else
