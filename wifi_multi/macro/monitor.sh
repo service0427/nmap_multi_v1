@@ -243,6 +243,28 @@ check_app_survival() {
             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
         fi
     fi
+
+    # [🛡️ Fail-Fast on Fatal Captcha / nCaptcha Errors or 429 before driving starts]
+    if [ "$IS_DRIVING" = false ]; then
+        # 1. Check for client-logger errorLog (nCaptcha failures)
+        local ERROR_LOG_FILE=$(ls -1 "$ABS_LOG_DIR"/*_errorLog.json 2>/dev/null | head -n 1)
+        if [ -n "$ERROR_LOG_FILE" ]; then
+            local ERR_RAW=$(cat "$ERROR_LOG_FILE" 2>/dev/null)
+            if echo "$ERR_RAW" | grep -q -E "err-112|err-999|err-111"; then
+                local MATCHED_CODE=$(echo "$ERR_RAW" | grep -o -E "err-112|err-999|err-111" | head -n 1)
+                echo "[$(NOW)] [🚨] Fail-Fast: Captcha error detected ($MATCHED_CODE) before driving started in $(basename "$ERROR_LOG_FILE")."
+                send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"CAPTCHA_FATAL_ERROR_BEFORE_DRIVING: $MATCHED_CODE\"}"
+                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+            fi
+        fi
+
+        # 2. Check for early 429 Too Many Requests
+        if grep -q '"status_code": 429' "$ABS_LOG_DIR"/*.json 2>/dev/null; then
+            echo "[$(NOW)] [🚨] Fail-Fast: HTTP 429 detected before driving started."
+            send_api_request "/api/v1/report_result" "{\"task_id\": $NMAP_LOG_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"HTTP_429_BEFORE_DRIVING\"}"
+            stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+        fi
+    fi
 }
 
 human_random_sleep() {
