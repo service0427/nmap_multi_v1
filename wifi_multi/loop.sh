@@ -297,6 +297,7 @@ while true; do
         FRIDA_PORT=$((10000 + DEVICE_SEQ))
         
         echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
+        echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/"
 
         # Ensure log directory exists before redirecting output
         mkdir -p "logs/${DEV_ID}/tmp"
