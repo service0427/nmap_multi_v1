@@ -558,7 +558,7 @@ while true; do
                     echo "{\"status\":\"SUCCESS\"}" > "$CURRENT_TASK_JSON"
                     exit 0
                 else
-                    [ "$ID" == "STEP_02_HOME" ] && human_random_sleep
+                    if [ "$ID" == "STEP_02_HOME" ] || [ "$ID" == "STEP_05_POI_ARRIVAL" ]; then human_random_sleep; fi
                     echo "[$(NOW)] [Action] Executing: $ACTION"
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
