@@ -199,15 +199,16 @@ fi
 # while preserving the map tile caches (NaverNavi/ and naviguide/) to prevent massive download traffic and nCaptcha time-outs under QoS.
 echo " [$DEV_ID] [🧹] Force stopping Naver Map..."
 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
-
-echo " [$DEV_ID] [🧼] Performing Smart Purge (preserving offline map tiles cache)..."
+echo " [$DEV_ID] [🧼] Performing Smart Purge (preserving offline map tiles & webview caches)..."
 adb -s "$DEV_ID" shell "su -c '
     rm -rf /data/data/com.nhn.android.nmap/app_webview \
            /data/data/com.nhn.android.nmap/databases \
            /data/data/com.nhn.android.nmap/shared_prefs \
-           /data/data/com.nhn.android.nmap/cache/* \
            /data/data/com.nhn.android.nmap/no_backup/* \
            /data/data/com.nhn.android.nmap/code_cache/*
+    # Clean cache except WebView cache to preserve compiled JS/Wasm cache and save mobile data
+    find /data/data/com.nhn.android.nmap/cache/ -maxdepth 1 ! -name \"cache\" ! -name \"WebView\" -exec rm -rf {} +
+    # Clean files/ except NaverNavi and naviguide to preserve map tiles
     find /data/data/com.nhn.android.nmap/files/ -maxdepth 1 ! -name \"files\" ! -name \"NaverNavi\" ! -name \"naviguide\" -exec rm -rf {} +
 '" >/dev/null 2>&1
 
