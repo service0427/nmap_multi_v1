@@ -201,7 +201,10 @@ echo " [$DEV_ID] [🧹] Force stopping Naver Map..."
 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
 echo " [$DEV_ID] [🧼] Performing Smart Purge (preserving offline map tiles & webview caches)..."
 adb -s "$DEV_ID" shell "su -c '
-    rm -rf /data/data/com.nhn.android.nmap/app_webview \
+    rm -rf /data/data/com.nhn.android.nmap/app_webview/Default/Cookies* \
+           /data/data/com.nhn.android.nmap/app_webview/Default/Local\ Storage \
+           /data/data/com.nhn.android.nmap/app_webview/Default/Session\ Storage \
+           /data/data/com.nhn.android.nmap/app_webview/Default/Preferences* \
            /data/data/com.nhn.android.nmap/databases \
            /data/data/com.nhn.android.nmap/shared_prefs \
            /data/data/com.nhn.android.nmap/no_backup/* \
