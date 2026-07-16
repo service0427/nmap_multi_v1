@@ -294,8 +294,8 @@ def main():
                     event_type = "NEUTRAL"
                     
                     if has_real_error_log:
-                        new_score = min(100, curr_score + 25)
-                        change_amount = 25
+                        new_score = min(100, curr_score + 1)
+                        change_amount = 1
                         event_type = "ERR_LOG"
                         log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit errorLog. Score: {curr_score} -> {new_score}"
                     elif has_access_log:
