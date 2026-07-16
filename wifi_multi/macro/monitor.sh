@@ -327,10 +327,10 @@ while true; do
             fi
         fi
         
-        # 2. Fallback safety cap (150s)
-        if [ "$HAS_SUBNET_LOCK" == "true" ] && [ $ELAPSED_FROM_LOCK -ge 150 ]; then
+        # 2. Fallback safety cap (80s)
+        if [ "$HAS_SUBNET_LOCK" == "true" ] && [ $ELAPSED_FROM_LOCK -ge 80 ]; then
             exec 9>&-
-            echo "[$(NOW)] [🔓] Dynamic Lock released by timeout cap (150s)."
+            echo "[$(NOW)] [🔓] Dynamic Lock released by timeout cap (80s)."
             HAS_SUBNET_LOCK="false"
         fi
     fi

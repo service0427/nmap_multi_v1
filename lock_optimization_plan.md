@@ -47,7 +47,7 @@ This document outlines the detailed modification plan to migrate from the curren
       * Release the lock: `exec 9>&-`
       * Log the event: `[🔓] Dynamic Lock released (OPTIONS_graphql detected, waited 5s. Hold time: ${ELAPSED_FROM_LOCK}s)`.
       * Set `HAS_SUBNET_LOCK="false"`.
-    * If `ELAPSED_FROM_LOCK >= 150` (safety cap), release the lock.
+    * If `ELAPSED_FROM_LOCK >= 80` (safety cap), release the lock.
 
 ---
 
@@ -57,8 +57,9 @@ Under 300kbps QoS and a 1:10 density per modem, the queue will behave as follows
 * **Daytime (300kbps Throttled)**:
   * Devices take ~30s to reach driving start and hit `OPTIONS_graphql.json` (plus 5s release buffer).
   * The lock is held for only **~35s** (released dynamically).
-  * In the rare 3% case of CORS preflight caching, the lock is held for the fallback cap of **150s**.
+  * In the rare 3% case of CORS preflight caching, the lock is held for the fallback cap of **80s**.
   * Average queue delay drops by 70%, boosting throughput.
+  * Worst case delay for 9 waiting devices drops to `80s * 9 = 12 minutes`, well below the 30-minute global timeout.
 
 * **Early Morning (Fast Network)**:
   * Devices hit `OPTIONS_graphql.json` even faster, releasing the lock within 25-30s.
