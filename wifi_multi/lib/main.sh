@@ -334,31 +334,14 @@ while true; do
         cleanup "App Closed"
     fi
     
-    # 3. [Self-Healing] Check and restore Frida connection
+    # 3. Check Frida connection
     if ! kill -0 $FRIDA_PID 2>/dev/null; then
-        echo "[$(date +'%H:%M:%S')] [⚠️] Frida connection lost! Attempting to re-attach..." >> "$EXEC_LOG"
-        PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap | tr -d '\r\n')
-        if [ -n "$PID" ]; then
-            adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
-            adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1
-            nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
-                -l lib/hooks/network_hook.js \
-                -l lib/hooks/_core_survival.js \
-                --no-auto-reload \
-                -q -t inf > "$CAPTURE_LOG_DIR/frida.log" 2>&1 &
-            FRIDA_PID=$!
-            echo "[$(date +'%H:%M:%S')] [✓] Frida successfully re-attached to PID $PID." >> "$EXEC_LOG"
-        else
-            cleanup "Frida Crash (App not running)"
-        fi
+        cleanup "Frida Crash (Connection lost)"
     fi
 
-    # 4. [Self-Healing] Check and restore mitmdump proxy
+    # 4. Check mitmdump proxy
     if ! kill -0 $MITM_PID 2>/dev/null; then
-        echo "[$(date +'%H:%M:%S')] [⚠️] mitmdump crashed! Attempting to restart..." >> "$EXEC_LOG"
-        nohup mitmdump -p "$NMAP_MITM_PORT" $BIND_OPT -s mitm/addon.py --ssl-insecure --listen-host 0.0.0.0 --set flow_detail=0 > "$CAPTURE_LOG_DIR/mitm.log" 2>&1 &
-        MITM_PID=$!
-        echo "[$(date +'%H:%M:%S')] [✓] mitmdump successfully restarted." >> "$EXEC_LOG"
+        cleanup "mitmdump Crash (Proxy stopped)"
     fi
     
     sleep 5
