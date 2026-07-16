@@ -311,8 +311,8 @@ while true; do
     
     # [NEW] Dynamic Subnet Lock Release Checker
     if [ "$HAS_SUBNET_LOCK" == "true" ]; then
-        local DRIVING_COUNT=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | wc -l)
-        local ELAPSED_FROM_LOCK=$(( $(date +%s) - LOCK_ACQUIRED_TS ))
+        DRIVING_COUNT=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | wc -l)
+        ELAPSED_FROM_LOCK=$(( $(date +%s) - LOCK_ACQUIRED_TS ))
         
         # 3rd driving.json packet or 150s timeout cap reached
         if [ $DRIVING_COUNT -ge 3 ] || [ $ELAPSED_FROM_LOCK -ge 150 ]; then
@@ -551,7 +551,7 @@ while true; do
                             FINAL_CALC_SPEED=$(awk "BEGIN {printf \"%.2f\", ($ACTUAL_DIST / 1000) / ($ACTUAL_TIME / 3600)}")
                         fi
                         
-                        local extra_json="\"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED"
+                        extra_json="\"drive_dist\": $ACTUAL_DIST, \"drive_time\": $ACTUAL_TIME, \"calc_speed\": $FINAL_CALC_SPEED"
                         send_report_result "SUCCESS" "정상 도착 및 클릭 완료" "$extra_json"
                     else
                         echo "[$(NOW)] [🚨] IDENTITY VALIDATION FAILED: $IDENTITY_ERROR"
