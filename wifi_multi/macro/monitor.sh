@@ -558,7 +558,14 @@ while true; do
                     echo "{\"status\":\"SUCCESS\"}" > "$CURRENT_TASK_JSON"
                     exit 0
                 else
-                    if [ "$ID" == "STEP_02_HOME" ] || [ "$ID" == "STEP_05_POI_ARRIVAL" ]; then human_random_sleep; fi
+                    if [ "$ID" == "STEP_02_HOME" ]; then
+                        human_random_sleep
+                    elif [ "$ID" == "STEP_05_POI_ARRIVAL" ]; then
+                        # Provide a slightly longer delay (3-5s) to guarantee nCaptcha completes token acquisition under 300kbps
+                        local poi_sleep=$(awk "BEGIN {srand(); print 3.0 + rand() * 2.0}")
+                        echo "[$(NOW)] [Delay] Captcha Buffer sleep for ${poi_sleep}s..."
+                        sleep "$poi_sleep"
+                    fi
                     echo "[$(NOW)] [Action] Executing: $ACTION"
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
                     if [ $? -ne 0 ]; then
