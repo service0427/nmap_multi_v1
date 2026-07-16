@@ -110,6 +110,7 @@ LAST_SURVIVAL_CHECK_TS=0
 
 # [NEW] Transition Timeout Variables
 NAVI_START_TS=0
+LOCK_ACQUIRED_TS=0
 
 declare -A STATE_FLAGS
 
@@ -308,6 +309,19 @@ echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
 while true; do
     check_app_survival
     
+    # [NEW] Dynamic Subnet Lock Release Checker
+    if [ "$HAS_SUBNET_LOCK" == "true" ]; then
+        local DRIVING_COUNT=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | wc -l)
+        local ELAPSED_FROM_LOCK=$(( $(date +%s) - LOCK_ACQUIRED_TS ))
+        
+        # 3rd driving.json packet or 150s timeout cap reached
+        if [ $DRIVING_COUNT -ge 3 ] || [ $ELAPSED_FROM_LOCK -ge 150 ]; then
+            exec 9>&-
+            echo "[$(NOW)] [🔓] Dynamic Lock released (Driving count: $DRIVING_COUNT, Hold time: ${ELAPSED_FROM_LOCK}s)."
+            HAS_SUBNET_LOCK="false"
+        fi
+    fi
+    
     # [NEW] Universal Home Entry Recovery for Startup Popups/Keyboards/Hangs
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
         HOME_WAIT_TIME=$(( $(date +%s) - START_TS ))
@@ -427,20 +441,21 @@ while true; do
             ACTION=$(echo "$step" | jq -r '.action // empty' | tr -d '\r\n')
             if [ -n "$ACTION" ]; then
                 if [ "$ACTION" == "TYPE_DESTINATION" ]; then
+                    type_destination_only
+                elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
                     if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
-                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX}. Waiting..."
+                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX} (SELECT_ADDR_LIST). Waiting..."
                         exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
-                        flock -w 180 -x 9
+                        flock -w 1500 -x 9
                         if [ $? -ne 0 ]; then
-                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (180s). Previous device might be hung. Proceeding anyway..."
+                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (1500s). Previous device might be hung. Proceeding anyway..."
                             HAS_SUBNET_LOCK="false"
                         else
                             HAS_SUBNET_LOCK="true"
-                            echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX}!"
+                            LOCK_ACQUIRED_TS=$(date +%s)
+                            echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX} at ${LOCK_ACQUIRED_TS}!"
                         fi
                     fi
-                    type_destination_only
-                elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
                     for word in $NMAP_DEST_ADDR; do
@@ -489,16 +504,6 @@ while true; do
                         NAVI_START_TS=$(date +%s)
                         # Signal auto_reloader.py to start GPS
                         touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
-                        if [ "$HAS_SUBNET_LOCK" == "true" ]; then
-                            echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started with 45s release buffer)."
-                            # Keep the lock active in a background subshell for 45s to allow route loading traffic to settle
-                            (
-                                sleep 45
-                                exec 9>&-
-                            ) &
-                            exec 9>&-
-                            HAS_SUBNET_LOCK="false"
-                        fi
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
