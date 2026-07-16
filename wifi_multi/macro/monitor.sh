@@ -490,10 +490,10 @@ while true; do
                         # Signal auto_reloader.py to start GPS
                         touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                         if [ "$HAS_SUBNET_LOCK" == "true" ]; then
-                            echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started with 30s release buffer)."
-                            # Keep the lock active in a background subshell for 30s to allow route loading traffic to settle
+                            echo "[$(NOW)] [🔓] Releasing Subnet Lock on subnet_${SUBNET_IDX} (Driving started with 45s release buffer)."
+                            # Keep the lock active in a background subshell for 45s to allow route loading traffic to settle
                             (
-                                sleep 30
+                                sleep 45
                                 exec 9>&-
                             ) &
                             exec 9>&-
