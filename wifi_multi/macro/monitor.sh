@@ -311,13 +311,26 @@ while true; do
     
     # [NEW] Dynamic Subnet Lock Release Checker
     if [ "$HAS_SUBNET_LOCK" == "true" ]; then
-        DRIVING_COUNT=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | wc -l)
         ELAPSED_FROM_LOCK=$(( $(date +%s) - LOCK_ACQUIRED_TS ))
         
-        # 3rd driving.json packet or 150s timeout cap reached
-        if [ $DRIVING_COUNT -ge 3 ] || [ $ELAPSED_FROM_LOCK -ge 150 ]; then
+        # 1. Release if OPTIONS_graphql is detected after guidance start (with 5s buffer)
+        if [ "$NAVI_START_TS" -gt 0 ]; then
+            NEWEST_OPT_GRAPHQL=$(ls -1t "$ABS_LOG_DIR"/*_OPTIONS_graphql.json 2>/dev/null | head -n 1)
+            if [ -n "$NEWEST_OPT_GRAPHQL" ]; then
+                GRAPHQL_TS=$(date -r "$NEWEST_OPT_GRAPHQL" +%s)
+                if [ $GRAPHQL_TS -ge $NAVI_START_TS ]; then
+                    sleep 5
+                    exec 9>&-
+                    echo "[$(NOW)] [🔓] Dynamic Lock released (OPTIONS_graphql detected, waited 5s. Hold time: ${ELAPSED_FROM_LOCK}s)."
+                    HAS_SUBNET_LOCK="false"
+                fi
+            fi
+        fi
+        
+        # 2. Fallback safety cap (150s)
+        if [ "$HAS_SUBNET_LOCK" == "true" ] && [ $ELAPSED_FROM_LOCK -ge 150 ]; then
             exec 9>&-
-            echo "[$(NOW)] [🔓] Dynamic Lock released (Driving count: $DRIVING_COUNT, Hold time: ${ELAPSED_FROM_LOCK}s)."
+            echo "[$(NOW)] [🔓] Dynamic Lock released by timeout cap (150s)."
             HAS_SUBNET_LOCK="false"
         fi
     fi
