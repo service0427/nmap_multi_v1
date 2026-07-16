@@ -255,7 +255,8 @@ while true; do
         # Spawn background subshell to request task and boot main.sh in parallel
         (
             # 1. Acquire subnet launch lock to stagger launches on the same modem
-            exec 8>>"logs/subnet_${MODEM_IDX}_launch.lock"
+            mkdir -p logs/locks
+            exec 8>>"logs/locks/subnet_${MODEM_IDX}_launch.lock"
             flock -x 8
 
             RESPONSE=$(curl -s -X POST "http://$API_SERVER/api/v1/request_task" \

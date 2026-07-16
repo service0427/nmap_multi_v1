@@ -34,6 +34,7 @@ echo "[$NOW] Current Disk Usage: $DISK_USAGE%. Setting retention threshold to: $
 # We explicitly protect critical orchestrator files and the 'tmp' directory.
 find "$LOG_ROOT" -mindepth 2 -not -newermt "$KEEP_TIME" \
     ! -path "*/tmp*" \
+    ! -path "*/locks*" \
     ! -name "current_task.json" \
     ! -name "nmap_lock" \
     -exec rm -rf {} + 2>/dev/null
