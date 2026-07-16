@@ -33,13 +33,9 @@ pkill -9 -f "main.sh"
 pkill -9 -f "mitmdump"
 sleep 2
 
-# Clean up any leftover LAUNCHING states from previous interrupted runs
+# Clean up any leftover task metadata from previous runs
 if [ -d "logs" ]; then
-    find logs/ -name "current_task.json" 2>/dev/null | while read -r f; do
-        if [ -f "$f" ] && jq -e '.status == "LAUNCHING"' "$f" >/dev/null 2>&1; then
-            rm -f "$f"
-        fi
-    done
+    find logs/ -name "current_task.json" -delete 2>/dev/null
 fi
 
 get_ip() {
@@ -131,13 +127,12 @@ while true; do
     DEVICES=$(timeout 5 adb devices | grep -w "device" | awk '{print $1}')
     [ -z "$DEVICES" ] && sleep 10 && continue
 
-    IP_LIST=()
     MODEM_STR=""
-    for i in "${!MANUAL_COUNTS[@]}"; do
-        modem_num=$((11 + i))
-        ip_val=$(get_ip "lte$modem_num")
-        IP_LIST+=("$ip_val")
-        MODEM_STR="$MODEM_STR lte$modem_num:$ip_val,"
+    # Auto-detect active lte interfaces dynamically
+    ACTIVE_LTES=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^lte[1-9][0-9]*' | sort -V)
+    for modem in $ACTIVE_LTES; do
+        ip_val=$(get_ip "$modem")
+        MODEM_STR="$MODEM_STR $modem:$ip_val,"
     done
     MODEM_STR=${MODEM_STR%,}
 
@@ -209,12 +204,9 @@ while true; do
         # 3. Map Wi-Fi IP Subnet to Modem interface (e.g. 192.168.11.x -> lte11)
         if [ -n "$SUBNET_IDX" ]; then
             MODEM_IDX=$SUBNET_IDX
-            modem_idx_offset=$((MODEM_IDX - 11))
-            if [ "$modem_idx_offset" -ge 0 ] && [ "$modem_idx_offset" -lt "${#MANUAL_COUNTS[@]}" ]; then
-                BIND_IP="${IP_LIST[$modem_idx_offset]}"
-                if [ -n "$BIND_IP" ]; then
-                    echo "[DYNAMICS] [$DEV_ID] Matched IP Subnet '192.168.${SUBNET_IDX}.x' to Modem lte$MODEM_IDX ($BIND_IP)"
-                fi
+            BIND_IP=$(get_ip "lte${MODEM_IDX}")
+            if [ -n "$BIND_IP" ]; then
+                echo "[DYNAMICS] [$DEV_ID] Matched IP Subnet '192.168.${SUBNET_IDX}.x' to Modem lte$MODEM_IDX ($BIND_IP)"
             fi
         fi
 

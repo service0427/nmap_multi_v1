@@ -27,11 +27,8 @@ CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
 # --- [SUBNET LOCK SETUP] ---
 SUBNET_IDX=""
 HAS_SUBNET_LOCK="false"
-if [ -f "$CURRENT_TASK_JSON" ]; then
-    IP=$(jq -r '.real_ip // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
-    if [ -n "$IP" ] && [[ "$IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        SUBNET_IDX=$(echo "$IP" | cut -d. -f3)
-    fi
+if [ -n "$NMAP_BIND_IP" ] && [[ "$NMAP_BIND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    SUBNET_IDX=$(echo "$NMAP_BIND_IP" | cut -d. -f3)
 fi
 
 # [🔒 Robust Lock Janitor] Force release subnet lock when monitor.sh exits under any conditions
