@@ -32,7 +32,30 @@ CURL_OPT=""
 # =================================================================================
 NMAP_MITM_PORT=$((NMAP_FRIDA_PORT + 10000))
 
-# --- [ZOMBIE PURGE] ---
+# --- [ZOMBIE PURGE & UNREPORTED INTERRUPT CLEANUP] ---
+# Ensure no task is left hanging in 'Running' state on the API server if it was killed by a new task
+if [ -f "$CURRENT_TASK_JSON" ]; then
+    PREV_STATUS=$(jq -r '.status // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
+    PREV_TASK_ID=$(jq -r '.task_id // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
+    if [ -n "$PREV_TASK_ID" ] && [ "$PREV_STATUS" != "SUCCESS" ] && [ "$PREV_STATUS" != "FAIL" ] && [ "$PREV_STATUS" != "API_ERROR" ]; then
+        echo "[$DEV_ID] [⚠️] Reporting FAIL for interrupted/zombie task: $PREV_TASK_ID (Previous status: $PREV_STATUS)"
+        curl -s -X POST "http://${API_SERVER}/api/v1/report_result" \
+             -H "Content-Type: application/json" \
+             -d "{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}" >/dev/null 2>&1
+        
+        # Also log to our persistent history
+        local history_file="logs/rotator_history/session_history.csv"
+        if [ -f "$history_file" ]; then
+            # Get subnet index from BIND_IP or BIND_IFACE
+            local sub_idx=""
+            if [ -n "$BIND_IP" ] && [[ "$BIND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                sub_idx=$(echo "$BIND_IP" | cut -d. -f3)
+            fi
+            echo "$(date +'%Y-%m-%d %H:%M:%S'),$DEV_ID,$sub_idx,$PREV_TASK_ID,FAIL,INTERRUPTED_BY_NEW_TASK" >> "$history_file"
+        fi
+    fi
+fi
+
 # Ensure no orphaned processes from previous crashed runs are fighting over this device/port
 echo "[$DEV_ID] Purging any lingering zombie processes..."
 pkill -9 -f "monitor.sh $DEV_ID"
