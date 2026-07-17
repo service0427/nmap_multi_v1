@@ -16,11 +16,11 @@ import random
 from datetime import datetime
 
 # Configuration
-CHECK_INTERVAL = 60  # 1 minute
-MIN_ROTATION_MINUTES = 120  # 2 hours
-MAX_ROTATION_MINUTES = 180  # 3 hours
-EARLY_ROTATION_SCORE_THRESHOLD = 10  # Score threshold for early IP rotation (e.g. 10 failures net)
-EARLY_ROTATION_COOLDOWN_SECONDS = 900  # Minimum active time (cooldown) in seconds before early rotation is allowed (900s = 15m)
+CHECK_INTERVAL = 60  # 모뎀 체크 주기 (1분)
+MIN_ROTATION_MINUTES = 120  # 자연 로테이션 최소 시간 (2시간)
+MAX_ROTATION_MINUTES = 180  # 자연 로테이션 최대 시간 (3시간)
+EARLY_ROTATION_SCORE_THRESHOLD = 10  # 조기 로테이션 실행을 위한 오염 스코어 임계치 (예: 실패 차감 누적 10점)
+EARLY_ROTATION_COOLDOWN_SECONDS = 900  # 조기 로테이션을 허용하기 전 최소 IP 유지 보장 시간 (900초 = 15분)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATE_FILE = os.path.join(PROJECT_ROOT, "wifi_multi", "logs", "lte_rotator_state.json")
 
