@@ -88,6 +88,19 @@ class ProxyV2ClassicLog:
                 "status": "ARRIVED"
             })
 
+        # 2. Intercept nCaptcha JS and increase timeout from 1s to 3s
+        if "ncaptcha-api.js" in flow.request.url and flow.response and flow.response.status_code == 200:
+            try:
+                original_text = flow.response.text
+                target_expr = "-1531*-5+-5599+-8*132+0"
+                if target_expr in original_text:
+                    flow.response.text = original_text.replace(target_expr, "3000")
+                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout from 1s to 3s (Client: {self.real_ip})!")
+                else:
+                    print(f" [⚠️ MITM HACK] ncaptcha-api.js loaded but target timeout expression not found!")
+            except Exception as e:
+                print(f" [!] Error intercepting ncaptcha-api.js: {e}")
+
         handle_response(self, flow)
 
 addons = [ProxyV2ClassicLog()]
