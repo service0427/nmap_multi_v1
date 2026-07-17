@@ -596,6 +596,17 @@ while true; do
                         local poi_sleep=$(awk "BEGIN {srand(); print 3.0 + rand() * 2.0}")
                         echo "[$(NOW)] [Delay] Captcha Buffer sleep for ${poi_sleep}s..."
                         sleep "$poi_sleep"
+                        
+                        # [🚨 신규 방어선] 도착 클릭 직전 에러로그 재검사 (대기 도중 발생한 캡차 타임아웃 사전 차단)
+                        local TEMP_ERR_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
+                        if [ -n "$TEMP_ERR_FILE" ]; then
+                            local TEMP_ERR_MSG=$(jq -r '.request.body.message // empty' "$TEMP_ERR_FILE" 2>/dev/null)
+                            if [ -n "$TEMP_ERR_MSG" ]; then
+                                echo "[$(NOW)] [🚨] Pre-Arrival Fail-Fast: errorLog detected during captcha buffer sleep: $TEMP_ERR_MSG"
+                                send_report_result "FAIL" "ERROR_LOG_DETECTED: $TEMP_ERR_MSG"
+                                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+                            fi
+                        fi
                     fi
                     echo "[$(NOW)] [Action] Executing: $ACTION"
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
