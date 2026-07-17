@@ -72,6 +72,16 @@ class ProxyV2ClassicLog:
         except: return None
 
     def request(self, flow: http.HTTPFlow):
+        # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
+        if "client-logger/errorLog" in flow.request.url:
+            flow.response = http.Response.make(
+                200,
+                b"",
+                {"Content-Type": "application/json"}
+            )
+            print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Client: {self.real_ip})!")
+            return
+
         handle_request(self, flow)
 
     def response(self, flow: http.HTTPFlow):
@@ -88,14 +98,14 @@ class ProxyV2ClassicLog:
                 "status": "ARRIVED"
             })
 
-        # 2. Intercept nCaptcha JS and increase timeout from 1s to 5s
+        # 2. Intercept nCaptcha JS and increase timeout from 1s to 10s
         if "ncaptcha-api.js" in flow.request.url and flow.response and flow.response.status_code == 200:
             try:
                 original_text = flow.response.text
                 target_expr = "-1531*-5+-5599+-8*132+0"
                 if target_expr in original_text:
-                    flow.response.text = original_text.replace(target_expr, "5000")
-                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout from 1s to 5s (Client: {self.real_ip})!")
+                    flow.response.text = original_text.replace(target_expr, "10000")
+                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout from 1s to 10s (Client: {self.real_ip})!")
                 else:
                     print(f" [⚠️ MITM HACK] ncaptcha-api.js loaded but target timeout expression not found!")
             except Exception as e:
