@@ -42,13 +42,13 @@ class ProxyV2ClassicLog:
             os.makedirs(stealth_dir, exist_ok=True)
             log_path = os.path.join(stealth_dir, f"stealth_replacements_{date_str}.log")
             
+            # Clean session path to highlight 'Device/Date/Time_PlaceID'
             session_rel = self.base_log_dir.replace("/home/tech/nmap_multi_v1/wifi_multi/logs/", "").replace("logs/", "")
             
             with open(log_path, "a") as f_repl:
                 log_line = (
                     f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
-                    f"[Device: {self.device_id}] [IP: {self.bind_ip}] [Session: {session_rel}] "
-                    f"[Type: {log_type}] {details}\n"
+                    f"[{session_rel}] [{log_type}] {details}\n"
                 )
                 f_repl.write(log_line)
         except Exception as e:
