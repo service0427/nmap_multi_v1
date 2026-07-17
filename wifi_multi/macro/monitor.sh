@@ -636,7 +636,7 @@ while true; do
             STATE_FLAGS[$ID]=1; PREV_STEP_DONE=true; continue 
         fi
         
-        IS_REQUIRED=$(echo "$step" | jq -r '.control.required // true')
+        IS_REQUIRED=$(echo "$step" | jq -r 'if .control.required == null then true else .control.required end')
         if [ "$IS_REQUIRED" == "false" ]; then PREV_STEP_DONE=true; continue; fi
         PREV_STEP_DONE=false
     done < <(jq -c '.steps[]' "$SCHEDULE_JSON")
