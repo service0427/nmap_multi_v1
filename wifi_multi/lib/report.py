@@ -298,14 +298,14 @@ def main():
                         change_amount = 1
                         event_type = "ERR_LOG"
                         log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit errorLog. Score: {curr_score} -> {new_score}"
-                    elif has_access_log:
+                    elif has_access_log and reason == "Task Completed":
                         new_score = max(-100, curr_score - 2)
                         change_amount = -2
                         event_type = "ACC_LOG"
                         log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) accessLog SUCCESS. Score: {curr_score} -> {new_score}"
                     else:
                         new_score = curr_score
-                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral. Score: {curr_score}"
+                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral (Reason: {reason}). Score: {curr_score}"
                         
                     details["ip_score"] = new_score
                     details["last_score_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
