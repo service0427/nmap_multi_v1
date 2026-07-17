@@ -178,19 +178,28 @@ check_app_survival() {
         fi
     fi
 
-    # [NEW] Fast Fatal UI Error Detection (No Route Found, etc.)
-    if [ "$IS_DRIVING" = false ] && [ $ELAPSED -gt 30 ]; then
+    # [NEW] Fast Fatal UI Error Detection (No Route Found, Network Error, etc.)
+    if [ "$IS_DRIVING" = false ]; then
         local CUR_TS
         CUR_TS=$(date +%s)
         local SEC_SINCE_CHECK=$(( CUR_TS - LAST_UI_CHECK_TS ))
-        if [ $SEC_SINCE_CHECK -ge 30 ]; then
+        
+        # Trigger check if 30s elapsed (after 30s elapsed from start) OR if we detect packet silence of 15s, 30s, or 45s (stuck count 3, 6, 9)
+        local TRIGGER_CHECK=false
+        if [ $SEC_SINCE_CHECK -ge 30 ] && [ $ELAPSED -gt 30 ]; then
+            TRIGGER_CHECK=true
+        elif [ $STUCK_COUNT -eq 3 ] || [ $STUCK_COUNT -eq 6 ] || [ $STUCK_COUNT -eq 9 ]; then
+            TRIGGER_CHECK=true
+        fi
+
+        if [ "$TRIGGER_CHECK" = true ]; then
             LAST_UI_CHECK_TS=$CUR_TS
             # Dump UI XML (with safety timeout)
             timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
             local XML_CONTENT
             XML_CONTENT=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui.xml" 2>/dev/null)
             if [ -n "$XML_CONTENT" ]; then
-                local FATAL_PATTERN="길찾기 결과가 없습니다|결과를 제공할 수 없습니다|검색 결과가 없습니다|장소를 찾을 수 없습니다|길찾기 결과를 제공할 수 없습니다|검색 결과가 없어요|출발지와 도착지가 같습니다|출발지와 목적지가 같습니다|주변에 도로가 없습니다|안내할 수 없는 경로입니다|네트워크 연결이 원활하지 않습니다|네트워크 연결 상태를 확인|네트워크가 연결되어 있지 않습니다|알 수 없는 에러가 발생했습니다"
+                local FATAL_PATTERN="길찾기 결과가 없습니다|결과를 제공할 수 없습니다|검색 결과가 없습니다|장소를 찾을 수 없습니다|길찾기 결과를 제공할 수 없습니다|검색 결과가 없어요|출발지와 도착지가 같습니다|출발지와 목적지가 같습니다|주변에 도로가 없습니다|안내할 수 없는 경로입니다|네트워크 연결이 원활하지 않습니다|네트워크 연결 상태를 확인|네트워크가 연결되어 있지 않습니다|네트워크 연결 상태가 불안정|네트워크 오류|연결 상태가 좋지 않습니다|연결 상태를 확인|인터넷 연결|인터넷에 연결|알 수 없는 에러가 발생했습니다"
                 if echo "$XML_CONTENT" | grep -q -E "$FATAL_PATTERN"; then
                     local MATCHED_MSG
                     MATCHED_MSG=$(echo "$XML_CONTENT" | grep -o -E "$FATAL_PATTERN" | head -n 1)

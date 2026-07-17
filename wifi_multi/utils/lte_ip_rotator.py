@@ -250,6 +250,12 @@ def ensure_ip_rules():
         log(f"Error in ensure_ip_rules: {e}")
 
 def is_subnet_active(subnet):
+    # [⚖️ Unconditional Rotation Policy]
+    # 기기가 10대 이상 맞물려 있으면 빈 틈이 거의 없어 토글 타이밍을 영원히 놓치게 되므로,
+    # 스케줄/임계치 기준 충족 시 언제나 일방적으로 토글을 수행하기 위해 항상 False를 반환합니다.
+    return False
+
+def is_subnet_active_deprecated(subnet):
     try:
         # Get list of running main.sh processes to extract active devices
         running_devices = []
