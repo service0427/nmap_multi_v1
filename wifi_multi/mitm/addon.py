@@ -104,23 +104,64 @@ class ProxyV2ClassicLog:
             self._write_stealth_log("errorLog Blocked", "Intercepted and blocked errorLog POST request entirely.")
             return
 
-        # 2. Steal-cap fpDuration in accessLog to look like a normal high-speed device
+        # 2. Proportional Capping of accessLog Metrics to Ensure Realistic Inequalities
         if "client-logger/accessLog" in flow.request.url and flow.request.text:
             try:
                 import re
                 modified_text = flow.request.text
-                fp_matches = re.findall(r"fpDuration[:\s]*(\d+)ms", modified_text)
-                for val_str in fp_matches:
-                    val = int(val_str)
-                    if val > 1000:
-                        fake_val = random.randint(550, 850)
-                        modified_text = modified_text.replace(f"fpDuration: {val_str}ms", f"fpDuration: {fake_val}ms")
-                        modified_text = modified_text.replace(f"fpDuration:{val_str}ms", f"fpDuration:{fake_val}ms")
-                        print(f" [⚡ MITM STEALTH] Capped accessLog fpDuration from {val}ms to {fake_val}ms (Device: {self.device_id})")
-                        self._write_stealth_log("accessLog fpDuration", f"Capped fpDuration from {val}ms to {fake_val}ms")
+                
+                # Extract all telemetry values
+                fp_dur = re.findall(r"fpDuration[:\s]*(\d+)ms", modified_text)
+                net_dur = re.findall(r"networkDuration[:\s]*(\d+)ms", message_str := modified_text)
+                hsh_dur = re.findall(r"hashing[:\s]*(\d+)ms", modified_text)
+                comp_dur = re.findall(r"compression[:\s]*(\d+)ms", modified_text)
+                enc_dur = re.findall(r"encryption[:\s]*(\d+)ms", modified_text)
+                fep_dur = re.findall(r"feProcessTime[:\s]*(\d+)ms", modified_text)
+
+                fp = int(fp_dur[0]) if fp_dur else None
+                net = int(net_dur[0]) if net_dur else None
+                hsh = int(hsh_dur[0]) if hsh_dur else None
+                comp = int(comp_dur[0]) if comp_dur else None
+                enc = int(enc_dur[0]) if enc_dur else None
+                fep = int(fep_dur[0]) if fep_dur else None
+
+                # Detect if any metric exceeds normal phone performance thresholds
+                needs_capping = False
+                if fp and fp > 1000: needs_capping = True
+                if net and net > 600: needs_capping = True
+                if fep and fep > 100: needs_capping = True
+
+                if needs_capping:
+                    # Proportionally generate realistic metrics preserving natural inequalities:
+                    # hashing <= encryption <= feProcessTime <= networkDuration <= fpDuration
+                    fake_hsh = random.randint(2, 6)
+                    fake_comp = random.randint(4, 9)
+                    fake_enc = random.randint(fake_hsh, fake_comp + 2)
+                    fake_fep = random.randint(fake_enc + 5, 45)
+                    fake_net = random.randint(80, 220)
+                    fake_fp = random.randint(580, 840)
+
+                    # Replace in text dynamically
+                    if fp_dur:
+                        modified_text = modified_text.replace(f"fpDuration: {fp_dur[0]}ms", f"fpDuration: {fake_fp}ms").replace(f"fpDuration:{fp_dur[0]}ms", f"fpDuration:{fake_fp}ms")
+                    if net_dur:
+                        modified_text = modified_text.replace(f"networkDuration: {net_dur[0]}ms", f"networkDuration: {fake_net}ms").replace(f"networkDuration:{net_dur[0]}ms", f"networkDuration:{fake_net}ms")
+                    if hsh_dur:
+                        modified_text = modified_text.replace(f"hashing: {hsh_dur[0]}ms", f"hashing: {fake_hsh}ms").replace(f"hashing:{hsh_dur[0]}ms", f"hashing:{fake_hsh}ms")
+                    if comp_dur:
+                        modified_text = modified_text.replace(f"compression: {comp_dur[0]}ms", f"compression: {fake_comp}ms").replace(f"compression:{comp_dur[0]}ms", f"compression:{fake_comp}ms")
+                    if enc_dur:
+                        modified_text = modified_text.replace(f"encryption: {enc_dur[0]}ms", f"encryption: {fake_enc}ms").replace(f"encryption:{enc_dur[0]}ms", f"encryption:{fake_enc}ms")
+                    if fep_dur:
+                        modified_text = modified_text.replace(f"feProcessTime: {fep_dur[0]}ms", f"feProcessTime: {fake_fep}ms").replace(f"feProcessTime:{fep_dur[0]}ms", f"feProcessTime:{fake_fep}ms")
+
+                    print(f" [⚡ MITM STEALTH] Proportional Cap Applied (Device: {self.device_id})")
+                    details = f"fp: {fp}ms -> {fake_fp}ms | net: {net}ms -> {fake_net}ms | fep: {fep}ms -> {fake_fep}ms"
+                    self._write_stealth_log("proportional Capping", details)
+
                 flow.request.text = modified_text
             except Exception as e:
-                print(f" [!] Error capping accessLog fpDuration: {e}")
+                print(f" [!] Error applying proportional cap to accessLog: {e}")
 
         handle_request(self, flow)
 
