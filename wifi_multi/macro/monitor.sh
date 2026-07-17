@@ -264,8 +264,21 @@ check_app_survival() {
     else
         ((STUCK_COUNT++))
         
-        # 70-90초(18회 * 5초 = 90초) 동안 패킷 침묵이 감지되면 통신 단선으로 판단하여 즉시 킬
-        local MAX_STUCK=18 
+        # 15초(3회 * 5초) 동안 패킷 침묵 시 단말기 내부에서 로우레벨(ICMP Ping) 테스트로 실제 단선 확인
+        if [ $STUCK_COUNT -ge 3 ]; then
+            if ! adb -s "$DEV_ID" shell "ping -c 1 -W 2 8.8.8.8" >/dev/null 2>&1; then
+                # 일시적 드롭 방지를 위해 2초 대기 후 더블 체크
+                sleep 2
+                if ! adb -s "$DEV_ID" shell "ping -c 1 -W 2 8.8.8.8" >/dev/null 2>&1; then
+                    echo "[$(NOW)] [🚨] LOW-LEVEL DISCONNECT DETECTED (Device ping failed twice). Killing session."
+                    send_report_result "FAIL" "NETWORK_DISCONNECTED"
+                    stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+                fi
+            fi
+        fi
+
+        # 패킷 전송 침묵 최종 마한선 설정 (70초: 14회 * 5초)
+        local MAX_STUCK=14 
         
         if [ $STUCK_COUNT -ge $MAX_STUCK ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED ($((MAX_STUCK * 5))s). No new packet JSONs. Killing session."
