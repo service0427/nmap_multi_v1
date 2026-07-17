@@ -251,17 +251,21 @@ check_app_survival() {
 
     # 3. Packet-File Silence Kill (Global Check for Frida/App Health)
     # 개별 요청 JSON 파일들이 새로 생성되고 있는지 숫자로 체크
-    CUR_JSON_COUNT=$(ls -1 "$ABS_LOG_DIR"/*.json 2>/dev/null | grep -v -E "heartbeat|location|sdk_log|log_batch|geojson|metadata|my_notices|weather" | wc -l)
+    if [ "$IS_DRIVING" = true ]; then
+        # 주행 중에는 전체 통신망 감시를 위해 heartbeat, location 패킷도 집계에 포함
+        CUR_JSON_COUNT=$(ls -1 "$ABS_LOG_DIR"/*.json 2>/dev/null | grep -v -E "sdk_log|geojson|metadata|my_notices|weather" | wc -l)
+    else
+        # 진입 단계에서는 웹뷰 UI 전송 진척률만 체크하기 위해 heartbeat, location 등은 제외
+        CUR_JSON_COUNT=$(ls -1 "$ABS_LOG_DIR"/*.json 2>/dev/null | grep -v -E "heartbeat|location|sdk_log|log_batch|geojson|metadata|my_notices|weather" | wc -l)
+    fi
+
     if [ $CUR_JSON_COUNT -gt $LAST_JSON_COUNT ]; then
         STUCK_COUNT=0; LAST_JSON_COUNT=$CUR_JSON_COUNT
     else
         ((STUCK_COUNT++))
         
-        # [NEW] Dynamic Silence Tolerance: Give driving cars much more time to recover from drops
-        local MAX_STUCK=18 # Default 90s (18 * 5s)
-        if [ "$IS_DRIVING" = true ]; then
-            MAX_STUCK=60 # 300s (5 minutes) resilience during driving
-        fi
+        # 70-90초(18회 * 5초 = 90초) 동안 패킷 침묵이 감지되면 통신 단선으로 판단하여 즉시 킬
+        local MAX_STUCK=18 
         
         if [ $STUCK_COUNT -ge $MAX_STUCK ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED ($((MAX_STUCK * 5))s). No new packet JSONs. Killing session."
