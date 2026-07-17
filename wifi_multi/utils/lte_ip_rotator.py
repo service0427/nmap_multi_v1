@@ -320,20 +320,20 @@ def run_rotation():
             details["current_ip"] = curr_ip
             state_changed = True
             
-        # 3. 지능형 IP 점수 기반 토글 판정 (Threshold >= 20, Cooldown >= 60 minutes)
+        # 3. 지능형 IP 점수 기반 토글 판정 (Threshold >= 10, Cooldown >= 15 minutes)
         ip_score = details.get("ip_score", 0)
-        cooldown_elapsed = (now_ts - last_toggle) >= 3600 # 60 minutes
+        cooldown_elapsed = (now_ts - last_toggle) >= 900 # 15 minutes
         
-        if ip_score >= 20:
+        if ip_score >= 10:
             if cooldown_elapsed:
                 if is_subnet_active(subnet):
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 20) but subnet has active tasks. Postponing rotation.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 10) but subnet has active tasks. Postponing rotation.")
                     continue
                 if toggle_triggered:
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 20) but another rotation is already in progress. Skipping for next check.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 10) but another rotation is already in progress. Skipping for next check.")
                     continue
                     
-                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= 20) and cooldown (60m) elapsed. Initiating early rotation...")
+                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= 10) and cooldown (15m) elapsed. Initiating early rotation...")
                 toggle_triggered = True
                 success, new_ip = run_smart_toggle(subnet)
                 if success:
@@ -347,8 +347,8 @@ def run_rotation():
                 else:
                     log(f"[{name}] Score-based Rotation failed. Will retry.")
             else:
-                remaining = int(3600 - (now_ts - last_toggle))
-                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= 20) but 60-minute limit not reached. Waiting {remaining}s. Leaving it alone.")
+                remaining = int(900 - (now_ts - last_toggle))
+                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= 10) but 15-minute limit not reached. Waiting {remaining}s. Leaving it alone.")
             continue
             
         # 4. 정기 스케줄 로테이션 (2~3시간 주기)
@@ -376,7 +376,7 @@ def run_rotation():
                 log(f"[{name}] Rotation failed. Will retry.")
         else:
             # IP가 깨끗하게 작동 중인 정상 상태
-            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < 20). Keeping alive.")
+            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < 10). Keeping alive.")
                 
     if state_changed:
         # [🛡️ Concurrency Safety] Merge latest scores from disk before writing to prevent wiping out updates from report.py
