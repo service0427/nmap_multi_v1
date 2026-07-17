@@ -21,13 +21,6 @@ def main():
         # Default to today
         target_date = datetime.now().strftime("%Y-%m-%d")
 
-    print("========================================================================")
-    if target_date:
-        print(f"📊 Session Performance Report for Date: {target_date}")
-    else:
-        print("📊 Session Performance Report: OVERALL HISTORY")
-    print("========================================================================")
-
     total_runs = 0
     success_count = 0
     fail_count = 0
@@ -35,6 +28,9 @@ def main():
 
     subnet_stats = {}
     failure_reasons = {}
+    
+    all_devices = set()
+    timestamps = []
 
     with open(history_file, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -52,6 +48,14 @@ def main():
                 subnet = 'Unknown'
 
             total_runs += 1
+            all_devices.add(dev_id)
+            
+            try:
+                dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                timestamps.append(dt)
+            except:
+                pass
+
             if status == 'SUCCESS':
                 success_count += 1
             elif status == 'API_ERROR':
@@ -77,7 +81,6 @@ def main():
 
             # Failure reasons breakdown
             if status != 'SUCCESS' and status != 'API_ERROR':
-                # Sanitize / group reasons
                 reason = "Unknown"
                 if "nCaptcha Timeout" in msg or "captcha" in msg.lower() or "ERROR_LOG_DETECTED" in msg:
                     reason = "nCaptcha Timeout"
@@ -98,19 +101,46 @@ def main():
 
                 failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
 
+    print("========================================================================")
+    if target_date:
+        print(f"📊 Session Performance Report for Date: {target_date}")
+    else:
+        print("📊 Session Performance Report: OVERALL HISTORY")
+    print("========================================================================")
+
     if total_runs == 0:
         print(f"[-] No session records found matching the filter.")
         return
 
+    # Calculate elapsed hours based on timestamps
+    hours = 1.0
+    time_range_str = "N/A"
+    if len(timestamps) >= 2:
+        min_ts = min(timestamps)
+        max_ts = max(timestamps)
+        duration_seconds = (max_ts - min_ts).total_seconds()
+        hours = duration_seconds / 3600.0
+        time_range_str = f"{min_ts.strftime('%H:%M:%S')} ~ {max_ts.strftime('%H:%M:%S')}"
+    
+    # Cap hours to avoid division by zero or extreme numbers for very short windows
+    if hours < 0.1:
+        hours = 0.1
+
     # Print overall stats
     success_rate = (success_count / (success_count + fail_count)) * 100 if (success_count + fail_count) > 0 else 0
+    unique_devices = len(all_devices)
+    overall_efficiency = success_count / (unique_devices * hours) if (unique_devices * hours) > 0 else 0
+
     print(f"Overall Stats:")
-    print(f" - Total Runs   : {total_runs}")
-    print(f" - SUCCESS      : {success_count}")
-    print(f" - FAIL         : {fail_count}")
+    print(f" - Total Runs       : {total_runs}")
+    print(f" - SUCCESS          : {success_count}")
+    print(f" - FAIL             : {fail_count}")
     if api_err_count > 0:
-        print(f" - API_ERROR    : {api_err_count} (Not counted in success rate)")
-    print(f" - Success Rate : {success_rate:.1f}%")
+        print(f" - API_ERROR        : {api_err_count} (Not counted in success rate)")
+    print(f" - Success Rate     : {success_rate:.1f}%")
+    print(f" - Active Devices   : {unique_devices} unique devices")
+    print(f" - Report Duration  : {hours:.2f} hours ({time_range_str})")
+    print(f" - Work Efficiency  : {overall_efficiency:.2f} successes/device/hour 🚀")
     print("========================================================================")
 
     # Print subnet breakdown
@@ -122,13 +152,16 @@ def main():
         sub_fail = sub_s['fail']
         sub_api = sub_s['api_err']
         sub_rate = (sub_success / (sub_success + sub_fail)) * 100 if (sub_success + sub_fail) > 0 else 0
+        sub_devs = len(sub_s['devices'])
+        sub_efficiency = sub_success / (sub_devs * hours) if (sub_devs * hours) > 0 else 0
         dev_list = sorted(list(sub_s['devices']))
         
-        print(f"lte{sub} (Subnet {sub} | Active Devices: {len(dev_list)}):")
-        print(f"   Active Devices : {', '.join(dev_list)}")
-        print(f"   Runs           : {sub_total} | Success: {sub_success} | Fail: {sub_fail} | Success Rate: {sub_rate:.1f}%")
+        print(f"lte{sub} (Subnet {sub} | Active Devices: {sub_devs}):")
+        print(f"   Active Devices  : {', '.join(dev_list)}")
+        print(f"   Runs            : {sub_total} | Success: {sub_success} | Fail: {sub_fail} | Success Rate: {sub_rate:.1f}%")
         if sub_api > 0:
-            print(f"   API_ERROR      : {sub_api} (Not counted in success rate)")
+            print(f"   API_ERROR       : {sub_api} (Not counted in success rate)")
+        print(f"   Work Efficiency : {sub_efficiency:.2f} successes/device/hour 🚀")
         print("------------------------------------------------------------------------")
 
     # Print failure breakdown
