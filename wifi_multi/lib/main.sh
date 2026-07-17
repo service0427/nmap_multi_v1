@@ -273,6 +273,8 @@ WATCHDOG_PID=$!
 # [CRITICAL] Export identity variables to subshells so background mitmdump can access them
 export NMAP_ORIG_SSAID NMAP_ORIG_ADID NMAP_ORIG_IDFV NMAP_ORIG_NI NMAP_ORIG_TOKEN
 export NMAP_ID_SSAID NMAP_ID_ADID NMAP_ID_IDFV NMAP_ID_NI NMAP_ID_TOKEN
+export NMAP_DEV_ID="$DEV_ID"
+export NMAP_BIND_IP="$NMAP_BIND_IP"
 
 BIND_OPT=""
 if [ -n "$NMAP_BIND_IP" ]; then

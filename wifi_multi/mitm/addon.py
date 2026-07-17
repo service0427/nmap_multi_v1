@@ -31,7 +31,28 @@ class ProxyV2ClassicLog:
         self.base_log_dir = os.environ.get("CAPTURE_LOG_DIR", "logs/fallback")
         os.makedirs(self.base_log_dir, exist_ok=True)
         self.summary_path = os.path.join(self.base_log_dir, "session_summary.json")
-        self.real_ip = os.environ.get("NMAP_REAL_IP", "Unknown")
+        self.device_id = os.environ.get("NMAP_DEV_ID", "Unknown")
+        self.bind_ip = os.environ.get("NMAP_BIND_IP", "Unknown")
+
+    def _write_stealth_log(self, log_type, details):
+        """Write detailed replacement log organized by date under logs/stealth_logs/"""
+        try:
+            date_str = datetime.datetime.now().strftime("%Y%m%d")
+            stealth_dir = "/home/tech/nmap_multi_v1/wifi_multi/logs/stealth_logs"
+            os.makedirs(stealth_dir, exist_ok=True)
+            log_path = os.path.join(stealth_dir, f"stealth_replacements_{date_str}.log")
+            
+            session_rel = self.base_log_dir.replace("/home/tech/nmap_multi_v1/wifi_multi/logs/", "").replace("logs/", "")
+            
+            with open(log_path, "a") as f_repl:
+                log_line = (
+                    f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+                    f"[Device: {self.device_id}] [IP: {self.bind_ip}] [Session: {session_rel}] "
+                    f"[Type: {log_type}] {details}\n"
+                )
+                f_repl.write(log_line)
+        except Exception as e:
+            print(f" [!] Error writing stealth log: {e}")
 
     def update_summary(self, data):
         """Thread-safe update of session_summary.json"""
@@ -79,7 +100,8 @@ class ProxyV2ClassicLog:
                 b"",
                 {"Content-Type": "application/json"}
             )
-            print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Client: {self.real_ip})!")
+            print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id})!")
+            self._write_stealth_log("errorLog Blocked", "Intercepted and blocked errorLog POST request entirely.")
             return
 
         # 2. Steal-cap fpDuration in accessLog to look like a normal high-speed device
@@ -94,15 +116,8 @@ class ProxyV2ClassicLog:
                         fake_val = random.randint(550, 850)
                         modified_text = modified_text.replace(f"fpDuration: {val_str}ms", f"fpDuration: {fake_val}ms")
                         modified_text = modified_text.replace(f"fpDuration:{val_str}ms", f"fpDuration:{fake_val}ms")
-                        print(f" [⚡ MITM STEALTH] Capped accessLog fpDuration from {val}ms to {fake_val}ms (Client: {self.real_ip})")
-                        try:
-                            # Write to global stealth replacements log
-                            # Using absolute path to ensure safety in subshells
-                            global_log_path = "/home/tech/nmap_multi_v1/wifi_multi/logs/stealth_replacements.log"
-                            with open(global_log_path, "a") as f_repl:
-                                f_repl.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{self.real_ip}] fpDuration: {val}ms -> {fake_val}ms\n")
-                        except Exception as e_log:
-                            print(f" [!] Error writing stealth log: {e_log}")
+                        print(f" [⚡ MITM STEALTH] Capped accessLog fpDuration from {val}ms to {fake_val}ms (Device: {self.device_id})")
+                        self._write_stealth_log("accessLog fpDuration", f"Capped fpDuration from {val}ms to {fake_val}ms")
                 flow.request.text = modified_text
             except Exception as e:
                 print(f" [!] Error capping accessLog fpDuration: {e}")
@@ -130,7 +145,8 @@ class ProxyV2ClassicLog:
                 target_expr = "-1531*-5+-5599+-8*132+0"
                 if target_expr in original_text:
                     flow.response.text = original_text.replace(target_expr, "10000")
-                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout from 1s to 10s (Client: {self.real_ip})!")
+                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout to 10s (Device: {self.device_id})!")
+                    self._write_stealth_log("ncaptcha-api.js Timeout", "Capped script timeout expression to 10000 (10s)")
                 else:
                     print(f" [⚠️ MITM HACK] ncaptcha-api.js loaded but target timeout expression not found!")
             except Exception as e:
@@ -144,7 +160,8 @@ class ProxyV2ClassicLog:
                     target_config = "executionTimeout: 1000"
                     if target_config in original_html:
                         flow.response.text = original_html.replace(target_config, "executionTimeout: 10000")
-                        print(f" [⚡ MITM HACK] Intercepted Place HTML and increased executionTimeout to 10s (Client: {self.real_ip})!")
+                        print(f" [⚡ MITM HACK] Intercepted Place HTML and increased executionTimeout to 10s (Device: {self.device_id})!")
+                        self._write_stealth_log("Place HTML executionTimeout", "Capped executionTimeout config to 10000 (10s)")
                 except Exception as e:
                     print(f" [!] Error intercepting Place HTML: {e}")
 
