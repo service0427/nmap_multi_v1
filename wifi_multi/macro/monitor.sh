@@ -463,7 +463,12 @@ while true; do
                 "STEP_04_SELECT_ADDR") update_live_status "SELECTING_DEST" ;;
                 "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM_ARRIVAL" ;;
                 "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
-                "STEP_07_2_DRIVING_STARTED") update_live_status "DRIVING" ;;
+                "STEP_07_2_DRIVING_STARTED") 
+                    update_live_status "DRIVING"
+                    # [🛰️ GPS Sync Guard] Wake up the GPS emulator ONLY after the map client successfully initiates navigation and sends its first rptype=0 packet
+                    echo "[$(NOW)] [🚀] Driving screen active & rptype=0 detected. Waking up GPS Emulator..."
+                    touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                    ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
                 "STEP_09_FINISH") update_live_status "SUCCESS" ;;
             esac
@@ -528,8 +533,7 @@ while true; do
                         exit 0
                     else
                         NAVI_START_TS=$(date +%s)
-                        # Signal auto_reloader.py to start GPS
-                        touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        # GPS will be started when STEP_07_2_DRIVING_STARTED is detected
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
