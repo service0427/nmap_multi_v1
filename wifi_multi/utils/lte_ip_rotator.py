@@ -19,6 +19,8 @@ from datetime import datetime
 CHECK_INTERVAL = 60  # 1 minute
 MIN_ROTATION_MINUTES = 120  # 2 hours
 MAX_ROTATION_MINUTES = 180  # 3 hours
+EARLY_ROTATION_SCORE_THRESHOLD = 10  # Score threshold for early IP rotation (e.g. 10 failures net)
+EARLY_ROTATION_COOLDOWN_SECONDS = 900  # Minimum active time (cooldown) in seconds before early rotation is allowed (900s = 15m)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATE_FILE = os.path.join(PROJECT_ROOT, "wifi_multi", "logs", "lte_rotator_state.json")
 
@@ -320,20 +322,20 @@ def run_rotation():
             details["current_ip"] = curr_ip
             state_changed = True
             
-        # 3. 지능형 IP 점수 기반 토글 판정 (Threshold >= 10, Cooldown >= 15 minutes)
+        # 3. 지능형 IP 점수 기반 토글 판정
         ip_score = details.get("ip_score", 0)
-        cooldown_elapsed = (now_ts - last_toggle) >= 900 # 15 minutes
+        cooldown_elapsed = (now_ts - last_toggle) >= EARLY_ROTATION_COOLDOWN_SECONDS
         
-        if ip_score >= 10:
+        if ip_score >= EARLY_ROTATION_SCORE_THRESHOLD:
             if cooldown_elapsed:
                 if is_subnet_active(subnet):
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 10) but subnet has active tasks. Postponing rotation.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but subnet has active tasks. Postponing rotation.")
                     continue
                 if toggle_triggered:
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= 10) but another rotation is already in progress. Skipping for next check.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but another rotation is already in progress. Skipping for next check.")
                     continue
                     
-                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= 10) and cooldown (15m) elapsed. Initiating early rotation...")
+                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) and cooldown elapsed. Initiating early rotation...")
                 toggle_triggered = True
                 success, new_ip = run_smart_toggle(subnet)
                 if success:
@@ -347,8 +349,8 @@ def run_rotation():
                 else:
                     log(f"[{name}] Score-based Rotation failed. Will retry.")
             else:
-                remaining = int(900 - (now_ts - last_toggle))
-                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= 10) but 15-minute limit not reached. Waiting {remaining}s. Leaving it alone.")
+                remaining = int(EARLY_ROTATION_COOLDOWN_SECONDS - (now_ts - last_toggle))
+                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but cooldown limit not reached. Waiting {remaining}s. Leaving it alone.")
             continue
             
         # 4. 정기 스케줄 로테이션 (2~3시간 주기)
@@ -376,7 +378,7 @@ def run_rotation():
                 log(f"[{name}] Rotation failed. Will retry.")
         else:
             # IP가 깨끗하게 작동 중인 정상 상태
-            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < 10). Keeping alive.")
+            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < {EARLY_ROTATION_SCORE_THRESHOLD}). Keeping alive.")
                 
     if state_changed:
         # [🛡️ Concurrency Safety] Merge latest scores from disk before writing to prevent wiping out updates from report.py
