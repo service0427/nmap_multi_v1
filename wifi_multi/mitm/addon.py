@@ -101,6 +101,18 @@ class ProxyV2ClassicLog:
             except Exception as e:
                 print(f" [!] Error intercepting ncaptcha-api.js: {e}")
 
+        # 3. Intercept Place Home HTML and increase executionTimeout from 1s to 10s
+        if "nmap.place.naver.com" in flow.request.host and flow.response and flow.response.status_code == 200:
+            if "text/html" in flow.response.headers.get("content-type", ""):
+                try:
+                    original_html = flow.response.text
+                    target_config = "executionTimeout: 1000"
+                    if target_config in original_html:
+                        flow.response.text = original_html.replace(target_config, "executionTimeout: 10000")
+                        print(f" [⚡ MITM HACK] Intercepted Place HTML and increased executionTimeout to 10s (Client: {self.real_ip})!")
+                except Exception as e:
+                    print(f" [!] Error intercepting Place HTML: {e}")
+
         handle_response(self, flow)
 
 addons = [ProxyV2ClassicLog()]
