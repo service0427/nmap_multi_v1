@@ -146,6 +146,8 @@ def main(log_dir, device_id):
         log_print(f"[*] Using Exact Server Arrival Time: {total_target_sec}s")
         
     session_start_ts = time.time()
+    driving_start_ts = None
+    log_print(f"[*] Session Start Time: {datetime.datetime.fromtimestamp(session_start_ts).strftime('%H:%M:%S')}")
     
     drive_state = "INIT"
     coords_list = []
@@ -227,6 +229,8 @@ def main(log_dir, device_id):
                                 env["NMAP_INITIAL_DIST_KM"] = str(dist)
                                 subprocess.run(["python3", os.path.join(script_dir, "reload_path.py"), latest_file, device_id], check=True, env=env)
                                 drive_state = "MONITORING"
+                                driving_start_ts = time.time()
+                                log_print(f"[🚀] Guidance Start Click Registered at {datetime.datetime.fromtimestamp(driving_start_ts).strftime('%H:%M:%S')}. Initiating driving.")
                                 log_print(f"[🛰️] State Transition: MONITORING")
                             else:
                                 log_print("[🚨] Failed to detect Guidance Start click. Exiting auto_reloader.")
@@ -249,7 +253,9 @@ def main(log_dir, device_id):
                         if err < min_err:
                             min_err = err; start_idx = i
                     remaining_dist = RouteDecoder.calculate_distance(coords_list[start_idx:])
-                    log_print(f"[🛣️] Progress: {remaining_dist:.2f} km remaining | Time: {elapsed}s / {total_target_sec}s")
+                    
+                    driving_elapsed = int(time.time() - driving_start_ts) if driving_start_ts else 0
+                    log_print(f"[🛣️] Progress: {remaining_dist:.2f} km remaining | Drive Time: {driving_elapsed}s / {total_target_sec}s (Total Session: {elapsed}s)")
                     
                     # Proactive Slowdown near Destination (<500m) for high-speed runs (>100 km/h)
                     if final_badge_speed > 100.0 and remaining_dist < 0.5 and not slowdown_applied:
