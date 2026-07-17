@@ -504,6 +504,7 @@ while true; do
                             exit 0
                         fi
                     fi
+                    ADDR_CLICK_TS=$(date +%s)
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
                     echo "[$(NOW)] [Action] Clicking '도착' (Arrival)..."
                     $MACRO_EXEC "$DEV_ID" "exact:도착" "$CAT"
@@ -592,10 +593,21 @@ while true; do
                     if [ "$ID" == "STEP_02_HOME" ]; then
                         human_random_sleep
                     elif [ "$ID" == "STEP_05_POI_ARRIVAL" ]; then
-                        # Provide a slightly longer delay (3-5s) to guarantee nCaptcha completes token acquisition under 300kbps
-                        local poi_sleep=$(awk "BEGIN {srand(); print 3.0 + rand() * 2.0}")
-                        echo "[$(NOW)] [Delay] Captcha Buffer sleep for ${poi_sleep}s..."
-                        sleep "$poi_sleep"
+                        # [⚡ 통계 기반 정밀 제어] 주소 클릭 후 캡차 검증 완료까지 평균 10.2초 소요 (95% 확률로 11초 이내 발생)
+                        # 주소 클릭 시점(ADDR_CLICK_TS)으로부터 정확히 11초가 경과할 때까지 동적으로 슬립
+                        if [ -n "$ADDR_CLICK_TS" ]; then
+                            local ADDR_ELAPSED=$(( $(date +%s) - ADDR_CLICK_TS ))
+                            if [ $ADDR_ELAPSED -lt 11 ]; then
+                                local req_sleep=$(( 11 - ADDR_ELAPSED ))
+                                echo "[$(NOW)] [Delay] Dynamic Captcha Buffer sleep for ${req_sleep}s (Total: 11s since Address Click)..."
+                                sleep $req_sleep
+                            else
+                                echo "[$(NOW)] [Delay] Dynamic Captcha Buffer bypassed (already elapsed ${ADDR_ELAPSED}s since Address Click)..."
+                            fi
+                        else
+                            echo "[$(NOW)] [Delay] Default Captcha Buffer sleep for 5s..."
+                            sleep 5
+                        fi
                         
                         # [🚨 신규 방어선] 도착 클릭 직전 에러로그 재검사 (대기 도중 발생한 캡차 타임아웃 사전 차단)
                         local TEMP_ERR_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
