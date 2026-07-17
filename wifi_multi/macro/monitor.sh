@@ -74,6 +74,16 @@ send_report_result() {
             --arg message "$message" \
             '{task_id: $task_id, status: $status, device_id: $device_id, message: $message}')
     fi
+
+    # [💡 NEW] Record result to persistent CSV file (Isolated from log cleaner)
+    local history_file="logs/rotator_history/session_history.csv"
+    if [ ! -f "$history_file" ]; then
+        mkdir -p "$(dirname "$history_file")"
+        echo "Timestamp,DeviceID,Subnet,TaskID,Status,Message" > "$history_file"
+    fi
+    local clean_message=$(echo "$message" | tr -d '"\r\n' | tr ',' ';')
+    echo "$(date +'%Y-%m-%d %H:%M:%S'),$DEV_ID,$SUBNET_IDX,$NMAP_LOG_ID,$status,$clean_message" >> "$history_file"
+
     send_api_request "/api/v1/report_result" "$payload"
 }
 
