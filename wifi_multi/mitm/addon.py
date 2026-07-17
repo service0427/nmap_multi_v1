@@ -82,6 +82,23 @@ class ProxyV2ClassicLog:
             print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Client: {self.real_ip})!")
             return
 
+        # 2. Steal-cap fpDuration in accessLog to look like a normal high-speed device
+        if "client-logger/accessLog" in flow.request.url and flow.request.text:
+            try:
+                import re
+                modified_text = flow.request.text
+                fp_matches = re.findall(r"fpDuration[:\s]*(\d+)ms", modified_text)
+                for val_str in fp_matches:
+                    val = int(val_str)
+                    if val > 1000:
+                        fake_val = random.randint(550, 850)
+                        modified_text = modified_text.replace(f"fpDuration: {val_str}ms", f"fpDuration: {fake_val}ms")
+                        modified_text = modified_text.replace(f"fpDuration:{val_str}ms", f"fpDuration:{fake_val}ms")
+                        print(f" [⚡ MITM STEALTH] Capped accessLog fpDuration from {val}ms to {fake_val}ms (Client: {self.real_ip})")
+                flow.request.text = modified_text
+            except Exception as e:
+                print(f" [!] Error capping accessLog fpDuration: {e}")
+
         handle_request(self, flow)
 
     def response(self, flow: http.HTTPFlow):
