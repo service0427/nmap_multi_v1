@@ -289,7 +289,7 @@ def main():
                 else:
                     curr_score = details.get("ip_score", 0)
                     
-                    # Scoring Logic (errorLog: +1, accessLog: -2, neither: 0)
+                    # Scoring Logic (errorLog: +1, accessLog: -1, lower cap: 0)
                     change_amount = 0
                     event_type = "NEUTRAL"
                     
@@ -299,8 +299,8 @@ def main():
                         event_type = "ERR_LOG"
                         log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit errorLog. Score: {curr_score} -> {new_score}"
                     elif has_access_log and reason == "Task Completed":
-                        new_score = max(-100, curr_score - 2)
-                        change_amount = -2
+                        new_score = max(0, curr_score - 1)
+                        change_amount = -1
                         event_type = "ACC_LOG"
                         log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) accessLog SUCCESS. Score: {curr_score} -> {new_score}"
                     else:
