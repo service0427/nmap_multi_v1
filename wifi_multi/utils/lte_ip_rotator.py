@@ -270,9 +270,18 @@ def is_subnet_active(subnet):
             if os.path.exists(task_file):
                 with open(task_file, 'r', encoding='utf-8', errors='ignore') as f:
                     data = json.load(f)
-                    if data.get("subnet") == subnet:
+                    # Determine task subnet (explicit key, fallback to parsing real_ip)
+                    task_subnet = data.get("subnet")
+                    if task_subnet is None:
+                        real_ip = data.get("real_ip", "")
+                        # Try parsing 192.168.XX.YY or similar local route bindings
+                        match = re.search(r'192\.168\.(\d+)\.', real_ip)
+                        if match:
+                            task_subnet = int(match.group(1))
+                            
+                    if task_subnet == subnet:
                         status = data.get("status", "IDLE")
-                        if status not in ["SUCCESS", "FAIL", "IDLE", "IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                        if status not in ["SUCCESS", "FAIL", "IDLE", "IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "INTERRUPTED_BY_NEW_TASK"]:
                             return True
     except Exception as e:
         log(f"Error checking subnet active state for {subnet}: {e}")

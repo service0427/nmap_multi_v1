@@ -302,7 +302,7 @@ while true; do
             echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${DEST_ID}/"
 
             mkdir -p "logs/${DEV_ID}/tmp"
-            echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\", \"task_id\": $TASK_ID}" > "$TASK_JSON"
+            echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\", \"task_id\": $TASK_ID, \"subnet\": $MODEM_IDX}" > "$TASK_JSON"
 
             NMAP_DATE_STR="$DATE_STR" \
             NMAP_TIME_STR="$TIME_STR" \
