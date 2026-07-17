@@ -476,20 +476,10 @@ while true; do
                 if [ "$ACTION" == "TYPE_DESTINATION" ]; then
                     type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
-                    if [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
-                        echo "[$(NOW)] [🔒] Subnet Lock required for subnet_${SUBNET_IDX} (SELECT_ADDR_LIST). Waiting..."
-                        mkdir -p logs/locks
-                        exec 9>>"logs/locks/subnet_${SUBNET_IDX}.lock"
-                        flock -w 1500 -x 9
-                        if [ $? -ne 0 ]; then
-                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (1500s). Previous device might be hung. Proceeding anyway..."
-                            HAS_SUBNET_LOCK="false"
-                        else
-                            HAS_SUBNET_LOCK="true"
-                            LOCK_ACQUIRED_TS=$(date +%s)
-                            echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX} at ${LOCK_ACQUIRED_TS}!"
-                        fi
-                    fi
+                    # [⚡ Bypassed Subnet Lock for Testing]
+                    # 5초 타임아웃 주입으로 전파 튐에 여유가 생겼으므로 락 없이 병렬 처리가 가능한지 검증을 위해 임시 우회합니다.
+                    HAS_SUBNET_LOCK="false"
+                    echo "[$(NOW)] [🔓] Subnet Lock bypassed (Testing 5s Timeout resilience)!"
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
                     for word in $NMAP_DEST_ADDR; do
