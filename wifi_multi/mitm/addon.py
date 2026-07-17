@@ -95,6 +95,14 @@ class ProxyV2ClassicLog:
                         modified_text = modified_text.replace(f"fpDuration: {val_str}ms", f"fpDuration: {fake_val}ms")
                         modified_text = modified_text.replace(f"fpDuration:{val_str}ms", f"fpDuration:{fake_val}ms")
                         print(f" [⚡ MITM STEALTH] Capped accessLog fpDuration from {val}ms to {fake_val}ms (Client: {self.real_ip})")
+                        try:
+                            # Write to global stealth replacements log
+                            # Using absolute path to ensure safety in subshells
+                            global_log_path = "/home/tech/nmap_multi_v1/wifi_multi/logs/stealth_replacements.log"
+                            with open(global_log_path, "a") as f_repl:
+                                f_repl.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{self.real_ip}] fpDuration: {val}ms -> {fake_val}ms\n")
+                        except Exception as e_log:
+                            print(f" [!] Error writing stealth log: {e_log}")
                 flow.request.text = modified_text
             except Exception as e:
                 print(f" [!] Error capping accessLog fpDuration: {e}")
