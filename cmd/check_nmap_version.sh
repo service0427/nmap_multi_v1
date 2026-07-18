@@ -96,21 +96,5 @@ echo -e "========================================================\n"
 
 if [ $needs_update_count -gt 0 ]; then
     echo -e "${YELLOW}[⚠️] 업데이트 또는 설치가 필요한 기기가 총 ${needs_update_count}대 발견되었습니다.${NC}"
-    read -p "[?] 최신 ${TARGET_VER} 버전으로 대상 기기들을 즉시 일괄 패치하시겠습니까? (y/N): " confirm < /dev/tty
-    if [[ "$confirm" =~ ^[yY](es)?$ ]]; then
-        echo -e "\n[*] 네이버 지도 일괄 패치를 개시합니다 (대상 기기: ${needs_update_list[*]})..."
-        PATCH_RUNNER="$PROJECT_ROOT/cmd/patch_naver_map.sh"
-        if [ -f "$PATCH_RUNNER" ]; then
-            for target_dev in "${needs_update_list[@]}"; do
-                # adb 서버 락 방지를 위해 1.2초 간격으로 병렬 배출 실행
-                bash "$PATCH_RUNNER" "$target_dev" &
-                sleep 1.2
-            done
-            wait
-        else
-            echo -e "${RED}[- ] 에러: patch_naver_map.sh 런너가 존재하지 않습니다.${NC}"
-        fi
-    else
-        echo -e "[*] 패치 작업을 생략합니다."
-    fi
+    echo -e "    - 신규/업데이트 설치 및 패치는 ${GREEN}./device_init.sh${NC} 를 구동하여 진행하시기 바랍니다."
 fi
