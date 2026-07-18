@@ -173,6 +173,8 @@ echo "------------------------------------------------------------"
 echo " [$DEV_ID] [📊] Environment Snapshot: Temp=${TEMP_C}°C | Batt=${BATT_LEVEL}% | Free RAM=${FREE_RAM}"
 
 # 2. IP Verification (Robust 30s Wait for IP Toggles)
+# Clear any lingering proxy settings from previous failed/killed runs first to ensure curl runs direct
+adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
 echo " [$DEV_ID] [🌐] Verifying External Network..."
 IP_READY=false
 TO_VAL=${STARTUP_CONNECT_TIMEOUT:-10}
