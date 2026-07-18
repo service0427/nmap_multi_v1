@@ -205,8 +205,8 @@ def handle_request(addon, flow: http.HTTPFlow):
         is_json = "json" in content_type
         
         try:
-            if "trafficjam" in path_lower:
-                # Handle trafficjam (location, log, etc.)
+            if "trafficjam" in path_lower or "log-receiver" in host.lower():
+                # Handle trafficjam or log-receiver (location, log, etc.)
                 raw = flow.request.content
                 is_gz = raw.startswith(b'\x1f\x8b')
                 if is_gz: raw = gzip.decompress(raw)
@@ -217,7 +217,8 @@ def handle_request(addon, flow: http.HTTPFlow):
                     try:
                         dec, mt = blackboxprotobuf.decode_message(raw)
                         if dec:
-                            jitter_location_dict(dec)
+                            if "trafficjam" in path_lower:
+                                jitter_location_dict(dec)
                             # Apply identity washing
                             dec = smart_cleanse(dec)
                             wash_network_env(dec)
@@ -234,7 +235,8 @@ def handle_request(addon, flow: http.HTTPFlow):
                 if not modified:
                     try:
                         body_json = json.loads(raw.decode('utf-8', 'ignore'))
-                        jitter_location_dict(body_json)
+                        if "trafficjam" in path_lower:
+                            jitter_location_dict(body_json)
                         body_json = smart_cleanse(body_json)
                         wash_network_env(body_json)
                         
@@ -245,7 +247,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                         flow.request.content = bytes(gzip.compress(work) if is_gz else work)
                     except:
                         flow.request.content = smart_cleanse(flow.request.content)
-                return # Important: trafficjam handled
+                return # Important: trafficjam/log-receiver handled
             
             elif "nlogapp" in path_lower or "nelo" in path_lower or "nelo" in host.lower() or is_json:
                 try:
