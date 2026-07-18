@@ -212,30 +212,32 @@ class ProxyV2ClassicLog:
                 "status": "ARRIVED"
             })
 
-        # 2. Intercept nCaptcha JS and increase timeout from 1s to 10s
+        # 2. Intercept nCaptcha JS and increase timeout from 1s to target value
         if "ncaptcha-api.js" in flow.request.url and flow.response and flow.response.status_code == 200:
             try:
                 original_text = flow.response.text
                 target_expr = "-1531*-5+-5599+-8*132+0"
                 if target_expr in original_text:
-                    flow.response.text = original_text.replace(target_expr, "10000")
-                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and increased timeout to 10s (Device: {self.device_id})!")
-                    self._write_stealth_log("ncaptcha-api.js Timeout", "Capped script timeout expression to 10000 (10s)")
+                    timeout_val = os.environ.get("NCAPTCHA_TIMEOUT_MS", "10000")
+                    flow.response.text = original_text.replace(target_expr, timeout_val)
+                    print(f" [⚡ MITM HACK] Intercepted ncaptcha-api.js and updated timeout to {timeout_val}ms (Device: {self.device_id})!")
+                    self._write_stealth_log("ncaptcha-api.js Timeout", f"Capped script timeout expression to {timeout_val}ms")
                 else:
                     print(f" [⚠️ MITM HACK] ncaptcha-api.js loaded but target timeout expression not found!")
             except Exception as e:
                 print(f" [!] Error intercepting ncaptcha-api.js: {e}")
 
-        # 3. Intercept Place Home HTML and increase executionTimeout from 1s to 10s
+        # 3. Intercept Place Home HTML and increase executionTimeout from 1s to target value
         if "nmap.place.naver.com" in flow.request.host and flow.response and flow.response.status_code == 200:
             if "text/html" in flow.response.headers.get("content-type", ""):
                 try:
                     original_html = flow.response.text
                     target_config = "executionTimeout: 1000"
                     if target_config in original_html:
-                        flow.response.text = original_html.replace(target_config, "executionTimeout: 10000")
-                        print(f" [⚡ MITM HACK] Intercepted Place HTML and increased executionTimeout to 10s (Device: {self.device_id})!")
-                        self._write_stealth_log("Place HTML executionTimeout", "Capped executionTimeout config to 10000 (10s)")
+                        timeout_val = os.environ.get("NCAPTCHA_TIMEOUT_MS", "10000")
+                        flow.response.text = original_html.replace(target_config, f"executionTimeout: {timeout_val}")
+                        print(f" [⚡ MITM HACK] Intercepted Place HTML and updated executionTimeout to {timeout_val}ms (Device: {self.device_id})!")
+                        self._write_stealth_log("Place HTML executionTimeout", f"Capped executionTimeout config to {timeout_val}ms")
                 except Exception as e:
                     print(f" [!] Error intercepting Place HTML: {e}")
 
