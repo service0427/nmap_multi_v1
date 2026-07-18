@@ -34,7 +34,6 @@ def handle_response(addon, flow: http.HTTPFlow):
                 if is_gz:
                     import gzip
                     content = gzip.decompress(content)
-                import json
                 body_json = json.loads(content.decode('utf-8', 'ignore'))
                 msg_str = body_json.get("message")
                 if msg_str:
