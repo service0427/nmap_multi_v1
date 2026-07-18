@@ -48,11 +48,11 @@ RED="\e[1;31m"
 YELLOW="\e[1;33m"
 NC="\e[0m"
 
-echo -e "\n========================================================"
+echo -e "\n============================================================"
 echo -e " 🗺️  Naver Map Version Checker (Server Target: \e[1;36m$TARGET_VER\e[0m)"
-echo -e "========================================================"
-printf "  %-15s | %-15s | %-12s\n" "Device ID" "Version" "Status"
-echo -e "--------------------------------------------------------"
+echo -e "============================================================"
+printf "  %-3s  %-15s | %-15s | %-12s\n" "No." "Device ID" "Version" "Status"
+echo -e "------------------------------------------------------------"
 
 # 병렬 처리를 위한 임시 파일 활용
 tmp_file=$(mktemp)
@@ -82,9 +82,11 @@ rm -f "$tmp_file"
 
 needs_update_count=0
 needs_update_list=()
+idx=1
 
 while IFS=: read -r serial version status; do
-    printf "  %-15s | %-15s | %b\n" "$serial" "$version" "$status"
+    printf "  %02d. %-15s | %-15s | %b\n" "$idx" "$serial" "$version" "$status"
+    idx=$((idx + 1))
     if [[ "$status" == *"Missing"* ]] || [[ "$status" == *"Outdated"* ]]; then
         needs_update_count=$((needs_update_count + 1))
         needs_update_list+=("$serial")
@@ -92,7 +94,7 @@ while IFS=: read -r serial version status; do
 done < "$sorted_tmp"
 
 rm -f "$sorted_tmp"
-echo -e "========================================================\n"
+echo -e "============================================================\n"
 
 if [ $needs_update_count -gt 0 ]; then
     echo -e "${YELLOW}[⚠️] 업데이트 또는 설치가 필요한 기기가 총 ${needs_update_count}대 발견되었습니다.${NC}"
