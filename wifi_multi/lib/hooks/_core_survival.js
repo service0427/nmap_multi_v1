@@ -108,6 +108,23 @@ function hook_stealth() {
                 }
                 return getProp.call(System, key);
             };
+
+            // [🛰️ Android Auto Connection Spoofing]
+            try {
+                var CarConnection = Java.use("androidx.car.app.connection.CarConnection");
+                CarConnection.getType.implementation = function() {
+                    console.log("[🛰️ FRIDA HOOK] androidx.car.app.connection.CarConnection.getType() called! Force returning 2 (Projection Mode Connected)");
+                    return 2; // CONNECTION_TYPE_PROJECTION
+                };
+            } catch (err) {}
+
+            try {
+                var UiModeManager = Java.use("android.app.UiModeManager");
+                UiModeManager.getCurrentModeType.implementation = function() {
+                    console.log("[🛰️ FRIDA HOOK] android.app.UiModeManager.getCurrentModeType() called! Force returning 3 (UI_MODE_TYPE_CAR)");
+                    return 3; // UI_MODE_TYPE_CAR
+                };
+            } catch (err) {}
         } catch(e) {}
     });
 }
