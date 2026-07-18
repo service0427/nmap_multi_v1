@@ -49,6 +49,20 @@ trap release_lock_on_exit EXIT INT TERM
 # --- [CORE] Functions ---
 NOW() { date +"%H:%M:%S.%3N"; }
 
+log_api_backup() {
+    local endpoint=$1
+    local payload=$2
+    local response=$3
+    local backup_dir="/home/tech/nmap_multi_v1/api_backup"
+    mkdir -p "$backup_dir"
+    local today=$(date +%Y%m%d)
+    local backup_file="${backup_dir}/${today}_api_transmissions.log"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] [Device: $DEV_ID] [Task: ${NMAP_LOG_ID:-N/A}]" >> "$backup_file"
+    echo "  - REQ: ${endpoint} -> ${payload}" >> "$backup_file"
+    echo "  - RES: ${response}" >> "$backup_file"
+    echo "------------------------------------------------------------" >> "$backup_file"
+}
+
 send_api_request() {
     local endpoint=$1
     local payload=$2
@@ -56,6 +70,9 @@ send_api_request() {
     local response=$(curl --connect-timeout 10 --max-time 15 -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER:-localhost:8000}${endpoint}" \
          -H "Content-Type: application/json" -d "$payload")
     echo "[$(NOW)] [API_RES] $response"
+    
+    # Save a persistent local backup of the API transmission
+    log_api_backup "$endpoint" "$payload" "$response"
 }
 
 send_report_result() {

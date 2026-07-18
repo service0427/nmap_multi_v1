@@ -28,6 +28,20 @@ BIND_IFACE=""
 BIND_IP="$NMAP_BIND_IP"
 CURL_OPT="--connect-timeout 10 --max-time 15"
 
+log_api_backup() {
+    local endpoint=$1
+    local payload=$2
+    local response=$3
+    local backup_dir="/home/tech/nmap_multi_v1/api_backup"
+    mkdir -p "$backup_dir"
+    local today=$(date +%Y%m%d)
+    local backup_file="${backup_dir}/${today}_api_transmissions.log"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] [Device: $DEV_ID] [Task: ${NMAP_LOG_ID:-N/A}]" >> "$backup_file"
+    echo "  - REQ: ${endpoint} -> ${payload}" >> "$backup_file"
+    echo "  - RES: ${response}" >> "$backup_file"
+    echo "------------------------------------------------------------" >> "$backup_file"
+}
+
 # =================================================================================
 # [포트 대역 구조 가이드 - 절대 롤백 금지]
 # - NMAP_FRIDA_PORT = 10000 + device_seq (DB 고유 일련번호)
@@ -44,9 +58,11 @@ if [ -f "$CURRENT_TASK_JSON" ]; then
     PREV_TASK_ID=$(jq -r '.task_id // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
     if [ -n "$PREV_TASK_ID" ] && [ "$PREV_STATUS" != "SUCCESS" ] && [ "$PREV_STATUS" != "FAIL" ] && [ "$PREV_STATUS" != "API_ERROR" ]; then
         echo "[$DEV_ID] [⚠️] Reporting FAIL for interrupted/zombie task: $PREV_TASK_ID (Previous status: $PREV_STATUS)"
-        curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
-             -H "Content-Type: application/json" \
-             -d "{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}" >/dev/null 2>&1
+        local endpoint="/api/v1/report_result"
+        local payload="{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}"
+        local response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
+             -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
+        log_api_backup "$endpoint" "$payload" "$response"
         
         # Also log to our persistent history
         local history_file="logs/rotator_history/session_history.csv"
@@ -120,9 +136,11 @@ cleanup() {
         if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]]; then
             REPORT_STATUS="API_ERROR"
         fi
-        curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
-             -H "Content-Type: application/json" \
-             -d "{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"$REPORT_STATUS\", \"message\": \"$REASON\"}" > /dev/null
+        local endpoint="/api/v1/report_result"
+        local payload="{\"task_id\": \"$NMAP_LOG_ID\", \"device_id\": \"$DEV_ID\", \"status\": \"$REPORT_STATUS\", \"message\": \"$REASON\"}"
+        local response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
+             -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
+        log_api_backup "$endpoint" "$payload" "$response"
     else
         echo "[$DEV_ID] Task was SUCCESSFUL. Skipping FAIL report."
     fi
@@ -217,9 +235,11 @@ if [ "$IP_READY" = false ]; then
     cleanup "NETWORK_TIMEOUT"
 fi
 
-curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/update_status" \
-     -H "Content-Type: application/json" \
-     -d "{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}" > /dev/null
+local endpoint="/api/v1/update_status"
+local payload="{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}"
+local response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
+     -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
+log_api_backup "$endpoint" "$payload" "$response"
 
 # Save Real IP to current_task.json and session_summary.json for Web Monitor
 CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
