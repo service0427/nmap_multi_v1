@@ -14,6 +14,11 @@ ADB_KB_IME="com.android.adbkeyboard/.AdbIME"
 GPS_PKG="com.rosteam.gpsemulator"
 cd "$WIFI_MULTI_ROOT" || exit 1
 
+# --- [전역 설정 로드] ---
+if [ -f "config.conf" ]; then
+    source "config.conf"
+fi
+
 export ABS_LOG_DIR=$(realpath "$LOG_DIR")
 export CAPTURE_LOG_DIR="$ABS_LOG_DIR"
 EXEC_LOG="$ABS_LOG_DIR/execution.log"
@@ -442,6 +447,21 @@ while true; do
         U_PAT=$(echo "$step" | jq -r '.url // empty' | tr -d '\r\n')
         CAT=$(echo "$step" | jq -r '.category // "AutoV2"' | tr -d '\r\n')
 
+        # --- [QoS 안전장치 전역 설정 연동 데드락 극복 동적 오버라이드] ---
+        if [ "$ID" == "STEP_07_2_DRIVING_STARTED" ]; then
+            if [ "$USE_GPS_QOS_GUARD" == "true" ]; then
+                # QoS 안전장치가 켜진 경우: 패킷 감지 대신 화면(navi.drivemode) 진입 감지
+                T_PAT="screenview"
+                N_PAT="navi.drivemode"
+                U_PAT=""
+            else
+                # QoS 안전장치가 꺼진 경우: 기존 v3/global/driving 패킷 기준 감지
+                T_PAT=""
+                N_PAT=""
+                U_PAT="v3/global/driving.*rptype=[02]"
+            fi
+        fi
+
         if [ "$MATCHED_IDX" != "BYPASS" ]; then
             MATCHED_IDX=""
             if [ -n "$T_PAT" ] && [ -n "$N_PAT" ]; then
@@ -463,7 +483,14 @@ while true; do
                 "STEP_04_SELECT_ADDR") update_live_status "SELECTING_DEST" ;;
                 "STEP_05_POI_ARRIVAL") update_live_status "CONFIRM_ARRIVAL" ;;
                 "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
-                "STEP_07_2_DRIVING_STARTED") update_live_status "DRIVING" ;;
+                "STEP_07_2_DRIVING_STARTED") 
+                    update_live_status "DRIVING" 
+                    if [ "$USE_GPS_QOS_GUARD" == "true" ]; then
+                        # QoS 안전장치 활성화 상태: 네비 진입 확정 감지 후 지연 출발 처리
+                        echo "[$(NOW)] [🚀] GPS QoS Guard active. Waking up GPS Emulator..."
+                        touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                    fi
+                    ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
                 "STEP_09_FINISH") update_live_status "SUCCESS" ;;
             esac
@@ -476,11 +503,23 @@ while true; do
                 if [ "$ACTION" == "TYPE_DESTINATION" ]; then
                     type_destination_only
                 elif [ "$ACTION" == "SELECT_ADDR_LIST" ]; then
-                    # [⚡ Bypassed Subnet Lock for Testing]
-                    # 10초 대칭 타임아웃 + 에러 로그 프록시 필터링이 작동 중이므로,
-                    # 정체 지연이 나더라도 차단되지 않습니다. 속도 극대화를 위해 락을 우회합니다.
-                    HAS_SUBNET_LOCK="false"
-                    echo "[$(NOW)] [🔓] Subnet Lock bypassed (Testing 10s Timeout & Block filter resilience)!"
+                    # [🔒 Subnet Lock Control] 전역 설정(USE_SUBNET_LOCK)에 의거하여 모뎀 대역폭 락 집행 여부 결정
+                    if [ "$USE_SUBNET_LOCK" == "true" ] && [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
+                        echo "[$(NOW)] [🔒] Subnet Lock is enabled. Waiting for lock on subnet_${SUBNET_IDX}..."
+                        exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
+                        flock -w 1500 -x 9
+                        if [ $? -ne 0 ]; then
+                            echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (1500s). Previous device might be hung. Proceeding anyway..."
+                            HAS_SUBNET_LOCK="false"
+                        else
+                            HAS_SUBNET_LOCK="true"
+                            LOCK_ACQUIRED_TS=$(date +%s)
+                            echo "[$(NOW)] [🔓] Subnet Lock acquired on subnet_${SUBNET_IDX} at ${LOCK_ACQUIRED_TS}!"
+                        fi
+                    else
+                        HAS_SUBNET_LOCK="false"
+                        echo "[$(NOW)] [🔓] Subnet Lock bypassed (Global Config: USE_SUBNET_LOCK=false)."
+                    fi
                     # Clean the address (remove detail suite/floor/room numbers)
                     CLEANED_ADDR=""
                     for word in $NMAP_DEST_ADDR; do
@@ -528,8 +567,13 @@ while true; do
                         exit 0
                     else
                         NAVI_START_TS=$(date +%s)
-                        # Signal auto_reloader.py to start GPS immediately after clicking guidance start
-                        touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        if [ "$USE_GPS_QOS_GUARD" != "true" ]; then
+                            # Signal auto_reloader.py to start GPS immediately after clicking guidance start (QoS Guard disabled)
+                            echo "[$(NOW)] [🚀] GPS QoS Guard is FALSE. Starting GPS Emulator immediately..."
+                            touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        else
+                            echo "[$(NOW)] [🛰️] GPS QoS Guard is TRUE. Delaying GPS Emulator start until driving screen is active."
+                        fi
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
                     echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
