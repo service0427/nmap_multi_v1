@@ -179,13 +179,26 @@ echo " [$DEV_ID] [🌐] Verifying External Network..."
 IP_READY=false
 TO_VAL=${STARTUP_CONNECT_TIMEOUT:-10}
 for i in {1..3}; do
-    # Try multiple IP check services in sequence to resolve rate limits or downtime
-    REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me || curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    # Try system curl first as it is native and works on modern 64-bit-only CPUs (Z Flip 3, etc.)
+    REAL_IP=$(adb -s "$DEV_ID" shell "curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     if [ -z "$REAL_IP" ]; then
-        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org || curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+        REAL_IP=$(adb -s "$DEV_ID" shell "curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     fi
     if [ -z "$REAL_IP" ]; then
-        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://icanhazip.com || curl -s --connect-timeout $TO_VAL -4 http://icanhazip.com" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+        REAL_IP=$(adb -s "$DEV_ID" shell "curl -s --connect-timeout $TO_VAL -4 http://icanhazip.com" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    fi
+
+    # Fallback to custom curl if system curl is missing or failed
+    if [ -z "$REAL_IP" ]; then
+        REAL_IP=$(adb -s "$DEV_ID" shell "/data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    fi
+    if [ -z "$REAL_IP" ]; then
+        REAL_IP=$(adb -s "$DEV_ID" shell "/data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    fi
+    
+    # Fallback to wget as a final attempt
+    if [ -z "$REAL_IP" ]; then
+        REAL_IP=$(adb -s "$DEV_ID" shell "wget -qO- --timeout=$TO_VAL http://ifconfig.me" 2>/dev/null | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     fi
 
     if [ -n "$REAL_IP" ]; then
