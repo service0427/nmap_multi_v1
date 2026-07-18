@@ -7,8 +7,8 @@ CONF_FILE="$CONF_DIR/device_order.json"
 
 mkdir -p "$CONF_DIR"
 
-# adb devices 결과에서 시리얼만 순서대로 추출
-devices=$(adb devices | awk 'NR>1 {print $1}' | grep -v '^$')
+# adb devices 결과에서 시리얼만 정렬하여 추출
+devices=$(adb devices | awk 'NR>1 {print $1}' | grep -v '^$' | sort)
 
 if [ -z "$devices" ]; then
     echo "[!] 에러: 연결된 adb 기기가 없습니다. JSON을 생성하지 않습니다."

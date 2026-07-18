@@ -23,880 +23,91 @@ def get_connected_devices_count():
         return 10
 
 MAX_SLOTS = get_connected_devices_count()
+
+def load_global_config():
+    conf = {}
+    conf_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "config.conf")
+    if os.path.exists(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        parts = line.split("=", 1)
+                        k = parts[0].strip()
+                        v = parts[1].strip().strip("\"").strip("\'")
+                        conf[k] = v
+        except:
+            pass
+    return conf
+
 LOG_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "logs")
+EXCLUDED_DEVICES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "config", "excluded_devices.json")
+
+def load_excluded_devices():
+    if os.path.exists(EXCLUDED_DEVICES_PATH):
+        try:
+            with open(EXCLUDED_DEVICES_PATH, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def save_excluded_devices(devices_list):
+    try:
+        os.makedirs(os.path.dirname(EXCLUDED_DEVICES_PATH), exist_ok=True)
+        with open(EXCLUDED_DEVICES_PATH, "w") as f:
+            json.dump(devices_list, f, indent=2)
+    except:
+        pass
+
+USB_PORTS_FILE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "config", "usb_ports.json")
+
+def load_usb_ports():
+    if os.path.exists(USB_PORTS_FILE_PATH):
+        try:
+            with open(USB_PORTS_FILE_PATH, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_usb_ports(mapping):
+    try:
+        os.makedirs(os.path.dirname(USB_PORTS_FILE_PATH), exist_ok=True)
+        with open(USB_PORTS_FILE_PATH, "w") as f:
+            json.dump(mapping, f, indent=2)
+    except:
+        pass
+
 
 # 기기 위치 고정 및 진단 캐시
 device_slots = [None] * MAX_SLOTS
 diag_cache = {}
 
 # --- HTML TEMPLATE ---
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ hostname }} - Monitor</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" href="data:;base64,iVBORw0KGgo=">
-    <style>
-        :root {
-            --bg-color: #121212;
-            --text-color: #eee;
-            --card-bg: #1e1e1e;
-            --card-border: #333;
-            --text-muted: #aaa;
-            --timer-color: #ffeb3b;
-            --btn-ctrl-bg: #333;
-            --btn-ctrl-color: white;
-            --badge-idle-bg: #424242;
-            --badge-idle-color: #bbb;
-        }
-        body.light-theme {
-            --bg-color: #f5f5f5;
-            --text-color: #111;
-            --card-bg: #ffffff;
-            --card-border: #ddd;
-            --text-muted: #555;
-            --timer-color: #d32f2f;
-            --btn-ctrl-bg: #e0e0e0;
-            --btn-ctrl-color: #333;
-            --badge-idle-bg: #e0e0e0;
-            --badge-idle-color: #555;
-        }
-        body { background: var(--bg-color); color: var(--text-color); font-family: sans-serif; margin: 0; padding: 10px; transition: background 0.3s, color 0.3s; }
-        .container { display: grid; grid-template-columns: repeat(auto-fill, 326px); gap: 15px; max-width: 1800px; margin: 0 auto; justify-content: center; }
-        .device-card { background: var(--card-bg); border-radius: 8px; padding: 10px; border: 1px solid var(--card-border); text-align: center; width: 326px; height: 865px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; transition: background 0.3s, border-color 0.3s; }
-        .device-card.working { border-color: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.2); }
-        .device-card.offline { opacity: 0.5; border-color: #f44336; }
-        
-        .top-navbar { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%; transition: background 0.3s, border-color 0.3s; }
-        body.light-theme .top-navbar { background: rgba(255, 255, 255, 0.95); border-bottom: 1px solid #ddd; }
-        body.light-theme .active-screens-badge { background: #e0e0e0 !important; color: #111 !important; }
-        body.light-theme #theme-btn { border-color: #bbb; color: #111; }
+# HTML template path
+TEMPLATE_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "monitor.html")
 
-        .card-header { display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 35px; flex-shrink: 0; }
-        .device-id { font-weight: bold; color: #4CAF50; font-size: 0.85em; line-height: 1.2; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-        .device-id-clickable { cursor: pointer; transition: color 0.2s, opacity 0.2s; }
-        .device-id-clickable:hover { color: #81C784; opacity: 0.85; }
-        .header-buttons { display: flex; gap: 5px; align-items: center; }
-        .header-buttons button { padding: 3px 5px; font-size: 0.75em; border-radius: 4px; border: none; cursor: pointer; color: white; min-width: 24px; }
-        .touch-label { background: #333; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; cursor: pointer; font-size: 0.8em; }
-        
-        .diag-overlay { background: rgba(0,0,0,0.7); padding: 4px 6px; border-radius: 4px; margin-bottom: 5px; font-size: 0.72em; text-align: left; display: flex; flex-direction: column; gap: 2px; height: 63px; box-sizing: border-box; transition: background 0.3s, border-color 0.3s; }
-        body.light-theme .diag-overlay { background: rgba(240, 240, 240, 0.9); border: 1px solid #ddd; }
-        .diag-item { display: flex; justify-content: space-between; }
-        .status-badge { padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 0.8em; }
-        .badge-working { background: #2E7D32; color: white; }
-        .badge-idle { background: var(--badge-idle-bg); color: var(--badge-idle-color); }
-        .badge-offline { background: #d32f2f; color: white; }
-        .badge-cooldown { background: #E65100; color: white; }
-        .badge-penalty { background: #4A148C; color: white; }
-        .badge-unauthorized { background: #555555; color: white; }
-        
-        .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
-        @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+def get_html_template():
+    try:
+        with open(TEMPLATE_FILE_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error loading template: {e}"
 
-        /* [NEW] Live Task Info Styles */
-        .live-task-box { background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 4px; padding: 6px; margin-bottom: 8px; text-align: left; font-size: 0.85em; height: 74px; box-sizing: border-box; }
-        .live-task-dest { color: #4CAF50; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
-        .live-task-meta { display: flex; flex-direction: column; gap: 1px; color: var(--text-muted); font-size: 0.85em; }
-        .live-task-row { display: flex; justify-content: space-between; }
-        .elapsed-timer { color: var(--timer-color); font-family: monospace; font-weight: bold; }
-        .target-confirmed { color: #4CAF50; font-weight: bold; }
-
-        .screen-container { position: relative; width: 306px; height: 610px; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 4px; overflow: hidden; flex-shrink: 0; }
-        .screen-img { width: 306px; height: 610px; object-fit: contain; display: none; }
-        
-        .offline-placeholder { color: #555; font-size: 1.2em; font-weight: bold; display: flex; flex-direction: column; gap: 10px; }
-
-        .controls { margin-top: auto; display: flex; gap: 8px; justify-content: center; padding: 10px 0; flex-shrink: 0; }
-        button.btn-ctrl { padding: 8px 12px; cursor: pointer; background: var(--btn-ctrl-bg); color: var(--btn-ctrl-color); border: none; border-radius: 4px; font-weight: bold; font-size: 1.2em; transition: background 0.3s, color 0.3s; }
-        
-        .dimmed { opacity: 0.3; pointer-events: none; }
-        
-        /* Single Device Mode Styles */
-        body.single-device {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background: #121212;
-        }
-        body.single-device .container {
-            display: flex;
-            width: 100vw;
-            height: 100vh;
-            max-width: 100vw;
-            margin: 0;
-            padding: 0;
-            justify-content: center;
-            align-items: center;
-        }
-        body.single-device .device-card {
-            width: 100vw;
-            height: 100vh;
-            border: none;
-            border-radius: 0;
-            padding: 10px;
-            box-sizing: border-box;
-            background: #121212;
-        }
-        body.single-device .screen-container {
-            width: 100%;
-            height: 0;
-            flex-grow: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-        }
-        body.single-device .screen-img {
-            max-width: 100%;
-            max-height: 100%;
-            width: auto;
-            height: auto;
-            aspect-ratio: 9 / 19;
-            object-fit: contain;
-        }
-    </style>
-</head>
-<body class="{{ 'single-device' if target_device_id else '' }}">
-    {% if not target_device_id %}
-    <div class="top-navbar">
-        <h2 style="margin: 0; font-size: 1.05em; color: #4CAF50; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-weight: bold;">
-            [ {{ hostname }} ]
-            <span id="farm-summary" style="font-size: 0.85em; color: #aaa; font-weight: normal; margin-left: 5px;">
-                (연결: -대 | 동작: - | 대기: - | 오프라인: -)
-            </span>
-        </h2>
-        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-            <span class="active-screens-badge" style="font-size: 0.9em; background: #333; padding: 6px 12px; border-radius: 4px; color: #ffeb3b; font-weight: bold;">
-                📺 활성 화면: <span id="active-screen-count">0</span> (최대 5개 권장)
-            </span>
-            <button onclick="unlockAllDevices()" style="background: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
-                🔓 전체 잠금 해제
-            </button>
-            <button onclick="setThemeAllDevices('dark')" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="전체 기기 다크모드 일괄 적용">🌙</button>
-            <button onclick="setThemeAllDevices('light')" style="background: transparent; border: 1px solid #555; color: white; padding: 6px; border-radius: 50%; cursor: pointer; font-size: 1.1em; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; box-sizing: border-box;" title="전체 기기 라이트모드 일괄 적용">☀️</button>
-            <button onclick="closeAllMonitors()" style="background: #f44336; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em;">
-                ❌ 전체 화면 닫기
-            </button>
-        </div>
-    </div>
-    {% endif %}
-    <div class="container" id="device-container">
-        {% for i in range(MAX_SLOTS) %}
-        {% set dev = slots[i] %}
-        {% set is_target = (not target_device_id) or (dev and dev.id == target_device_id) %}
-        <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}" style="display: {{ 'flex' if is_target else 'none' }};">
-            <div class="card-header {{ 'dimmed' if not dev or dev.offline }}" id="header-{{ i }}">
-                <span class="device-id" id="dev-name-{{ i }}">
-                    <span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#{{ "%02d" | format(i + 1) }}</span>
-                    {% if dev and not dev.offline %}
-                    <span class="device-id-clickable" onclick="copyDevId('{{ dev.id }}', 'dev-id-txt-{{ i }}')" id="dev-id-txt-{{ i }}" title="클릭하여 디바이스 ID 복사">{{ dev.id }}</span>
-                    {% else %}
-                    <span>{{ dev.id if dev else 'EMPTY SLOT' }}</span>
-                    {% endif %}
-                </span>
-                <div class="header-buttons" id="header-btns-{{ i }}" style="display: {{ 'flex' if dev and not dev.offline else 'none' }};">
-                    <button id="btn-mon-{{ i }}" onclick="toggleMonitor({{ i }})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
-                    <button onclick="unlockDevice({{ i }})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                    <button onclick="rebootDevice({{ i }})" style="background: #f44336;" title="Reboot">🔄</button>
-                </div>
-            </div>
-            
-            <div class="diag-overlay" style="height: 63px;">
-                <div class="diag-item">
-                    {% set is_active = dev and dev.status != 'IDLE' and not dev.offline %}
-                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-cooldown' if dev.status in ['IP_COOLDOWN', 'COOLDOWN'] else ('badge-penalty' if dev.status == 'PENALTY' else ('badge-unauthorized' if dev.status == 'UNAUTHORIZED' else ('badge-working' if is_active else 'badge-idle')))) }}" id="badge-{{ i }}">
-                        {{ 'OFFLINE' if not dev or dev.offline else (dev.status if dev.status else 'IDLE') }}
-                    </span>
-                    <span id="model-{{ i }}" style="color: #888; margin-left: auto;">{{ dev.model if dev else 'N/A' }}</span>
-                </div>
-                <div class="diag-item">
-                    <span id="ip-{{ i }}" style="color: #4CAF50;">{{ dev.ip if dev else 'N/A' }}</span>
-                    <span style="margin-left: auto; display: flex; gap: 8px;">
-                        <span id="temp-{{ i }}" style="color: #ff9800;">🌡️ {{ dev.temp if dev else '??' }}°C</span>
-                        {% set b_val = (dev.battery | int(-1)) if dev else -1 %}
-                        <span id="battery-{{ i }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
-                            🔋 {{ dev.battery if dev else '??' }}%
-                        </span>
-                    </span>
-                </div>
-                <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
-                    📝 <span id="log-{{ i }}" style="margin-left: 2px;">{{ dev.latest_log if dev else '-' }}</span>
-                </div>
-            </div>
-
-            <div id="task-container-{{ i }}">
-                {% if dev and dev.current_task %}
-                {% set is_success = dev.current_task.status == 'SUCCESS' %}
-                <div class="live-task-box" style="{{ 'border-color: rgba(76, 175, 80, 0.6); background: rgba(76, 175, 80, 0.05);' if is_success }}">
-                    <div class="live-task-dest" title="{{ dev.current_task.dest_name }}">🎯 {{ dev.current_task.dest_name }} {% if dev.dest_id %}<span style="color:#aaa; font-size:0.8em; margin-left:5px;">(#{{ dev.dest_id }})</span>{% endif %}</div>
-                    <div class="live-task-meta">
-                        <div class="live-task-row">
-                            <span>
-                                {% if is_success %}
-                                    <span style="color: #4CAF50; font-weight: bold;">✅ 완료</span>
-                                {% else %}
-                                    ⏱️ <span class="elapsed-timer" data-start="{{ dev.current_task.start_ts }}">-</span>
-                                {% endif %}
-                            </span>
-                            <span>🏁 
-                                {% if dev.current_task.target_sec %}
-                                    <span class="target-confirmed">{{ (dev.current_task.target_sec / 60) | int }}m {{ dev.current_task.target_sec % 60 }}s</span>
-                                {% else %}
-                                    {{ dev.current_task.target_range }}m
-                                {% endif %}
-                            </span>
-                        </div>
-                        {% if dev.current_task.total_dist_km %}
-                        <div class="live-task-row" style="margin-top: 2px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 2px; font-size: 0.9em;">
-                            <span style="color: #2196F3;">🛣️ {{ dev.current_task.total_dist_km }}km {% if dev.current_task.remaining_dist_km and not is_success %}(남음: {{ dev.current_task.remaining_dist_km }}km){% endif %}</span>
-                            <span style="color: #ff9800;">🚀 {{ dev.current_task.avg_speed_kmh }}km/h</span>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% else %}
-                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
-                    {{ 'Ready for next task' if dev else 'Waiting for device...' }}
-                </div>
-                {% endif %}
-            </div>
-
-            <div class="screen-container">
-                <img src="" class="screen-img" id="img-{{ i }}" draggable="false" 
-                     onload="adjustAspectRatio(this)" 
-                     onpointerdown="handlePointerDown(event, {{ i }})" 
-                     onpointerup="handlePointerUp(event, {{ i }})">
-                <div id="placeholder-{{ i }}" class="offline-placeholder">
-                    {% if dev and not dev.offline %}
-                    <span>📺</span>
-                    MONITOR OFF
-                    {% else %}
-                    <span>📵</span>
-                    {{ 'DEVICE DISCONNECTED' if dev else 'EMPTY' }}
-                    {% endif %}
-                </div>
-            </div>
-
-            <div class="controls {{ 'dimmed' if not dev or dev.offline }}" id="controls-{{ i }}">
-                <button class="btn-ctrl" onclick="sendKey({{ i }}, 3)">🏠</button>
-                <button class="btn-ctrl" onclick="sendKey({{ i }}, 4)">⬅️</button>
-                <button class="btn-ctrl" onclick="sendKey({{ i }}, 187)">📱</button>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <script>
-        const targetDeviceId = '{{ target_device_id }}';
-        function adjustAspectRatio(img) {
-            if (img.naturalWidth && img.naturalHeight) {
-                img.style.aspectRatio = img.naturalWidth + ' / ' + img.naturalHeight;
-            }
-        }
-        let activePointers = {};
-        let slotDeviceIds = [
-            {% for i in range(MAX_SLOTS) %}
-                {% if slots[i] %}'{{ slots[i].id }}'{% else %}null{% endif %}{% if not loop.last %},{% endif %}
-            {% endfor %}
-        ];
-
-        function updateActiveScreenCount() {
-            let count = 0;
-            for (let i = 0; i < slotDeviceIds.length; i++) {
-                const img = document.getElementById('img-' + i);
-                if (img && img.src && img.src.includes('/stream/')) {
-                    count++;
-                }
-            }
-            const el = document.getElementById('active-screen-count');
-            if (el) {
-                el.innerText = count;
-                if (count >= 5) {
-                    el.style.color = '#f44336';
-                } else {
-                    el.style.color = '#ffeb3b';
-                }
-            }
-        }
-
-        function unlockAllDevices() {
-            let count = 0;
-            for (let i = 0; i < slotDeviceIds.length; i++) {
-                const devId = slotDeviceIds[i];
-                if (devId) {
-                    count++;
-                    fetch(`/unlock/${devId}`);
-                }
-            }
-            alert(`총 ${count}대의 기기에 잠금 해제 명령을 보냈습니다.`);
-        }
-
-        let activeMonitorsQueue = [];
-
-        function closeAllMonitors() {
-            activeMonitorsQueue = [];
-            for (let i = 0; i < slotDeviceIds.length; i++) {
-                const img = document.getElementById('img-' + i);
-                if (img && img.src && img.src.includes('/stream/')) {
-                    img.src = '';
-                    img.style.display = 'none';
-                    const placeholder = document.getElementById('placeholder-' + i);
-                    if (placeholder) {
-                        placeholder.style.display = 'flex';
-                        placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
-                    }
-                    const btn = document.getElementById('btn-mon-' + i);
-                    if (btn) {
-                        btn.style.background = '#607D8B';
-                        btn.innerText = '📺';
-                    }
-                }
-            }
-            updateActiveScreenCount();
-        }
-
-        function toggleMonitor(slotIdx) {
-            const devId = slotDeviceIds[slotIdx];
-            if (!devId) return;
-            const img = document.getElementById('img-' + slotIdx);
-            const btn = document.getElementById('btn-mon-' + slotIdx);
-            const placeholder = document.getElementById('placeholder-' + slotIdx);
-            
-            if (img.src.includes('/stream/')) {
-                img.src = '';
-                img.style.display = 'none';
-                placeholder.style.display = 'flex';
-                placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
-                btn.style.background = '#607D8B';
-                btn.innerText = '📺';
-                
-                // Remove from queue
-                activeMonitorsQueue = activeMonitorsQueue.filter(idx => idx !== slotIdx);
-            } else {
-                // Auto-close oldest if limit of 5 is exceeded
-                while (activeMonitorsQueue.length >= 5) {
-                    const oldestIdx = activeMonitorsQueue.shift();
-                    const oldImg = document.getElementById('img-' + oldestIdx);
-                    const oldBtn = document.getElementById('btn-mon-' + oldestIdx);
-                    const oldPlaceholder = document.getElementById('placeholder-' + oldestIdx);
-                    if (oldImg) {
-                        oldImg.src = '';
-                        oldImg.style.display = 'none';
-                    }
-                    if (oldPlaceholder) {
-                        oldPlaceholder.style.display = 'flex';
-                        oldPlaceholder.innerHTML = '<span>📺</span>MONITOR OFF';
-                    }
-                    if (oldBtn) {
-                        oldBtn.style.background = '#607D8B';
-                        oldBtn.innerText = '📺';
-                    }
-                }
-                
-                img.src = '/stream/' + devId;
-                img.style.display = 'block';
-                placeholder.style.display = 'none';
-                btn.style.background = '#4CAF50';
-                btn.innerText = '📡';
-                
-                // Add to queue
-                activeMonitorsQueue.push(slotIdx);
-            }
-            updateActiveScreenCount();
-        }
-
-        function sendKey(slotIdx, code) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            fetch(`/key/${devId}?code=${code}`);
-        }
-
-        function unlockDevice(slotIdx) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            fetch(`/unlock/${devId}`);
-        }
-
-        function sleepDevice(slotIdx) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            fetch(`/sleep/${devId}`);
-        }
-
-        function rebootDevice(slotIdx) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            if (confirm(`Reboot device ${devId}?`)) {
-                fetch(`/reboot/${devId}`);
-            }
-        }
-
-        function setThemeAllDevices(mode) {
-            const modeText = mode === 'dark' ? '다크(🌙)' : '라이트(☀️)';
-            if (confirm(`연결된 모든 단말기 화면을 일괄적으로 ${modeText} 모드로 변경하시겠습니까?`)) {
-                fetch(`/set_theme_all/${mode}`);
-            }
-        }
-
-        function resetDevicePenalty(serial) {
-            // 즉시 백그라운드 슛 쏘기 (컨펌 및 알림 팝업 없음)
-            fetch('/api/reset_device_penalty', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ serial: serial })
-            });
-            
-            // 리턴 대기 없이 100ms 뒤 즉각 화면 갱신 (로컬 current_task.json이 리셋되므로 바로 풀림!)
-            setTimeout(() => {
-                fetchStatus();
-            }, 100);
-        }
-
-        function copyDevId(devId, elementId) {
-            if (!devId || devId === "EMPTY SLOT") return;
-            
-            const copySuccess = () => {
-                const txtEl = document.getElementById(elementId);
-                if (!txtEl) return;
-                const originalText = txtEl.innerHTML;
-                txtEl.innerHTML = `<span style="color: #81C784; font-weight: bold;">✓ 복사완료!</span>`;
-                setTimeout(() => {
-                    txtEl.innerHTML = originalText;
-                }, 800);
-            };
-
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(devId).then(copySuccess).catch(err => {
-                    console.error("Modern copy failed, trying fallback:", err);
-                    fallbackCopyText(devId, copySuccess);
-                });
-            } else {
-                fallbackCopyText(devId, copySuccess);
-            }
-        }
-
-        function fallbackCopyText(text, callback) {
-            const textArea = document.createElement("textarea");
-            textArea.value = text;
-            textArea.style.position = "fixed";
-            textArea.style.left = "-999999px";
-            textArea.style.top = "-999999px";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    callback();
-                } else {
-                    console.error('Fallback copy command failed');
-                }
-            } catch (err) {
-                console.error('Fallback copy exception:', err);
-            }
-            document.body.removeChild(textArea);
-        }
-
-        function handlePointerDown(event, slotIdx) {
-            const img = document.getElementById('img-' + slotIdx);
-            img.setPointerCapture(event.pointerId);
-            const rect = img.getBoundingClientRect();
-            activePointers[event.pointerId] = {
-                startX: (event.clientX - rect.left) / rect.width,
-                startY: (event.clientY - rect.top) / rect.height,
-                startTime: Date.now()
-            };
-        }
-
-        function handlePointerUp(event, slotIdx) {
-            const devId = slotDeviceIds[slotIdx];
-            if(!devId) return;
-            const startData = activePointers[event.pointerId];
-            if (!startData) return;
-
-            const img = document.getElementById('img-' + slotIdx);
-            const rect = img.getBoundingClientRect();
-            const endX = (event.clientX - rect.left) / rect.width;
-            const endY = (event.clientY - rect.top) / rect.height;
-            const duration = Date.now() - startData.startTime;
-            const dist = Math.sqrt(Math.pow(endX - startData.startX, 2) + Math.pow(endY - startData.startY, 2));
-
-            if (dist < 0.01 || duration < 100) {
-                fetch(`/click/${devId}?x_pct=${endX}&y_pct=${endY}`);
-            } else {
-                fetch(`/swipe/${devId}?x1_pct=${startData.startX}&y1_pct=${startData.startY}&x2_pct=${endX}&y2_pct=${endY}`);
-            }
-            delete activePointers[event.pointerId];
-        }
-
-        function createSlotHtml(i) {
-            return `
-            <div class="device-card offline" id="slot-${i}">
-                <div class="card-header dimmed" id="header-${i}">
-                    <span class="device-id" id="dev-name-${i}"><span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT</span>
-                    <div class="header-buttons" id="header-btns-${i}" style="display: none;">
-                        <button id="btn-mon-${i}" onclick="toggleMonitor(${i})" style="background: #607D8B;" title="Toggle Monitor">📺</button>
-                        <button onclick="unlockDevice(${i})" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
-                        <button onclick="rebootDevice(${i})" style="background: #f44336;" title="Reboot">🔄</button>
-                    </div>
-                </div>
-                
-                <div class="diag-overlay" style="height: 63px;">
-                    <div class="diag-item">
-                        <span class="status-badge badge-offline" id="badge-${i}">OFFLINE</span>
-                        <span id="model-${i}" style="color: #888; margin-left: auto;">N/A</span>
-                    </div>
-                    <div class="diag-item">
-                        <span id="ip-${i}" style="color: #4CAF50;">N/A</span>
-                        <span style="margin-left: auto; display: flex; gap: 8px;">
-                            <span id="temp-${i}" style="color: #ff9800;">🌡️ ??°C</span>
-                            <span id="battery-${i}" style="color: #2196F3;">🔋 ??%</span>
-                        </span>
-                    </div>
-                    <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
-                        📝 <span id="log-${i}" style="margin-left: 2px;">-</span>
-                    </div>
-                </div>
-
-                <div id="task-container-${i}">
-                    <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
-                        Ready for next task
-                    </div>
-                </div>
-
-                <div class="screen-container">
-                    <img src="" class="screen-img" id="img-${i}" draggable="false" 
-                         onload="adjustAspectRatio(this)" 
-                         onpointerdown="handlePointerDown(event, ${i})" 
-                         onpointerup="handlePointerUp(event, ${i})">
-                    <div id="placeholder-${i}" class="offline-placeholder">
-                        <span>📵</span>
-                        EMPTY
-                    </div>
-                </div>
-
-                <div class="controls dimmed" id="controls-${i}">
-                    <button class="btn-ctrl" onclick="sendKey(${i}, 3)">🏠</button>
-                    <button class="btn-ctrl" onclick="sendKey(${i}, 4)">⬅️</button>
-                    <button class="btn-ctrl" onclick="sendKey(${i}, 187)">📱</button>
-                </div>
-            </div>`;
-        }
-
-        // Seamless polling for Status
-        function fetchStatus() {
-            fetch('/status').then(r => r.json()).then(data => {
-                const container = document.getElementById('device-container');
-                data.slots.forEach((dev, i) => {
-                    // slots 크기 증가 시 dynamic element 생성
-                    if (i >= slotDeviceIds.length) {
-                        slotDeviceIds.push(null);
-                        const newSlotHtml = createSlotHtml(i);
-                        container.insertAdjacentHTML('beforeend', newSlotHtml);
-                    }
-                    
-                    const oldDevId = slotDeviceIds[i];
-                    const newDevId = dev ? dev.id : null;
-                    slotDeviceIds[i] = newDevId;
-
-                    const card = document.getElementById('slot-' + i);
-                    
-                    // Check if it is the target device
-                    const isTarget = !targetDeviceId || (newDevId === targetDeviceId);
-                    if (card) {
-                        card.style.display = isTarget ? 'flex' : 'none';
-                    }
-                    const header = document.getElementById('header-' + i);
-                    const devName = document.getElementById('dev-name-' + i);
-                    const headerBtns = document.getElementById('header-btns-' + i);
-                    const badge = document.getElementById('badge-' + i);
-                    const modelEl = document.getElementById('model-' + i);
-                    const ipEl = document.getElementById('ip-' + i);
-                    const tempEl = document.getElementById('temp-' + i);
-                    const battEl = document.getElementById('battery-' + i);
-                    const taskContainer = document.getElementById('task-container-' + i);
-                    const controls = document.getElementById('controls-' + i);
-                    const img = document.getElementById('img-' + i);
-                    const placeholder = document.getElementById('placeholder-' + i);
-                    const logEl = document.getElementById('log-' + i);
-
-                    // 디바이스 변경 감지 시 모니터 초기화
-                    if (oldDevId !== newDevId) {
-                        if (img) {
-                            img.src = '';
-                            img.style.display = 'none';
-                        }
-                        if (placeholder) {
-                            placeholder.style.display = 'flex';
-                            if (newDevId) {
-                                placeholder.innerHTML = '<span>📺</span>MONITOR OFF';
-                            } else {
-                                placeholder.innerHTML = '<span>📵</span>EMPTY';
-                            }
-                        }
-                        const btnMon = document.getElementById('btn-mon-' + i);
-                        if (btnMon) {
-                            btnMon.style.background = '#607D8B';
-                            btnMon.innerText = '📺';
-                        }
-                    }
-
-                    // Auto-start stream for target device if it's online
-                    if (targetDeviceId && newDevId === targetDeviceId && dev && !dev.offline) {
-                        if (img && !img.src.includes('/stream/')) {
-                            toggleMonitor(i);
-                        }
-                    }
-
-                    if (!dev) {
-                        // EMPTY SLOT 상태로 만들기
-                        if (card) card.className = 'device-card offline';
-                        if (header) header.className = 'card-header dimmed';
-                        if (devName) devName.innerHTML = `<span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> EMPTY SLOT`;
-                        if (headerBtns) headerBtns.style.display = 'none';
-                        if (badge) {
-                            badge.className = 'status-badge badge-offline';
-                            badge.innerText = 'OFFLINE';
-                        }
-                        if (modelEl) modelEl.innerText = 'N/A';
-                        if (ipEl) ipEl.innerText = 'N/A';
-                        if (tempEl) tempEl.innerText = '🌡️ ??°C';
-                        if (battEl) {
-                            battEl.innerText = '🔋 ??%';
-                            battEl.className = '';
-                        }
-                        if (taskContainer) {
-                            taskContainer.innerHTML = `
-                                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
-                                    Waiting for device...
-                                </div>`;
-                        }
-                        if (controls) controls.className = 'controls dimmed';
-                        if (placeholder) {
-                            placeholder.innerHTML = '<span>📵</span>EMPTY';
-                        }
-                        if (logEl) logEl.innerText = '-';
-                        return;
-                    }
-
-                    // 디바이스가 있는 경우
-                    const isTaskActive = dev.status && dev.status !== 'IDLE' && dev.status !== 'SUCCESS' && dev.status !== 'ARRIVED';
-                    if (card) {
-                        card.className = 'device-card ' + (dev.offline ? 'offline' : (isTaskActive ? 'working' : ''));
-                    }
-                    if (header) {
-                        header.className = 'card-header ' + (dev.offline ? 'dimmed' : '');
-                    }
-                    if (devName) {
-                        if (dev.offline) {
-                            devName.innerHTML = `<span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span> ${dev.id || 'Unknown'}`;
-                        } else {
-                            devName.innerHTML = `<span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#${String(i + 1).padStart(2, '0')}</span><span class="device-id-clickable" onclick="copyDevId('${dev.id}', 'dev-id-txt-${i}')" id="dev-id-txt-${i}" title="클릭하여 디바이스 ID 복사">${dev.id || 'Unknown'}</span>`;
-                        }
-                    }
-                    if (modelEl) {
-                        modelEl.innerText = dev.model || 'N/A';
-                    }
-                    if (headerBtns) {
-                        headerBtns.style.display = dev.offline ? 'none' : 'flex';
-                    }
-                    if (badge) {
-                        let badgeClass = 'badge-idle';
-                        if (dev.offline) {
-                            badgeClass = 'badge-offline';
-                        } else if (dev.status === 'IP_COOLDOWN' || dev.status === 'COOLDOWN') {
-                            badgeClass = 'badge-cooldown';
-                        } else if (dev.status === 'PENALTY') {
-                            badgeClass = 'badge-penalty';
-                        } else if (dev.status === 'UNAUTHORIZED') {
-                            badgeClass = 'badge-unauthorized';
-                        } else if (dev.status && dev.status !== 'IDLE') {
-                            badgeClass = 'badge-working';
-                        }
-                        badge.className = 'status-badge ' + badgeClass;
-                        badge.innerText = dev.offline ? 'OFFLINE' : (dev.status || 'IDLE');
-                    }
-                    if (ipEl) ipEl.innerText = dev.ip || 'N/A';
-                    if (tempEl) tempEl.innerText = '🌡️ ' + (dev.temp || '??') + '°C';
-                    
-                    if (battEl) {
-                        const bVal = parseInt(dev.battery);
-                        if (!isNaN(bVal)) {
-                            if (bVal < 80) {
-                                battEl.innerText = '⚠️ ' + dev.battery + '%';
-                                battEl.className = 'battery-warning';
-                            } else {
-                                battEl.innerText = '🔋 ' + dev.battery + '%';
-                                battEl.className = '';
-                            }
-                        } else {
-                            battEl.innerText = '🔋 ' + (dev.battery || '??') + '%';
-                            battEl.className = '';
-                        }
-                    }
-
-                    if (logEl) {
-                        logEl.innerText = dev.latest_log || '-';
-                    }
-
-                    if (taskContainer) {
-                        if (dev.current_task) {
-                            const t = dev.current_task;
-                            const isSuccess = (t.status === 'SUCCESS');
-                            
-                            const targetSec = parseInt(t.target_sec);
-                            const targetHtml = targetSec ? 
-                                `<span class="target-confirmed">${Math.floor(targetSec / 60)}m ${targetSec % 60}s</span>` :
-                                `${t.target_range || '??'}m`;
-                            
-                            let distHtml = '';
-                            if (t.total_dist_km) {
-                                const remDistStr = (t.remaining_dist_km && t.remaining_dist_km > 0 && !isSuccess) ? ` (남음: ${t.remaining_dist_km}km)` : '';
-                                distHtml = `<div class="live-task-row" style="margin-top: 2px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 2px; font-size: 0.9em;">
-                                    <span style="color: #2196F3;">🛣️ ${t.total_dist_km}km${remDistStr}</span>
-                                    <span style="color: #ff9800;">🚀 ${t.avg_speed_kmh || '??'}km/h</span>
-                                </div>`;
-                            }
-                            
-                            const destIdStr = dev.dest_id ? `<span style="color:#aaa; font-size:0.8em; margin-left:5px;">(#${dev.dest_id})</span>` : '';
-                            const timerHtml = isSuccess ? 
-                                `<span style="color: #4CAF50; font-weight: bold;">✅ 완료</span>` : 
-                                `⏱️ <span class="elapsed-timer" data-start="${t.start_ts || 0}">-</span>`;
-
-                            taskContainer.innerHTML = `
-                                <div class="live-task-box" style="${isSuccess ? 'border-color: rgba(76, 175, 80, 0.6); background: rgba(76, 175, 80, 0.05);' : ''}">
-                                    <div class="live-task-dest" title="${t.dest_name || 'N/A'}">🎯 ${t.dest_name || 'N/A'} ${destIdStr}</div>
-                                    <div class="live-task-meta">
-                                        <div class="live-task-row">
-                                            <span>${timerHtml}</span>
-                                            <span>🏁 ${targetHtml}</span>
-                                        </div>
-                                        ${distHtml}
-                                    </div>
-                                </div>`;
-                        } else if (dev.cooldown_info) {
-                            const c = dev.cooldown_info;
-                            let color = "#ff9800"; // Orange (IP_COOLDOWN, COOLDOWN)
-                            let border = "rgba(255, 152, 0, 0.4)";
-                            let bg = "rgba(255, 152, 0, 0.05)";
-                            if (c.status === "PENALTY") {
-                                color = "#9c27b0"; // Purple (PENALTY)
-                                border = "rgba(156, 39, 176, 0.4)";
-                                bg = "rgba(156, 39, 176, 0.05)";
-                            } else if (c.status === "UNAUTHORIZED") {
-                                color = "#f44336"; // Red (UNAUTHORIZED)
-                                border = "rgba(244, 67, 54, 0.4)";
-                                bg = "rgba(244, 67, 54, 0.05)";
-                            }
-                            
-                            taskContainer.innerHTML = `
-                                <div class="live-task-box" style="border: 1px solid ${border}; background: ${bg}; padding: 6px; display: flex; flex-direction: column; justify-content: center; height: 74px; box-sizing: border-box;">
-                                    <div style="font-weight: bold; color: ${color}; font-size: 0.9em; display: flex; justify-content: space-between; align-items: center;">
-                                        <span>⚠️ ${c.status}</span>
-                                        <div style="display: flex; gap: 4px; align-items: center;">
-                                            <button onclick="resetDevicePenalty('${dev.id}')" style="background: #E65100; color: white; border: none; padding: 2px 6px; font-size: 0.8em; border-radius: 3px; cursor: pointer; font-weight: bold;" title="Reset Penalty & Cooldown">⚡ 리셋</button>
-                                            <span style="font-size: 0.85em; background: ${color}; color: black; padding: 1px 6px; border-radius: 3px; font-weight: bold;">
-                                                ${c.remain_sec}s
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div style="font-size: 0.78em; color: #aaa; margin-top: 4px; line-height: 1.3;">
-                                        <div>• 실패 시각: <span style="color: #ffeb3b;">${c.failed_at}</span></div>
-                                        <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">• 실패 사유: <span style="color: #ff5252;">${c.reason}</span></div>
-                                    </div>
-                                </div>`;
-                        } else {
-                            taskContainer.innerHTML = `
-                                <div style="height: 74px; border: 1px dashed #333; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.8em; color: #555; margin-bottom: 8px; box-sizing: border-box;">
-                                    Ready for next task
-                                </div>`;
-                        }
-                    }
-
-                    if (controls) {
-                        controls.className = 'controls ' + (dev.offline ? 'dimmed' : '');
-                    }
-                    
-                    if (placeholder) {
-                        if (dev.offline) {
-                            placeholder.innerHTML = '<span>📵</span>DEVICE DISCONNECTED';
-                        }
-                    }
-                });
-
-                let totalConnected = 0;
-                let working = 0;
-                let idle = 0;
-                let offline = 0;
-
-                data.slots.forEach((dev) => {
-                    if (dev) {
-                        if (dev.offline) {
-                            offline++;
-                        } else {
-                            totalConnected++;
-                            const isTaskActive = dev.status && dev.status !== 'IDLE' && dev.status !== 'SUCCESS' && dev.status !== 'ARRIVED';
-                            if (isTaskActive) {
-                                working++;
-                            } else {
-                                idle++;
-                            }
-                        }
-                    }
-                });
-
-                const summaryEl = document.getElementById('farm-summary');
-                if (summaryEl) {
-                    summaryEl.innerHTML = `(연결: <b style="color: #4CAF50;">${totalConnected}대</b> | 동작: <b style="color: #2196F3;">${working}</b> | 대기: <b style="color: #bbb;">${idle}</b> | 오프라인: <b style="color: #f44336;">${offline}</b>)`;
-                }
-
-                updateTimers();
-                updateActiveScreenCount();
-            }).catch(e => console.error("Status fetch error", e));
-        }
-        setInterval(fetchStatus, 3000);
-        fetchStatus();
-
-        // [NEW] Real-time Timer Update
-        function updateTimers() {
-            const now = Math.floor(Date.now() / 1000);
-            document.querySelectorAll('.elapsed-timer').forEach(el => {
-                const start = parseInt(el.getAttribute('data-start'));
-                if (!isNaN(start) && start > 0) {
-                    const elapsed = now - start;
-                    const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
-                    const s = (elapsed % 60).toString().padStart(2, '0');
-                    el.innerText = `${m}:${s}`;
-                } else {
-                    el.innerText = "-";
-                }
-            });
-        }
-        setInterval(updateTimers, 1000);
-        updateTimers();
-
-        document.addEventListener('DOMContentLoaded', () => {
-            updateActiveScreenCount();
-        });
-    </script>
-</body>
-</html>
-"""
-
-def get_device_diagnostics(serial):
+def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
     info = {
         "status": "IDLE",
         "ip": "N/A",
         "temp": "??",
         "battery": "??",
         "latest_log": "-",
-        "current_task": None
+        "current_task": None,
+        "disabled": False,
+        "usb_path": "N/A"
     }
     
     # 1. Check Working Status (Lightweight)
@@ -1117,6 +328,14 @@ def get_device_diagnostics(serial):
     # Server manages all allocation blocking, so client monitor does not lock status.
     info["cooldown_info"] = None
             
+    if usb_ports and serial in usb_ports:
+        info["usb_path"] = usb_ports[serial]
+
+    if excluded_list and serial in excluded_list:
+        info["disabled"] = True
+        if info["status"] not in ["WORKING", "DRIVING"]:
+            info["status"] = "DISABLED"
+            
     return info
 
 ORDER_FILE_PATH = "/home/tech/nmap_multi_v1/wifi_multi/config/device_order.json"
@@ -1127,14 +346,19 @@ def refresh_device_slots():
         output = subprocess.check_output(["adb", "devices", "-l"], timeout=5).decode("utf-8")
         lines = output.strip().split("\n")[1:]
         current_connected = {}
+        usb_mapping_updates = {}
         for line in lines:
             if not line.strip() or "device" not in line: continue
             parts = line.split()
             serial = parts[0]
             model = "Unknown"
+            usb_path = "N/A"
             for p in parts:
-                if p.startswith("model:"): model = p.split(":")[1]; break
+                if p.startswith("model:"): model = p.split(":")[1]
+                if p.startswith("usb:"): usb_path = p
             current_connected[serial] = model
+            if usb_path != "N/A":
+                usb_mapping_updates[serial] = usb_path
 
         # Check if custom order config exists
         order_list = []
@@ -1145,71 +369,81 @@ def refresh_device_slots():
             except:
                 pass
 
-        if order_list:
-            # Mode A: Custom Locked Order
-            # Append any newly connected devices that aren't defined in the order list
+        # Load excluded devices list once
+        excluded = load_excluded_devices()
+
+        # Load and update USB ports mapping
+        usb_ports = load_usb_ports()
+        usb_changed = False
+        for serial, usb_path in usb_mapping_updates.items():
+            if usb_ports.get(serial) != usb_path:
+                usb_ports[serial] = usb_path
+                usb_changed = True
+        if usb_changed:
+            save_usb_ports(usb_ports)
+
+        # Merge any newly connected devices and automatically sort alphabetically
+        needs_save = False
+        if not order_list:
+            order_list = sorted(list(current_connected.keys()))
+            needs_save = True
+        else:
+            # Append new devices
             for serial in current_connected.keys():
                 if serial not in order_list:
                     order_list.append(serial)
+                    needs_save = True
+            # Always ensure alphabetical sorting order to prevent messy dynamic layout
+            sorted_order = sorted(order_list)
+            if sorted_order != order_list:
+                order_list = sorted_order
+                needs_save = True
+        
+        if needs_save:
+            try:
+                os.makedirs(os.path.dirname(ORDER_FILE_PATH), exist_ok=True)
+                with open(ORDER_FILE_PATH, 'w') as f:
+                    json.dump(order_list, f, indent=2)
+            except Exception as ex:
+                print(f"Error saving device order: {ex}", flush=True)
 
-            MAX_SLOTS = len(order_list)
-            while len(device_slots) < MAX_SLOTS:
-                device_slots.append(None)
-            if len(device_slots) > MAX_SLOTS:
-                device_slots = device_slots[:MAX_SLOTS]
+        MAX_SLOTS = len(order_list)
+        while len(device_slots) < MAX_SLOTS:
+            device_slots.append(None)
+        if len(device_slots) > MAX_SLOTS:
+            device_slots = device_slots[:MAX_SLOTS]
 
-            for i, serial in enumerate(order_list):
-                if serial in current_connected:
-                    diag = get_device_diagnostics(serial)
-                    device_slots[i] = {
-                        "id": serial,
-                        "model": current_connected[serial],
-                        "offline": False,
-                        **diag
-                    }
-                else:
-                    # Device is offline but slot position is strictly preserved
-                    old_slot = device_slots[i]
-                    old_model = old_slot.get("model", "Unknown") if old_slot else "Unknown"
-                    device_slots[i] = {
-                        "id": serial,
-                        "model": old_model,
-                        "offline": True,
-                        "status": "OFFLINE",
-                        "ip": "N/A",
-                        "temp": "??",
-                        "battery": "??",
-                        "latest_log": "-",
-                        "current_task": None
-                    }
-        else:
-            # Mode B: Dynamic Auto Assignment (Existing style)
-            # 1. Update existing slots
-            for i in range(MAX_SLOTS):
-                slot = device_slots[i]
-                if slot:
-                    if slot["id"] in current_connected:
-                        slot["offline"] = False
-                        slot["model"] = current_connected[slot["id"]]
-                        diag = get_device_diagnostics(slot["id"])
-                        slot.update(diag)
-                        del current_connected[slot["id"]]
-                    else:
-                        slot["offline"] = True
-
-            # 2. Assign new devices to empty or offline slots
-            for serial, model in current_connected.items():
-                assigned = False
-                for i in range(MAX_SLOTS):
-                    if device_slots[i] is None or device_slots[i].get("offline"):
-                        diag = get_device_diagnostics(serial)
-                        device_slots[i] = {"id": serial, "model": model, "offline": False, **diag}
-                        assigned = True
-                        break
-                if not assigned:
-                    diag = get_device_diagnostics(serial)
-                    device_slots.append({"id": serial, "model": model, "offline": False, **diag})
-                    MAX_SLOTS = len(device_slots)
+        for i, serial in enumerate(order_list):
+            if serial in current_connected:
+                diag = get_device_diagnostics(serial, excluded, usb_ports)
+                device_slots[i] = {
+                    "id": serial,
+                    "model": current_connected[serial],
+                    "offline": False,
+                    **diag
+                }
+            else:
+                # Device is offline but slot position is strictly preserved
+                old_slot = device_slots[i]
+                old_model = old_slot.get("model", "Unknown") if old_slot else "Unknown"
+                
+                # Check if offline device is disabled
+                is_disabled = (serial in excluded)
+                usb_path = usb_ports.get(serial, "N/A")
+                
+                device_slots[i] = {
+                    "id": serial,
+                    "model": old_model,
+                    "offline": True,
+                    "status": "DISABLED" if is_disabled else "OFFLINE",
+                    "ip": "N/A",
+                    "temp": "??",
+                    "battery": "??",
+                    "latest_log": "-",
+                    "current_task": None,
+                    "disabled": is_disabled,
+                    "usb_path": usb_path
+                }
     except:
         pass
 
@@ -1226,12 +460,37 @@ threading.Thread(target=diag_background_thread, daemon=True).start()
 def index():
     device_id = request.args.get('device_id', '').strip()
     hostname = socket.gethostname()
-    return render_template_string(HTML_TEMPLATE, slots=device_slots, MAX_SLOTS=MAX_SLOTS, hostname=hostname, target_device_id=device_id)
+    return render_template_string(get_html_template(), slots=device_slots, MAX_SLOTS=MAX_SLOTS, hostname=hostname, target_device_id=device_id)
 
 @app.route('/status')
 def status():
     # Return the current parsed device states for seamless AJAX updates
     return jsonify({"slots": device_slots})
+
+@app.route('/api/toggle_device', methods=['POST'])
+def toggle_device():
+    try:
+        data = request.get_json() or {}
+        serial = data.get("device_id")
+        if not serial:
+            return jsonify({"status": "error", "message": "Missing device_id"}), 400
+        
+        excluded = load_excluded_devices()
+        if serial in excluded:
+            excluded.remove(serial)
+            state = "ENABLED"
+        else:
+            excluded.append(serial)
+            state = "DISABLED"
+        
+        save_excluded_devices(excluded)
+        
+        # 즉시 로컬 진단 갱신하여 화면 업데이트 반영
+        refresh_device_slots()
+        
+        return jsonify({"status": "success", "state": state, "excluded": excluded})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/reset_device_penalty', methods=['POST'])
 def reset_device_penalty():
@@ -1245,7 +504,9 @@ def reset_device_penalty():
         def trigger_external_reset(dev_id):
             try:
                 import requests
-                requests.get(f"http://114.207.112.245:8001/api/v1/admin/device/reset_penalty?device_id={dev_id}", timeout=5)
+                config = load_global_config()
+                admin_server = config.get("ADMIN_API_SERVER", "114.207.112.245:8001")
+                requests.get(f"http://{admin_server}/api/v1/admin/device/reset_penalty?device_id={dev_id}", timeout=5)
             except Exception as ex:
                 print(f"Async external reset error: {ex}", flush=True)
 

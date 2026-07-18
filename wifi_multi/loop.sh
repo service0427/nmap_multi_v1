@@ -147,6 +147,15 @@ while true; do
             continue
         fi
 
+        # --- [NEW] Web Monitor ON/OFF (Excluded) Shield ---
+        EXCLUDED_JSON="$WIFI_MULTI_ROOT/config/excluded_devices.json"
+        if [ -f "$EXCLUDED_JSON" ]; then
+            if jq -e --arg dev "$DEV_ID" '. | index($dev)' "$EXCLUDED_JSON" >/dev/null 2>&1; then
+                DEV_INDEX=$((DEV_INDEX + 1))
+                continue
+            fi
+        fi
+
         # --- IP Failure Cooldown Shield (180s) ---
         if [ -f "logs/${DEV_ID}/tmp/ip_failed_gate" ]; then
             CURRENT_TIME=$(date +%s)

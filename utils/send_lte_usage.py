@@ -12,7 +12,7 @@ import os
 
 def load_config():
     config = {
-        "API_SERVER": "114.207.112.245:8011"
+        "API_SERVER": "114.207.112.245:8013"
     }
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(os.path.dirname(script_dir), "wifi_multi", "config.conf")
@@ -32,7 +32,7 @@ def load_config():
     return config
 
 _config = load_config()
-API_SERVER = _config.get("API_SERVER", "114.207.112.245:8011")
+API_SERVER = _config.get("API_SERVER", "114.207.112.245:8013")
 API_URL = f"http://{API_SERVER}/api/v1/lte_usage"
 
 def get_lte_interfaces():

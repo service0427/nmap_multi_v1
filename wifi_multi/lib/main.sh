@@ -294,34 +294,88 @@ chmod +x macro/monitor.sh
 nohup ./macro/monitor.sh "$DEV_ID" "$CAPTURE_LOG_DIR" "$NMAP_DEST_ID" > "$CAPTURE_LOG_DIR/monitor.log" 2>&1 &
 MONITOR_PID=$!
 
-# 5. Launch (Wake & Unlock Screen Robustly - Intelligent Retry Loop)
-echo " [$DEV_ID] Waking up device screen and unlocking..."
-for retry in {1..5}; do
-    IS_ON=$(adb -s "$DEV_ID" shell "dumpsys power | grep -E 'mWakefulness=|Display Power: state='" 2>/dev/null)
-    if [[ "$IS_ON" == *"Asleep"* ]] || [[ "$IS_ON" == *"OFF"* ]]; then
-        adb -s "$DEV_ID" shell input keyevent 224
-        sleep 0.8
-    fi
-
-    adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
-    sleep 0.4
+# 5. Launch (Wake & Unlock Screen Robustly - Intelligent Verification Loop)
+check_keyguard_showing() {
+    # Get window manager dump, search for lines mentioning keyguard, lockscreen, or statusbar
+    local win_dump=$(adb -s "$DEV_ID" shell "dumpsys window" 2>/dev/null)
     
-    if [ $retry -eq 1 ]; then
-        adb -s "$DEV_ID" shell input swipe 500 1500 500 200 350
-    elif [ $retry -eq 2 ]; then
-        adb -s "$DEV_ID" shell input swipe 500 1800 500 100 400
-    else
-        adb -s "$DEV_ID" shell input swipe 300 1600 800 300 400
+    # 1. Search for explicit 'isKeyguardShowing=true' or 'mShowingKeyguard=true'
+    if [[ "$win_dump" == *"isKeyguardShowing=true"* ]] || [[ "$win_dump" == *"mShowingKeyguard=true"* ]]; then
+        return 0 # Locked
     fi
-    sleep 1.0
+    
+    # 2. Check for dreaming lockscreen
+    if [[ "$win_dump" == *"mDreamingLockscreen=true"* ]]; then
+        return 0 # Locked
+    fi
 
-    KEYGUARD_STATUS=$(adb -s "$DEV_ID" shell "dumpsys window | grep -E 'mShowingKeyguard|mDreamingLockscreen'" 2>/dev/null)
-    if [[ "$KEYGUARD_STATUS" != *"mShowingKeyguard=true"* ]]; then
-        echo " [$DEV_ID] Keyguard successfully dismissed."
-        break
+    # 3. Check for general 'showing=true' or 'mShowing=true' on keyguard-related lines
+    local keyguard_lines=$(echo "$win_dump" | grep -i -E "keyguard|lockscreen")
+    if echo "$keyguard_lines" | grep -i -q -E "showing\s*=\s*true|mShowing\s*=\s*true"; then
+        return 0 # Locked
     fi
-    echo " [$DEV_ID] [Attempt $retry/5] Keyguard still active. Retrying unlock..."
-done
+    
+    # 4. Fallback check: window policy dump
+    local policy_dump=$(adb -s "$DEV_ID" shell "dumpsys window policy" 2>/dev/null)
+    if [[ "$policy_dump" == *"isKeyguardShowing=true"* ]] || [[ "$policy_dump" == *"mShowingKeyguard=true"* ]]; then
+        return 0 # Locked
+    fi
+    if echo "$policy_dump" | grep -i -E "keyguard|lockscreen" | grep -i -q -E "showing\s*=\s*true|mShowing\s*=\s*true"; then
+        return 0 # Locked
+    fi
+
+    return 1 # Unlocked
+}
+
+echo " [$DEV_ID] Waking up device screen..."
+IS_ON=$(adb -s "$DEV_ID" shell "dumpsys power | grep -E 'mWakefulness=|Display Power: state='" 2>/dev/null)
+if [[ "$IS_ON" == *"Asleep"* ]] || [[ "$IS_ON" == *"OFF"* ]]; then
+    adb -s "$DEV_ID" shell input keyevent 224
+    sleep 0.8
+fi
+
+if ! check_keyguard_showing; then
+    echo " [$DEV_ID] Screen is already unlocked. Skipping unlock swipe."
+else
+    echo " [$DEV_ID] Keyguard is showing. Attempting unlock retry loop..."
+    for retry in {1..5}; do
+        # Waking screen in case it went back to sleep during retries
+        IS_ON=$(adb -s "$DEV_ID" shell "dumpsys power | grep -E 'mWakefulness=|Display Power: state='" 2>/dev/null)
+        if [[ "$IS_ON" == *"Asleep"* ]] || [[ "$IS_ON" == *"OFF"* ]]; then
+            adb -s "$DEV_ID" shell input keyevent 224
+            sleep 0.8
+        fi
+
+        # Dismiss using standard dismiss command
+        adb -s "$DEV_ID" shell wm dismiss-keyguard >/dev/null 2>&1
+        sleep 0.4
+        
+        # Send Menu keyevent (82) which is extremely effective on Samsung and other brands to clear swipe locks
+        adb -s "$DEV_ID" shell input keyevent 82
+        sleep 0.6
+        
+        if ! check_keyguard_showing; then
+            echo " [$DEV_ID] Keyguard successfully dismissed via Menu key event."
+            break
+        fi
+        
+        # Swipe UP (swipe from bottom to top to dismiss swipe lock screens)
+        if [ $retry -eq 1 ]; then
+            adb -s "$DEV_ID" shell input swipe 500 1600 500 400 350
+        elif [ $retry -eq 2 ]; then
+            adb -s "$DEV_ID" shell input swipe 300 1600 800 400 400
+        else
+            adb -s "$DEV_ID" shell input swipe 500 1800 500 200 450
+        fi
+        sleep 1.2
+
+        if ! check_keyguard_showing; then
+            echo " [$DEV_ID] Keyguard successfully dismissed."
+            break
+        fi
+        echo " [$DEV_ID] [Attempt $retry/5] Keyguard still active. Retrying unlock..."
+    done
+fi
 
 
 # Fixed: Use START coordinates for initial position
