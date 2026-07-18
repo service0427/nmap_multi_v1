@@ -212,11 +212,11 @@ def main(log_dir, device_id):
                             flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
                             log_print(f"[⏳] Waiting for Guidance Start click (checking flag: {flag_path})...")
                             
-                            # Timeout to prevent infinite hang if click fails (max 60s)
+                            # Timeout to prevent infinite hang if click fails (max 90s for slow networks & modal delays)
                             wait_start = time.time()
                             while not os.path.exists(flag_path):
                                 time.sleep(0.5)
-                                if time.time() - wait_start > 30.0:
+                                if time.time() - wait_start > 90.0:
                                     log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
                                     break
                             

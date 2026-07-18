@@ -465,8 +465,8 @@ while true; do
                 "STEP_07_NAVI_START") update_live_status "STARTING_NAVI" ;;
                 "STEP_07_2_DRIVING_STARTED") 
                     update_live_status "DRIVING"
-                    # [🛰️ GPS Sync Guard] Wake up the GPS emulator ONLY after the map client successfully initiates navigation and sends its first rptype=0 packet
-                    echo "[$(NOW)] [🚀] Driving screen active & rptype=0 detected. Waking up GPS Emulator..."
+                    # [🛰️ GPS Sync Guard] Wake up the GPS emulator ONLY after the map client successfully loads the navigation screen (navi.drivemode)
+                    echo "[$(NOW)] [🚀] Driving screen active (navi.drivemode detected). Waking up GPS Emulator..."
                     touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                     ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;

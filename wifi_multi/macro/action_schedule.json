@@ -70,8 +70,9 @@
     },
     {
       "id": "STEP_07_2_DRIVING_STARTED",
-      "desc": "실주행 패킷 감지 확인",
-      "url": "v3/global/driving.*rptype=[02]",
+      "desc": "실주행 시작 확인 (네비 드라이브 화면 진입)",
+      "type": "screenview",
+      "screen_name": "navi.drivemode",
       "control": {
         "required": true
       }
