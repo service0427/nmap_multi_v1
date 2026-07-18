@@ -24,6 +24,27 @@ def handle_response(addon, flow: http.HTTPFlow):
     if not should_process(host, path):
         return
 
+    # [V14.3] err-109 및 err-112 무해 경고 로그는 디스크 파일 생성을 강제 차단
+    if "client-logger/errorLog" in path:
+        try:
+            content = flow.request.content
+            if content:
+                # Gzip 압축 해제
+                is_gz = content.startswith(b'\x1f\x8b')
+                if is_gz:
+                    import gzip
+                    content = gzip.decompress(content)
+                import json
+                body_json = json.loads(content.decode('utf-8', 'ignore'))
+                msg_str = body_json.get("message")
+                if msg_str:
+                    msg_json = json.loads(msg_str)
+                    err_code = msg_json.get("error", {}).get("code")
+                    if err_code in ["err-109", "err-112"]:
+                        return # 디스크 기록을 수행하지 않고 통과(Ignore)
+        except:
+            pass
+
     with addon.lock:
         addon.counter += 1
         idx = addon.counter
