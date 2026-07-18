@@ -311,6 +311,8 @@ def main(log_dir, device_id):
 
                     if remaining_dist < 0.03:
                         log_print("[✨] Destination reached. Transitioning to FORCED_FINISH.")
+                        # Wait 5 seconds to let mitmproxy write the actual routeend JSON to disk if captured
+                        time.sleep(5)
                         # [Self-Healing] Inject virtual routeend to events.log to prevent 15-minute hangs if proxy misses the packet
                         try:
                             events_path = os.path.join(log_dir, "events.log")
