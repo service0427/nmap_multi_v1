@@ -121,15 +121,28 @@ init_app_installation() {
                 if [ "$needs_patch" = true ]; then
                     echo -e "    - Uninstalling old Naver Map..."
                     adb -s "$serial" uninstall "$nmap_pkg" >/dev/null 2>&1
+                    sleep 2
                     echo -e "    - Installing new Naver Map from $folder_name..."
-                    adb -s "$serial" install-multiple $nmap_apks >/dev/null 2>&1
+                    local install_res
+                    install_res=$(adb -s "$serial" install-multiple $nmap_apks 2>&1)
+                    if [ $? -ne 0 ]; then
+                        echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
+                    else
+                        echo -e "    [✓] Naver Map installed successfully."
+                    fi
                     adb -s "$serial" shell "$has_su -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
                 else
                     echo -e "    [✓] Naver Map ($device_ver) is already installed & up-to-date. Skipping."
                 fi
             else
                 echo -e "    - Naver Map not found. Installing from $nmap_dir..."
-                adb -s "$serial" install-multiple $nmap_apks >/dev/null 2>&1
+                local install_res
+                install_res=$(adb -s "$serial" install-multiple $nmap_apks 2>&1)
+                if [ $? -ne 0 ]; then
+                    echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
+                else
+                    echo -e "    [✓] Naver Map installed successfully."
+                fi
             fi
         else
             echo -e "    [!] Warning: No APKs found in $nmap_dir"

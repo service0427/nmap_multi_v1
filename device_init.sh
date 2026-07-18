@@ -198,6 +198,9 @@ for serial in $DEVICES; do
 
         echo -e "${CYAN}------------------------------------------------------------${NC}\n"
     ) 2>&1 | sed -u "s/^/[${serial}] /" &
+        
+        # Sleep 3 seconds to stagger parallel installations and prevent USB/ADB server overload
+        sleep 3
 done
 
 wait
