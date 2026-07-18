@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import sys
 import time
@@ -45,20 +46,19 @@ def get_su_cmd(device_id):
     return "su"
 
 def get_current_mock_location(device_id):
-    cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last location=Location\\[(gps|fused|test) [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
-    res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
-    if not res:
-        cmd = ["adb", "-s", device_id, "shell", "dumpsys location | grep -E 'last mock location=Location\\[(gps|fused|test) [0-9]{2}\\.[0-9]+,[0-9]{3}\\.[0-9]+' | head -n 1"]
-        res = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
     try:
-        content = res.split("[")[1].split("]")[0]
-        parts = content.split()
-        for p in parts:
-            if "," in p:
-                lat, lng = map(float, p.split(","))
-                return lat, lng
-        return None, None
-    except: return None, None
+        cmd = ["adb", "-s", device_id, "shell", "dumpsys location"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
+        pattern = re.compile(
+            r'last\s+(?:mock\s+)?location=Location\[(\w+)\s+(-?\d+\.\d+),\s*(-?\d+\.\d+)'
+        )
+        matches = pattern.findall(res)
+        if matches:
+            prov, lat_str, lng_str = matches[-1]
+            return float(lat_str), float(lng_str)
+    except Exception as e:
+        log_print(f"[!] Error in get_current_mock_location: {e}")
+    return None, None
 
 def set_simulator_speed(device_id, kmh):
     speed_mps = round(kmh / 3.6, 4)
