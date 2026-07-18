@@ -53,11 +53,11 @@ log_api_backup() {
     local endpoint=$1
     local payload=$2
     local response=$3
-    local backup_dir="/home/tech/nmap_multi_v1/api_backup"
-    mkdir -p "$backup_dir"
     local today=$(date +%Y%m%d)
-    local backup_file="${backup_dir}/${today}_api_transmissions.log"
-    echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] [Device: $DEV_ID] [Task: ${NMAP_LOG_ID:-N/A}]" >> "$backup_file"
+    local backup_dir="/home/tech/nmap_multi_v1/api_backup/${today}/${DEV_ID}"
+    mkdir -p "$backup_dir"
+    local backup_file="${backup_dir}/api.log"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S.%3N')] [Task: ${NMAP_LOG_ID:-N/A}]" >> "$backup_file"
     echo "  - REQ: ${endpoint} -> ${payload}" >> "$backup_file"
     echo "  - RES: ${response}" >> "$backup_file"
     echo "------------------------------------------------------------" >> "$backup_file"
