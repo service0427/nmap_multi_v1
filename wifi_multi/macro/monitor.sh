@@ -493,7 +493,7 @@ while true; do
                     fi
                     ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
-                "STEP_09_FINISH") update_live_status "SUCCESS" ;;
+                "STEP_09_FINISH") update_live_status "FINISHING" ;;
             esac
 
             # 주행 시작 시점 마킹
