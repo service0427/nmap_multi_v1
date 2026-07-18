@@ -26,7 +26,7 @@ CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
 # Bypassed per-device binding to route through default route (lowest metric: lte11)
 BIND_IFACE=""
 BIND_IP="$NMAP_BIND_IP"
-CURL_OPT=""
+CURL_OPT="--connect-timeout 10 --max-time 15"
 
 # =================================================================================
 # [포트 대역 구조 가이드 - 절대 롤백 금지]
@@ -44,7 +44,7 @@ if [ -f "$CURRENT_TASK_JSON" ]; then
     PREV_TASK_ID=$(jq -r '.task_id // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
     if [ -n "$PREV_TASK_ID" ] && [ "$PREV_STATUS" != "SUCCESS" ] && [ "$PREV_STATUS" != "FAIL" ] && [ "$PREV_STATUS" != "API_ERROR" ]; then
         echo "[$DEV_ID] [⚠️] Reporting FAIL for interrupted/zombie task: $PREV_TASK_ID (Previous status: $PREV_STATUS)"
-        curl -s -X POST "http://${API_SERVER}/api/v1/report_result" \
+        curl $CURL_OPT -s -X POST "http://${API_SERVER}/api/v1/report_result" \
              -H "Content-Type: application/json" \
              -d "{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}" >/dev/null 2>&1
         

@@ -53,7 +53,7 @@ send_api_request() {
     local endpoint=$1
     local payload=$2
     echo "[$(NOW)] [API_REQ] $endpoint -> $payload"
-    local response=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER:-localhost:8000}${endpoint}" \
+    local response=$(curl --connect-timeout 10 --max-time 15 -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER:-localhost:8000}${endpoint}" \
          -H "Content-Type: application/json" -d "$payload")
     echo "[$(NOW)] [API_RES] $response"
 }
