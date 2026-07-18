@@ -288,8 +288,9 @@ check_app_survival() {
     else
         ((STUCK_COUNT++))
         
-        # 패킷 전송 침묵 최종 마한선 설정 (70초: 14회 * 5초)
-        local MAX_STUCK=14 
+        # 패킷 전송 침묵 최종 마한선 설정 (전역 설정 SILENCE_TIMEOUT_SECONDS 연동)
+        local TIMEOUT_SEC=${SILENCE_TIMEOUT_SECONDS:-70}
+        local MAX_STUCK=$((TIMEOUT_SEC / 5)) 
         
         if [ $STUCK_COUNT -ge $MAX_STUCK ]; then
             echo "[$(NOW)] [🚨] SILENCE DETECTED ($((MAX_STUCK * 5))s). No new packet JSONs. Killing session."

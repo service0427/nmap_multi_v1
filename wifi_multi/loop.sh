@@ -69,7 +69,7 @@ while true; do
         [ -z "$pid" ] && continue
         # args에서 DEV_ID 추출 (예: 'bash /home/tech/.../main.sh R3CN807BQXA')
         DEV_ID=$(echo "$args" | awk '{print $NF}')
-        if [ "$etime" -gt 1200 ] && [ -n "$DEV_ID" ]; then
+        if [ "$etime" -gt "${STALE_TASK_TIMEOUT_SECONDS:-1200}" ] && [ -n "$DEV_ID" ]; then
             echo "[⚠️] [$(date +%T)] [$DEV_ID] DETECTED STALE PROCESS (PID: $pid, Elapsed: ${etime}s). Force killing..."
             
             # 포트 파싱 및 미트덤프/프리다 정리 (current_task.json에서 고유 device_seq를 조회하여 복원)

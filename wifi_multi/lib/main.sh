@@ -12,6 +12,11 @@ ENGINE_ROOT="$(dirname "$LIB_DIR")"
 PROJECT_ROOT="$(dirname "$ENGINE_ROOT")"
 cd "$ENGINE_ROOT" || exit 1
 
+# --- [전역 설정 로드] ---
+if [ -f "config.conf" ]; then
+    source "config.conf"
+fi
+
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
@@ -170,14 +175,15 @@ echo " [$DEV_ID] [📊] Environment Snapshot: Temp=${TEMP_C}°C | Batt=${BATT_LE
 # 2. IP Verification (Robust 30s Wait for IP Toggles)
 echo " [$DEV_ID] [🌐] Verifying External Network..."
 IP_READY=false
-for i in {1..2}; do
+TO_VAL=${STARTUP_CONNECT_TIMEOUT:-10}
+for i in {1..3}; do
     # Try multiple IP check services in sequence to resolve rate limits or downtime
-    REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout 2 -4 http://ifconfig.me || curl -s --connect-timeout 2 -4 http://ifconfig.me" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+    REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me || curl -s --connect-timeout $TO_VAL -4 http://ifconfig.me" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     if [ -z "$REAL_IP" ]; then
-        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout 2 -4 http://api.ipify.org || curl -s --connect-timeout 2 -4 http://api.ipify.org" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org || curl -s --connect-timeout $TO_VAL -4 http://api.ipify.org" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     fi
     if [ -z "$REAL_IP" ]; then
-        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout 2 -4 http://icanhazip.com || curl -s --connect-timeout 2 -4 http://icanhazip.com" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
+        REAL_IP=$(adb -s "$DEV_ID" shell "[ -x /data/local/tmp/curl ] && /data/local/tmp/curl -s --connect-timeout $TO_VAL -4 http://icanhazip.com || curl -s --connect-timeout $TO_VAL -4 http://icanhazip.com" | tr -d '\r\n' | grep -oE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+")
     fi
 
     if [ -n "$REAL_IP" ]; then
@@ -186,9 +192,8 @@ for i in {1..2}; do
         break
     fi
     
-    
-    echo " [$DEV_ID] Waiting for IP (Toggle Recovery)... ($i/2)"
-    sleep 2
+    echo " [$DEV_ID] Waiting for IP (Timeout: ${TO_VAL}s)... ($i/3)"
+    sleep 3
 done
 
 if [ "$IP_READY" = false ]; then
