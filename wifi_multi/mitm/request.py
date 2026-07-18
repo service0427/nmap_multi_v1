@@ -50,11 +50,24 @@ def smart_cleanse(obj):
                 return int(time.time()) - random.randint(86400, 2592000)
             return val
 
-        return {k: (v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
-                   (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
-                   (get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
-                   (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v))))) 
-                for k, v in obj.items()}
+        cleaned_dict = {}
+        for k, v in obj.items():
+            if k == "idfv" and os.environ.get("NMAP_ID_IDFV"):
+                cleaned_dict[k] = os.environ.get("NMAP_ID_IDFV")
+            elif k == "adid" and os.environ.get("NMAP_ID_ADID"):
+                cleaned_dict[k] = os.environ.get("NMAP_ID_ADID")
+            elif k == "ssaid" and os.environ.get("NMAP_ID_SSAID"):
+                cleaned_dict[k] = os.environ.get("NMAP_ID_SSAID")
+            elif k == "ni" and os.environ.get("NMAP_ID_NI"):
+                cleaned_dict[k] = os.environ.get("NMAP_ID_NI")
+            elif k == "token" and os.environ.get("NMAP_ID_TOKEN"):
+                cleaned_dict[k] = os.environ.get("NMAP_ID_TOKEN")
+            else:
+                cleaned_dict[k] = (v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
+                                   (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
+                                   (get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
+                                   (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v)))))
+        return cleaned_dict
     elif isinstance(obj, list): return [smart_cleanse(i) for i in obj]
     elif isinstance(obj, str):
         for real, fake in IDENTITY_MAP.items():
