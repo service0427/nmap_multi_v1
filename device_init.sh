@@ -197,7 +197,7 @@ for serial in $DEVICES; do
         init_mitm_recovery "$serial" "$HAS_SU" "$force_reboot_flag"
 
         echo -e "${CYAN}------------------------------------------------------------${NC}\n"
-    ) 2>&1 | sed "s/^/[${serial}] /" &
+    ) 2>&1 | sed -u "s/^/[${serial}] /" &
 done
 
 wait

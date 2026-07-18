@@ -214,6 +214,11 @@ EOF3
     # 4. Reboot Device
     echo -e "    - Recovery complete. Rebooting device to apply system cert mounting..."
     adb -s "$serial" reboot
-    adb -s "$serial" wait-for-device
+    
+    # Wait for device to come back online with a 180-second safety timeout
+    if ! timeout 180 adb -s "$serial" wait-for-device; then
+        echo -e "    ${RED}[!] Error: Timeout waiting for device to come back online after reboot (180s).${NC}"
+        return 1
+    fi
     echo -e "    [✓] Device is back online."
 }
