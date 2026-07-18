@@ -170,7 +170,8 @@ SETTINGS_FILE="/data/data/com.nhn.android.nmap/shared_prefs/NaviSettingsInfo.xml
 CONSENT_FILE="/data/data/com.nhn.android.nmap/shared_prefs/ConsentInfo.xml"
 PREFS_FILE="/data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml"
 
-# Ensure files exist
+# Ensure directory and files exist
+mkdir -p "/data/data/com.nhn.android.nmap/shared_prefs"
 touch "$DEFAULTS_FILE"
 touch "$SETTINGS_FILE"
 touch "$CONSENT_FILE"
