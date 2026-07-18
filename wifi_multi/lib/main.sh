@@ -58,9 +58,9 @@ if [ -f "$CURRENT_TASK_JSON" ]; then
     PREV_TASK_ID=$(jq -r '.task_id // empty' "$CURRENT_TASK_JSON" 2>/dev/null)
     if [ -n "$PREV_TASK_ID" ] && [ "$PREV_STATUS" != "SUCCESS" ] && [ "$PREV_STATUS" != "FAIL" ] && [ "$PREV_STATUS" != "API_ERROR" ]; then
         echo "[$DEV_ID] [⚠️] Reporting FAIL for interrupted/zombie task: $PREV_TASK_ID (Previous status: $PREV_STATUS)"
-        local endpoint="/api/v1/report_result"
-        local payload="{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}"
-        local response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
+        endpoint="/api/v1/report_result"
+        payload="{\"task_id\": $PREV_TASK_ID, \"status\": \"FAIL\", \"device_id\": \"$DEV_ID\", \"message\": \"INTERRUPTED_BY_NEW_TASK\"}"
+        response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
              -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
         log_api_backup "$endpoint" "$payload" "$response"
         
