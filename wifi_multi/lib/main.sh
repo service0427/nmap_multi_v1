@@ -235,9 +235,9 @@ if [ "$IP_READY" = false ]; then
     cleanup "NETWORK_TIMEOUT"
 fi
 
-local endpoint="/api/v1/update_status"
-local payload="{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}"
-local response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
+endpoint="/api/v1/update_status"
+payload="{\"task_id\": \"$NMAP_LOG_ID\", \"status\": \"IP_CHANGED\", \"device_id\": \"$DEV_ID\", \"real_ip\": \"$REAL_IP\"}"
+response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API_SERVER}${endpoint}" \
      -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
 log_api_backup "$endpoint" "$payload" "$response"
 
