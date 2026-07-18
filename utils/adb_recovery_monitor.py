@@ -202,9 +202,10 @@ def check_adb_status():
         if not success:
             return False, f"adb devices failed: {stderr}", [], 0, root_pids
         
-        # Parse device count
+        # Parse device count and statuses
         lines = stdout.strip().split("\n")
         device_count = 0
+        connected_serials = []
         unauthorized_serials = []
         offline_serials = []
         for line in lines[1:]:
@@ -212,18 +213,37 @@ def check_adb_status():
             if not line or line.startswith("*"):
                 continue
             device_count += 1
+            parts = line.split()
+            if not parts:
+                continue
+            serial = parts[0]
+            connected_serials.append(serial)
             if "unauthorized" in line:
-                parts = line.split()
-                if parts:
-                    unauthorized_serials.append(parts[0])
+                unauthorized_serials.append(serial)
             elif "offline" in line:
-                parts = line.split()
-                if parts:
-                    offline_serials.append(parts[0])
+                offline_serials.append(serial)
 
-        bad_serials = list(set(unauthorized_serials + offline_serials))
+        # 3. Detect completely missing devices (configured in usb_ports.json but not in adb output)
+        missing_serials = []
+        config_path = "/home/tech/nmap_multi_v1/wifi_multi/config/usb_ports.json"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    usb_ports = json.load(f)
+                for serial in usb_ports:
+                    if serial not in connected_serials:
+                        missing_serials.append(serial)
+            except Exception as e:
+                log("ERROR", f"Failed to check missing devices from config: {e}")
+
+        bad_serials = list(set(unauthorized_serials + offline_serials + missing_serials))
         if bad_serials:
-            return False, f"Problematic devices (unauthorized/offline) detected: {bad_serials}", bad_serials, device_count, root_pids
+            reasons = []
+            if unauthorized_serials: reasons.append(f"unauthorized: {unauthorized_serials}")
+            if offline_serials: reasons.append(f"offline: {offline_serials}")
+            if missing_serials: reasons.append(f"missing: {missing_serials}")
+            reason_str = "Problematic/Missing devices detected: " + ", ".join(reasons)
+            return False, reason_str, bad_serials, device_count, root_pids
             
         return True, "OK", [], device_count, root_pids
 
