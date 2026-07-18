@@ -3,7 +3,19 @@ import subprocess
 import time
 import os
 import sys
+import json
 from datetime import datetime
+
+def run_adb_cmd(args, timeout_sec=5):
+    """Runs an adb command wrapped in linux timeout tool to prevent D-state hangs."""
+    cmd = ["timeout", str(timeout_sec), "adb"] + args
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec + 2)
+        if res.returncode == 124:
+            return False, "", "ADB command timed out via linux timeout tool (D-state safety)"
+        return True, res.stdout, res.stderr
+    except Exception as e:
+        return False, "", f"Execution error: {e}"
 
 # Configuration
 CHECK_INTERVAL_SEC = 30  # 30 seconds
@@ -89,19 +101,15 @@ def perform_recovery():
         return False
 
     # 6. Verify
-    try:
-        res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-        if res.returncode == 0:
-            # Count connected devices
-            lines = res.stdout.strip().split("\n")
-            device_count = sum(1 for line in lines[1:] if line.strip() and not line.startswith("*"))
-            log("SUCCESS", f"ADB server recovered successfully. {device_count} devices attached.")
-            return True
-        else:
-            log("ERROR", f"ADB verification returned exit code {res.returncode}")
-            return False
-    except subprocess.TimeoutExpired:
-        log("ERROR", "ADB verification timed out during recovery validation.")
+    success, stdout, stderr = run_adb_cmd(["devices"], timeout_sec=5)
+    if success:
+        # Count connected devices
+        lines = stdout.strip().split("\n")
+        device_count = sum(1 for line in lines[1:] if line.strip() and not line.startswith("*"))
+        log("SUCCESS", f"ADB server recovered successfully. {device_count} devices attached.")
+        return True
+    else:
+        log("ERROR", f"ADB verification failed: {stderr}")
         return False
 
 RECOVERY_LOG_PATH = "/home/tech/nmap_multi_v1/adb_recovery.log"
@@ -118,21 +126,28 @@ def write_recovery_log(event_type, details):
         log("ERROR", f"Failed to write to adb_recovery.log: {e}")
 
 def get_usb_path_by_serial(serial):
-    base_dir = "/sys/bus/usb/devices"
-    if not os.path.exists(base_dir):
-        return None
+    # 1. Try reading from usb_ports.json first (No FS scan, 100% safe against D-state)
+    config_path = "/home/tech/nmap_multi_v1/wifi_multi/config/usb_ports.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                usb_ports = json.load(f)
+            if serial in usb_ports:
+                return usb_ports[serial].replace("usb:", "")
+        except Exception as e:
+            log("ERROR", f"Failed to read usb_ports.json: {e}")
+
+    # 2. Fallback to shell-level grep with 2-second timeout to prevent D-state hangs
     try:
-        for d in os.listdir(base_dir):
-            serial_file = os.path.join(base_dir, d, "serial")
-            if os.path.exists(serial_file):
-                try:
-                    with open(serial_file, 'r') as f:
-                        if f.read().strip() == serial:
-                            return d
-                except Exception:
-                    pass
+        cmd = f"timeout 2 grep -s -l '^{serial}$' /sys/bus/usb/devices/*/serial"
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if res.returncode == 0 and res.stdout.strip():
+            path = res.stdout.strip().split("\n")[0]
+            parts = path.split("/")
+            if len(parts) >= 2:
+                return parts[-2]
     except Exception as e:
-        log("ERROR", f"Error scanning sysfs for serial {serial}: {e}")
+        log("ERROR", f"Fallback grep scanning failed: {e}")
     return None
 
 def reset_usb_device(usb_path):
@@ -183,12 +198,12 @@ def check_adb_status():
 
     # 2. Check for adb hanging
     try:
-        res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=ADB_TIMEOUT_SEC)
-        if res.returncode != 0:
-            return False, f"adb devices failed with code {res.returncode}", [], 0, root_pids
+        success, stdout, stderr = run_adb_cmd(["devices"], timeout_sec=ADB_TIMEOUT_SEC)
+        if not success:
+            return False, f"adb devices failed: {stderr}", [], 0, root_pids
         
         # Parse device count
-        lines = res.stdout.strip().split("\n")
+        lines = stdout.strip().split("\n")
         device_count = 0
         unauthorized_serials = []
         offline_serials = []
@@ -256,8 +271,8 @@ def main():
                         # 1단계: 초반 1~2회 오동작 시 가벼운 소프트웨어 reconnect 재시도
                         if streak <= 2:
                             log("INFO", f"Attempting quick software reconnect for {serial} (Streak: {streak})")
-                            subprocess.run(["adb", "-s", serial, "reconnect"], capture_output=True)
-                            subprocess.run(["adb", "-s", serial, "reconnect", "device"], capture_output=True)
+                            run_adb_cmd(["-s", serial, "reconnect"], timeout_sec=5)
+                            run_adb_cmd(["-s", serial, "reconnect", "device"], timeout_sec=5)
                         
                         # 2단계: 1분(2회) 이상 꼬임 지속 시 하드웨어 USB unbind/bind 리셋
                         if streak >= 2:
