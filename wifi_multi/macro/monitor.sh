@@ -317,8 +317,7 @@ check_app_survival() {
     fi
 
     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
-     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
-     if [ "$IS_DRIVING" = false ]; then
+     if [ "${ERRORLOG_FAIL_FAST:-true}" = "true" ] && [ "$IS_DRIVING" = false ]; then
          local ERROR_POST_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
          if [ -n "$ERROR_POST_FILE" ]; then
              local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
@@ -596,8 +595,9 @@ while true; do
                         fi
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
-                    echo "[$(NOW)] [Action] GOAL REACHED. Waiting 10s for transition to safety driving mode..."
-                    sleep 10
+                    local WAIT_SEC=${END_ROUTE_WAIT_SECONDS:-10}
+                    echo "[$(NOW)] [Action] GOAL REACHED. Waiting ${WAIT_SEC}s for transition to safety driving mode..."
+                    sleep "$WAIT_SEC"
                     echo "[$(NOW)] [Action] EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."
                     
                     # Verify captured packets existence (routeend is mandatory, trafficjam is optional)

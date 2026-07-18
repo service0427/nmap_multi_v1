@@ -94,7 +94,7 @@ class ProxyV2ClassicLog:
 
     def request(self, flow: http.HTTPFlow):
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
-        if "client-logger/errorLog" in flow.request.url:
+        if os.environ.get("ERRORLOG_FILTER", "true").lower() == "true" and "client-logger/errorLog" in flow.request.url:
             try:
                 from mitm.request import smart_cleanse
                 flow.request.url = smart_cleanse(flow.request.url)

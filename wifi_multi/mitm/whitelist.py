@@ -30,7 +30,7 @@ def should_process(host: str, path: str) -> bool:
     path_lower = path.lower()
 
     # 0. Exclude blocked client-logger/errorLog from being logged to disk
-    if "client-logger/errorLog" in path_lower:
+    if os.environ.get("ERRORLOG_FILTER", "true").lower() == "true" and "client-logger/errorLog" in path_lower:
         return False
 
     # 1. 확장자 필터: 지정된 확장자가 경로에 포함되면 제외
