@@ -611,15 +611,52 @@ while true; do
                     fi
 
                     ACTUAL_DIST=0; ACTUAL_TIME=0
+                    
+                    # 1. Try legacy trafficjam_log first (for Naver Map 6.7.x)
                     for f in $(ls -1v "$ABS_LOG_DIR"/*_trafficjam_log.json 2>/dev/null); do
                         DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
                         TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
                         if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ]; then
                             ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
-                            echo "    > Found Stats in $(basename "$f"): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
+                            echo "    > Found Stats in legacy trafficjam_log ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
                             break
                         fi
                     done
+                    
+                    # 2. Try new log-receiver POST_log if legacy is missing (for Naver Map 6.8.x)
+                    if [ "$ACTUAL_DIST" = "0" ] || [ "$ACTUAL_TIME" = "0" ]; then
+                        for f in $(ls -1v "$ABS_LOG_DIR"/*_POST_log.json 2>/dev/null); do
+                            URL_CHECK=$(jq -r '.url // empty' "$f" 2>/dev/null)
+                            if [[ "$URL_CHECK" == *"log-receiver"* ]]; then
+                                DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
+                                TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
+                                if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ]; then
+                                    ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
+                                    echo "    > Found Stats in new log-receiver ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
+                                    break
+                                fi
+                            fi
+                        done
+                    fi
+
+                    # 3. Fallback: Parse from routeend URL query parameters if both log files are missing
+                    if [ "$ACTUAL_DIST" = "0" ] || [ "$ACTUAL_TIME" = "0" ]; then
+                        echo "    > Fallback: Extracting stats from routeend URL..."
+                        RE_URL=$(jq -r '.url // empty' "$ROUTEEND_FILE" 2>/dev/null)
+                        if [ -n "$RE_URL" ]; then
+                            START_TS=$(echo "$RE_URL" | grep -oE 'startts=[0-9]+' | cut -d= -f2)
+                            END_TS=$(echo "$RE_URL" | grep -oE 'endts=[0-9]+' | cut -d= -f2)
+                            MILEAGE=$(echo "$RE_URL" | grep -oE 'mileage=[0-9.]+' | cut -d= -f2)
+                            
+                            if [ -n "$START_TS" ] && [ -n "$END_TS" ]; then
+                                ACTUAL_TIME=$(( (END_TS - START_TS) / 1000 ))
+                            fi
+                            if [ -n "$MILEAGE" ]; then
+                                ACTUAL_DIST=$(awk "BEGIN {printf \"%.0f\", $MILEAGE * 1000}")
+                            fi
+                            echo "    > Extracted from routeend: ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
+                        fi
+                    fi
                     
                     # [NEW] Mandatory Identity Validation Check
                     IDENTITY_VALID=true
