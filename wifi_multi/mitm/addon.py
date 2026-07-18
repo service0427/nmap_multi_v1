@@ -95,13 +95,21 @@ class ProxyV2ClassicLog:
     def request(self, flow: http.HTTPFlow):
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
         if "client-logger/errorLog" in flow.request.url:
+            origin = flow.request.headers.get("Origin", "*")
+            headers = {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+                "Access-Control-Allow-Headers": flow.request.headers.get("Access-Control-Request-Headers", "*"),
+                "Access-Control-Allow-Credentials": "true"
+            }
             flow.response = http.Response.make(
                 200,
                 b"",
-                {"Content-Type": "application/json"}
+                headers
             )
             print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id})!")
-            self._write_stealth_log("errorLog Blocked", "Intercepted and blocked errorLog POST request entirely.")
+            self._write_stealth_log("errorLog Blocked", "Intercepted and blocked errorLog POST/OPTIONS request entirely.")
             return
 
         # 2. Proportional Capping of accessLog Metrics to Ensure Realistic Inequalities
