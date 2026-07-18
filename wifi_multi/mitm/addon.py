@@ -95,6 +95,31 @@ class ProxyV2ClassicLog:
     def request(self, flow: http.HTTPFlow):
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
         if "client-logger/errorLog" in flow.request.url:
+            try:
+                from mitm.request import smart_cleanse
+                flow.request.url = smart_cleanse(flow.request.url)
+                for k in list(flow.request.headers.keys()):
+                    flow.request.headers[k] = smart_cleanse(flow.request.headers[k])
+                if flow.request.content:
+                    raw = flow.request.content
+                    is_gz = raw.startswith(b'\x1f\x8b')
+                    if is_gz:
+                        import gzip
+                        raw = gzip.decompress(raw)
+                    try:
+                        import json
+                        body_json = json.loads(raw.decode('utf-8', 'ignore'))
+                        body_json = smart_cleanse(body_json)
+                        work = json.dumps(body_json).encode('utf-8')
+                        if is_gz:
+                            import gzip
+                            work = gzip.compress(work)
+                        flow.request.content = work
+                    except:
+                        flow.request.content = smart_cleanse(flow.request.content)
+            except Exception as e:
+                print(f" [!] Error cleansing errorLog request: {e}")
+
             origin = flow.request.headers.get("Origin", "*")
             headers = {
                 "Content-Type": "application/json",
@@ -109,7 +134,7 @@ class ProxyV2ClassicLog:
                 headers
             )
             print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id})!")
-            self._write_stealth_log("errorLog Blocked", "Intercepted and blocked errorLog POST/OPTIONS request entirely.")
+            self._write_stealth_log("errorLog Blocked", "Intercepted, cleansed and blocked errorLog POST/OPTIONS request entirely.")
             return
 
         # 2. Proportional Capping of accessLog Metrics to Ensure Realistic Inequalities

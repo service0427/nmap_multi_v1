@@ -317,17 +317,19 @@ check_app_survival() {
     fi
 
     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
-    if [ "$IS_DRIVING" = false ]; then
-        local ERROR_POST_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
-        if [ -n "$ERROR_POST_FILE" ]; then
-            local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
-            if [ -n "$ERR_MSG" ]; then
-                echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected in $(basename "$ERROR_POST_FILE"): $ERR_MSG"
-                send_report_result "FAIL" "ERROR_LOG_DETECTED: $ERR_MSG"
-                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
-            fi
-        fi
-    fi
+     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
+     if [ "$IS_DRIVING" = false ]; then
+         local ERROR_POST_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
+         if [ -n "$ERROR_POST_FILE" ]; then
+             local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
+             # Exclude harmless browser lifecycle events (PAGE_HIDE, INCOMPLETE_REQUEST) from fail-fast abort
+             if [ -n "$ERR_MSG" ] && [[ "$ERR_MSG" != *"INCOMPLETE_REQUEST"* ]] && [[ "$ERR_MSG" != *"PAGE_HIDE"* ]]; then
+                 echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected in $(basename "$ERROR_POST_FILE"): $ERR_MSG"
+                 send_report_result "FAIL" "ERROR_LOG_DETECTED: $ERR_MSG"
+                 stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+             fi
+         fi
+     fi
 }
 
 human_random_sleep() {
