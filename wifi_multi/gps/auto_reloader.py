@@ -93,7 +93,7 @@ def move_gps_to_target(device_id, target_lat, target_lng):
     subprocess.run(["adb", "-s", device_id, "push", local_xml, "/data/local/tmp/force_gps.xml"], capture_output=True)
     su_cmd = get_su_cmd(device_id)
     subprocess.run(["adb", "-s", device_id, "shell", su_cmd, "-c",
-                    f"cp /data/local/tmp/force_gps.xml {prefs_path} && chown \$(stat -c %u:%g /data/data/{pkg}) {prefs_path} && chmod 660 {prefs_path} && rm /data/local/tmp/force_gps.xml"], capture_output=True)
+                    f"cp /data/local/tmp/force_gps.xml {prefs_path} && chown \\$(stat -c %u:%g /data/data/{pkg}) {prefs_path} && chmod 660 {prefs_path} && rm /data/local/tmp/force_gps.xml"], capture_output=True)
     cmd = ["adb", "-s", device_id, "shell", su_cmd, "-c", 
            f"am start-foreground-service -n {pkg}/.servicex2484 -a ACTION_START_CONTINUOUS --es uy.digitools.RUTA 'ruta0' --ef velocidad 0.0 --ei loopMode 1"]
     subprocess.run(cmd, capture_output=True)
