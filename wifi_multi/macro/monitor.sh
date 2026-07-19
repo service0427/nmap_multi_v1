@@ -318,15 +318,26 @@ check_app_survival() {
 
     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
      if [ "${ERRORLOG_FAIL_FAST:-true}" = "true" ] && [ "$IS_DRIVING" = false ]; then
-         local ERROR_POST_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
-         if [ -n "$ERROR_POST_FILE" ]; then
-             local ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
-             # Exclude harmless browser lifecycle events (PAGE_HIDE, INCOMPLETE_REQUEST) from fail-fast abort
-             if [ -n "$ERR_MSG" ] && [[ "$ERR_MSG" != *"INCOMPLETE_REQUEST"* ]] && [[ "$ERR_MSG" != *"PAGE_HIDE"* ]]; then
-                 echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected in $(basename "$ERROR_POST_FILE"): $ERR_MSG"
-                 send_report_result "FAIL" "ERROR_LOG_DETECTED: $ERR_MSG"
-                 stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+         local ERR_MSG=""
+         
+         # 1. Check local session marker file first (written when ERRORLOG_FILTER is true)
+         if [ -f "$ABS_LOG_DIR/errorLog_detected" ]; then
+             ERR_MSG=$(cat "$ABS_LOG_DIR/errorLog_detected" 2>/dev/null | xargs)
+         fi
+         
+         # 2. Check JSON file (fallback/legacy when ERRORLOG_FILTER is false)
+         if [ -z "$ERR_MSG" ]; then
+             local ERROR_POST_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
+             if [ -n "$ERROR_POST_FILE" ]; then
+                 ERR_MSG=$(jq -r '.request.body.message // empty' "$ERROR_POST_FILE" 2>/dev/null)
              fi
+         fi
+         
+         # Exclude harmless browser lifecycle events (PAGE_HIDE, INCOMPLETE_REQUEST) from fail-fast abort
+         if [ -n "$ERR_MSG" ] && [[ "$ERR_MSG" != *"INCOMPLETE_REQUEST"* ]] && [[ "$ERR_MSG" != *"PAGE_HIDE"* ]]; then
+             echo "[$(NOW)] [🚨] Strict Fail-Fast: Real errorLog payload detected: $ERR_MSG"
+             send_report_result "FAIL" "ERROR_LOG_DETECTED: $ERR_MSG"
+             stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
          fi
      fi
 }
@@ -721,14 +732,19 @@ while true; do
                         fi
                         
                         # [🚨 신규 방어선] 도착 클릭 직전 에러로그 재검사 (대기 도중 발생한 캡차 타임아웃 사전 차단)
-                        local TEMP_ERR_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
-                        if [ -n "$TEMP_ERR_FILE" ]; then
-                            local TEMP_ERR_MSG=$(jq -r '.request.body.message // empty' "$TEMP_ERR_FILE" 2>/dev/null)
-                            if [ -n "$TEMP_ERR_MSG" ]; then
-                                echo "[$(NOW)] [🚨] Pre-Arrival Fail-Fast: errorLog detected during captcha buffer sleep: $TEMP_ERR_MSG"
-                                send_report_result "FAIL" "ERROR_LOG_DETECTED: $TEMP_ERR_MSG"
-                                stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+                        local TEMP_ERR_MSG=""
+                        if [ -f "$ABS_LOG_DIR/errorLog_detected" ]; then
+                            TEMP_ERR_MSG=$(cat "$ABS_LOG_DIR/errorLog_detected" 2>/dev/null | xargs)
+                        else
+                            local TEMP_ERR_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_client-logger_errorLog.json 2>/dev/null | head -n 1)
+                            if [ -n "$TEMP_ERR_FILE" ]; then
+                                TEMP_ERR_MSG=$(jq -r '.request.body.message // empty' "$TEMP_ERR_FILE" 2>/dev/null)
                             fi
+                        fi
+                        if [ -n "$TEMP_ERR_MSG" ]; then
+                            echo "[$(NOW)] [🚨] Pre-Arrival Fail-Fast: errorLog detected during captcha buffer sleep: $TEMP_ERR_MSG"
+                            send_report_result "FAIL" "ERROR_LOG_DETECTED: $TEMP_ERR_MSG"
+                            stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
                         fi
                     fi
                     echo "[$(NOW)] [Action] Executing: $ACTION"

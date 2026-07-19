@@ -95,6 +95,7 @@ class ProxyV2ClassicLog:
     def request(self, flow: http.HTTPFlow):
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
         if os.environ.get("ERRORLOG_FILTER", "true").lower() == "true" and "client-logger/errorLog" in flow.request.url:
+            err_msg_to_save = "Unknown Error"
             try:
                 from mitm.request import smart_cleanse
                 flow.request.url = smart_cleanse(flow.request.url)
@@ -109,6 +110,8 @@ class ProxyV2ClassicLog:
                     try:
                         import json
                         body_json = json.loads(raw.decode('utf-8', 'ignore'))
+                        if isinstance(body_json, dict) and "message" in body_json:
+                            err_msg_to_save = body_json["message"]
                         body_json = smart_cleanse(body_json)
                         work = json.dumps(body_json).encode('utf-8')
                         if is_gz:
@@ -119,6 +122,14 @@ class ProxyV2ClassicLog:
                         flow.request.content = smart_cleanse(flow.request.content)
             except Exception as e:
                 print(f" [!] Error cleansing errorLog request: {e}")
+
+            # Write a local session marker file for monitor.sh to fail-fast immediately
+            try:
+                marker_path = os.path.join(self.base_log_dir, "errorLog_detected")
+                with open(marker_path, "w", encoding="utf-8") as f_marker:
+                    f_marker.write(err_msg_to_save)
+            except Exception as e:
+                print(f" [!] Error writing local errorLog marker: {e}")
 
             origin = flow.request.headers.get("Origin", "*")
             headers = {
@@ -134,7 +145,7 @@ class ProxyV2ClassicLog:
                 headers
             )
             print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id})!")
-            self._write_stealth_log("errorLog Blocked", "Intercepted, cleansed and blocked errorLog POST/OPTIONS request entirely.")
+            self._write_stealth_log("errorLog Blocked", f"Intercepted, cleansed and blocked errorLog POST/OPTIONS request entirely. Msg: {err_msg_to_save}")
             return
 
         # 2. Proportional Capping of accessLog Metrics to Ensure Realistic Inequalities
