@@ -82,6 +82,34 @@ def reboot(dev_id):
     subprocess.Popen(["adb", "-s", dev_id, "reboot"])
     return "OK"
 
+import json
+
+@app.route('/toggle_task/<dev_id>')
+def toggle_task(dev_id):
+    ex_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "excluded_devices.json")
+    excluded_list = []
+    if os.path.exists(ex_path):
+        try:
+            with open(ex_path, 'r') as f:
+                excluded_list = json.load(f)
+        except:
+            excluded_list = []
+            
+    if dev_id in excluded_list:
+        excluded_list.remove(dev_id)
+        excluded = False
+    else:
+        excluded_list.append(dev_id)
+        excluded = True
+        
+    try:
+        with open(ex_path, 'w') as f:
+            json.dump(excluded_list, f)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+    return jsonify({"status": "ok", "excluded": excluded})
+
 def gen_frames(dev_id):
     while True:
         try:

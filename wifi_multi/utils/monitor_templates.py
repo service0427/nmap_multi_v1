@@ -59,6 +59,7 @@ HTML_TEMPLATE = """
                 </span>
                 {% if dev and not dev.offline %}
                 <div class="header-buttons">
+                    <button id="btn-task-{{ dev.id }}" onclick="toggleTask('{{ dev.id }}')" style="background: {{ '#d32f2f' if dev.excluded else '#2E7D32' }}; min-width: 38px; font-weight: bold;" title="Toggle Task Allocation">{{ 'OFF' if dev.excluded else 'ON' }}</button>
                     <button id="btn-mon-{{ dev.id }}" onclick="toggleMonitor('{{ dev.id }}')" style="background: #607D8B;" title="Toggle Monitor">📺</button>
                     <button onclick="unlockDevice('{{ dev.id }}')" style="background: #2196F3;" title="Wake/Unlock">🔓</button>
                     <button onclick="sleepDevice('{{ dev.id }}')" style="background: #9C27B0;" title="Sleep">🌙</button>
@@ -191,6 +192,23 @@ HTML_TEMPLATE = """
             }
         }
 
+        function toggleTask(devId) {
+            const btn = document.getElementById('btn-task-' + devId);
+            fetch(`/toggle_task/${devId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        if (data.excluded) {
+                            btn.style.background = '#d32f2f';
+                            btn.innerText = 'OFF';
+                        } else {
+                            btn.style.background = '#2E7D32';
+                            btn.innerText = 'ON';
+                        }
+                    }
+                }).catch(e => console.error("Toggle task error", e));
+        }
+
         function handlePointerDown(event, devId) {
             const touchCheck = document.getElementById('touch-' + devId);
             if (!touchCheck || !touchCheck.checked) return;
@@ -241,6 +259,17 @@ HTML_TEMPLATE = """
                     if (badge) {
                         badge.className = 'status-badge ' + (dev.offline ? 'badge-offline' : (dev.status === 'WORKING' ? 'badge-working' : 'badge-idle'));
                         badge.innerText = dev.offline ? 'OFFLINE' : dev.status;
+                    }
+
+                    const taskBtn = document.getElementById('btn-task-' + dev.id);
+                    if (taskBtn) {
+                        if (dev.excluded) {
+                            taskBtn.style.background = '#d32f2f';
+                            taskBtn.innerText = 'OFF';
+                        } else {
+                            taskBtn.style.background = '#2E7D32';
+                            taskBtn.innerText = 'ON';
+                        }
                     }
                     
                     const ipEl = document.getElementById('ip-' + dev.id);

@@ -55,6 +55,16 @@ def get_device_diagnostics(serial):
 def refresh_device_slots():
     global device_slots
     try:
+        # Load excluded devices list
+        ex_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "excluded_devices.json")
+        excluded_set = set()
+        if os.path.exists(ex_path):
+            try:
+                with open(ex_path, 'r') as f:
+                    excluded_set = set(json.load(f))
+            except Exception as e:
+                print(f"Error reading excluded_devices.json: {e}", flush=True)
+
         output = subprocess.check_output(["adb", "devices", "-l"], timeout=5).decode("utf-8")
         lines = output.strip().split("\n")[1:]
         current_connected = {}
@@ -74,6 +84,7 @@ def refresh_device_slots():
                 if slot["id"] in current_connected:
                     slot["offline"] = False
                     slot["model"] = current_connected[slot["id"]]
+                    slot["excluded"] = slot["id"] in excluded_set
                     # Update diagnostics
                     diag = get_device_diagnostics(slot["id"])
                     slot.update(diag)
@@ -88,7 +99,8 @@ def refresh_device_slots():
             for i in range(MAX_SLOTS):
                 if device_slots[i] is None or device_slots[i].get("offline"):
                     diag = get_device_diagnostics(serial)
-                    device_slots[i] = {"id": serial, "model": model, "offline": False, **diag}
+                    is_excluded = serial in excluded_set
+                    device_slots[i] = {"id": serial, "model": model, "offline": False, "excluded": is_excluded, **diag}
                     assigned = True
                     break
     except:
