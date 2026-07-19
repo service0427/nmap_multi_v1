@@ -361,6 +361,7 @@ type_destination_only() {
 echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
 
 # === Main Loop ===
+ARRIVAL_CLICK_FAIL_COUNT=0
 while true; do
     check_app_survival
     
@@ -587,7 +588,18 @@ while true; do
                 elif [ "$ACTION" == "CLICK_ARRIVAL" ]; then
                     echo "[$(NOW)] [Action] Clicking '도착' (Arrival)..."
                     $MACRO_EXEC "$DEV_ID" "exact:도착" "$CAT"
-                    [ $? -eq 0 ] && sleep 5 || break
+                    if [ $? -eq 0 ]; then
+                        sleep 5
+                    else
+                        ((ARRIVAL_CLICK_FAIL_COUNT++))
+                        echo "[$(NOW)] [⚠️] Failed to click '도착' (Fail Count: $ARRIVAL_CLICK_FAIL_COUNT/3)"
+                        if [ $ARRIVAL_CLICK_FAIL_COUNT -ge 3 ]; then
+                            send_report_result "FAIL" "POI_ARRIVAL_NOT_FOUND"
+                            echo "[$(NOW)] [🚨] '도착' button not found after 3 attempts. Aborting."
+                            exit 1
+                        fi
+                        break
+                    fi
                 elif [ "$ACTION" == "btn_start_guidance" ]; then
                     echo "[$(NOW)] [Action] Clicking '안내시작' (Guidance Start)..."
                     $MACRO_EXEC "$DEV_ID" "$ACTION" "$CAT"
