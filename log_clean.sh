@@ -35,11 +35,16 @@ echo "[$NOW] Current Disk Usage: $DISK_USAGE%. Setting retention threshold to: $
 find "$LOG_ROOT" -mindepth 2 -not -newermt "$KEEP_TIME" \
     ! -path "*/tmp*" \
     ! -path "*/locks*" \
+    ! -path "*/stealth_logs*" \
+    ! -path "*/rotator_history*" \
     ! -name "current_task.json" \
     ! -name "nmap_lock" \
     -exec rm -rf {} + 2>/dev/null
 
-# 4. Cleanup empty directories (date folders, session folders)
+# 4. Specific 30-day retention cleanup for stealth_logs and rotator_history
+find "$LOG_ROOT/stealth_logs" "$LOG_ROOT/rotator_history" -type f -mtime +30 -delete 2>/dev/null
+
+# 5. Cleanup empty directories (date folders, session folders)
 find "$LOG_ROOT" -mindepth 2 -type d -empty -delete 2>/dev/null
 
 echo "[$NOW] Cleanup complete. Disk usage remains at $DISK_USAGE%."
