@@ -34,7 +34,7 @@
         .device-card { background: var(--card-bg); border-radius: 8px; padding: 10px; border: 1px solid var(--card-border); text-align: center; width: 326px; height: 865px; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; transition: background 0.3s, border-color 0.3s; }
         .device-card.working { border-color: #4CAF50; box-shadow: 0 0 10px rgba(76, 175, 80, 0.2); }
         .device-card.offline { opacity: 0.5; border-color: #f44336; }
-        .device-card.disabled { border-color: #757575; opacity: 0.55; }
+        .device-card.disabled { border-color: #757575; }
         
         .top-navbar { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(5px); padding: 12px 20px; border-bottom: 1px solid #333; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; flex-wrap: wrap; gap: 10px; width: 100%; transition: background 0.3s, border-color 0.3s; }
         body.light-theme .top-navbar { background: rgba(255, 255, 255, 0.95); border-bottom: 1px solid #ddd; }
@@ -158,7 +158,7 @@
         {% set dev = slots[i] %}
         {% set is_target = (not target_device_id) or (dev and dev.id == target_device_id) %}
         <div class="device-card {{ 'working' if dev and dev.status == 'WORKING' }} {{ 'disabled' if dev and dev.disabled }} {{ 'offline' if not dev or dev.offline }}" id="slot-{{ i }}" style="display: {{ 'flex' if is_target else 'none' }};">
-            <div class="card-header {{ 'dimmed' if not dev or dev.offline or dev.disabled }}" id="header-{{ i }}">
+            <div class="card-header {{ 'dimmed' if not dev or dev.offline }}" id="header-{{ i }}">
                 <span class="device-id" id="dev-name-{{ i }}">
                     <span style="color: #ffeb3b; font-weight: bold; margin-right: 5px;">#{{ "%02d" | format(i + 1) }}</span>
                     {% if dev and not dev.offline %}
@@ -698,7 +698,7 @@
                         card.className = 'device-card ' + (dev.offline ? 'offline' : (dev.disabled ? 'disabled' : (isTaskActive ? 'working' : '')));
                     }
                     if (header) {
-                        header.className = 'card-header ' + ((dev.offline || dev.disabled) ? 'dimmed' : '');
+                        header.className = 'card-header ' + (dev.offline ? 'dimmed' : '');
                     }
                     if (devName) {
                         if (dev.offline) {
