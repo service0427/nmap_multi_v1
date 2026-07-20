@@ -298,23 +298,28 @@ def main():
                             if "graphql" in pkt.get("path", "") and pkt.get("status") == 429:
                                 graphql_429_count += 1
 
-                    # 2) 신규 스코어링 로직 적용
+                    # 2) 신규 스코어링 로직 적용 (완주 SUCCESS 판에서만 429 감점 누적)
                     change_amount = 0
                     event_type = "NEUTRAL"
                     
-                    if graphql_429_count > 0:
-                        new_score = min(100, curr_score + graphql_429_count)
-                        change_amount = graphql_429_count
-                        event_type = "GQL_429"
-                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit {graphql_429_count} GraphQL 429s. Score: {curr_score} -> {new_score}"
-                    elif has_access_log and reason == "Task Completed":
-                        new_score = max(0, curr_score - 1)
-                        change_amount = -1
-                        event_type = "ACC_LOG"
-                        log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) accessLog SUCCESS. Score: {curr_score} -> {new_score}"
+                    if reason == "Task Completed":
+                        if graphql_429_count > 0:
+                            new_score = min(100, curr_score + graphql_429_count)
+                            change_amount = graphql_429_count
+                            event_type = "GQL_429"
+                            log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) Completed with {graphql_429_count} GraphQL 429s. Score: {curr_score} -> {new_score}"
+                        elif has_access_log:
+                            new_score = max(0, curr_score - 1)
+                            change_amount = -1
+                            event_type = "ACC_LOG"
+                            log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) Completed clean. Score: {curr_score} -> {new_score}"
+                        else:
+                            new_score = curr_score
+                            log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) Completed neutral. Score: {curr_score}"
                     else:
+                        # 주행 실패 시 (routeend 미통과) 패널티 점수를 올리지 않음 (유지)
                         new_score = curr_score
-                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral. Score: {curr_score}"
+                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral (Failed to reach routeend). Score: {curr_score}"
                         
                     details["ip_score"] = new_score
                     details["last_score_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
