@@ -293,11 +293,39 @@ def is_subnet_active_deprecated(subnet):
         log(f"Error checking subnet active state for {subnet}: {e}")
     return False
 
+def load_config():
+    config = {
+        "EARLY_ROTATION_SCORE_THRESHOLD": "10",
+        "GQL_429_FAIL_FAST": "false"
+    }
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_path = os.path.join(project_root, "config.conf")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    match = re.match(r'^(?:export\s+)?(\w+)\s*=\s*["\']?(.*?)["\']?$', line)
+                    if match:
+                        key, val = match.group(1), match.group(2)
+                        config[key] = val
+    except Exception as e:
+        log(f"Error loading config.conf: {e}")
+    return config
+
 def run_rotation():
     ensure_ip_rules()
     state = load_state()
     interfaces = get_lte_interfaces()
     state_changed = False
+    
+    config = load_config()
+    try:
+        threshold = int(config.get("EARLY_ROTATION_SCORE_THRESHOLD", 10))
+    except ValueError:
+        threshold = 10
     
     rotated_interfaces = set()
     toggle_triggered = False # 이번 1분 주기 내 물리 토글 집행 여부 플래그
@@ -341,16 +369,16 @@ def run_rotation():
         ip_score = details.get("ip_score", 0)
         cooldown_elapsed = (now_ts - last_toggle) >= EARLY_ROTATION_COOLDOWN_SECONDS
         
-        if ip_score >= EARLY_ROTATION_SCORE_THRESHOLD:
+        if ip_score >= threshold:
             if cooldown_elapsed:
                 if is_subnet_active(subnet):
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but subnet has active tasks. Postponing rotation.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {threshold}) but subnet has active tasks. Postponing rotation.")
                     continue
                 if toggle_triggered:
-                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but another rotation is already in progress. Skipping for next check.")
+                    log(f"[{name}] Dirty IP (Score: {ip_score} >= {threshold}) but another rotation is already in progress. Skipping for next check.")
                     continue
                     
-                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) and cooldown elapsed. Initiating early rotation...")
+                log(f"[{name}] ⚡ [IP SCORING TRIGGER] IP {curr_ip} is dirty (Score: {ip_score} >= {threshold}) and cooldown elapsed. Initiating early rotation...")
                 toggle_triggered = True
                 success, new_ip = run_smart_toggle(subnet)
                 if success:
@@ -365,7 +393,7 @@ def run_rotation():
                     log(f"[{name}] Score-based Rotation failed. Will retry.")
             else:
                 remaining = int(EARLY_ROTATION_COOLDOWN_SECONDS - (now_ts - last_toggle))
-                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= {EARLY_ROTATION_SCORE_THRESHOLD}) but cooldown limit not reached. Waiting {remaining}s. Leaving it alone.")
+                log(f"[{name}] IP {curr_ip} is dirty (Score: {ip_score} >= {threshold}) but cooldown limit not reached. Waiting {remaining}s. Leaving it alone.")
             continue
             
         # 4. 정기 스케줄 로테이션 (2~3시간 주기)
@@ -393,7 +421,7 @@ def run_rotation():
                 log(f"[{name}] Rotation failed. Will retry.")
         else:
             # IP가 깨끗하게 작동 중인 정상 상태
-            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < {EARLY_ROTATION_SCORE_THRESHOLD}). Keeping alive.")
+            log(f"[{name}] IP {curr_ip} is clean (Score: {ip_score} < {threshold}). Keeping alive.")
                 
     if state_changed:
         # [🛡️ Concurrency Safety] Merge latest scores from disk before writing to prevent wiping out updates from report.py

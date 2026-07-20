@@ -25,6 +25,7 @@ def main():
     success_count = 0
     fail_count = 0
     api_err_count = 0
+    gql_429_runs = 0
 
     subnet_stats = {}
     failure_reasons = {}
@@ -63,10 +64,14 @@ def main():
             else:
                 fail_count += 1
 
+            # Count GQL_429 occurrences in message
+            if "GQL_429" in msg or "429" in msg:
+                gql_429_runs += 1
+
             # Group by subnet
             if subnet not in subnet_stats:
                 subnet_stats[subnet] = {
-                    'total': 0, 'success': 0, 'fail': 0, 'api_err': 0, 'devices': set()
+                    'total': 0, 'success': 0, 'fail': 0, 'api_err': 0, 'gql_429': 0, 'devices': set()
                 }
             
             sub_s = subnet_stats[subnet]
@@ -79,15 +84,20 @@ def main():
             else:
                 sub_s['fail'] += 1
 
+            if "GQL_429" in msg or "429" in msg:
+                sub_s['gql_429'] += 1
+
             # Failure reasons breakdown
             if status != 'SUCCESS' and status != 'API_ERROR':
                 reason = "Unknown"
-                if "nCaptcha Timeout" in msg or "captcha" in msg.lower() or "ERROR_LOG_DETECTED" in msg:
-                    reason = "nCaptcha Timeout"
+                if "GQL_429" in msg or "429" in msg:
+                    reason = "GQL_429_DETECTED"
                 elif "PACKET_STUCK" in msg:
                     reason = "PACKET_STUCK"
                 elif "MISSING_ARRIVAL_PACKETS" in msg:
                     reason = "MISSING_ARRIVAL_PACKETS"
+                elif "nCaptcha Timeout" in msg or "captcha" in msg.lower() or "ERROR_LOG_DETECTED" in msg:
+                    reason = "nCaptcha Timeout"
                 elif "ADDRESS_NOT_FOUND" in msg:
                     reason = "ADDRESS_NOT_FOUND"
                 elif "GUIDANCE_NOT_FOUND" in msg:
@@ -135,6 +145,7 @@ def main():
     print(f" - Total Runs       : {total_runs}")
     print(f" - SUCCESS          : {success_count}")
     print(f" - FAIL             : {fail_count}")
+    print(f" - GQL_429 Detected : {gql_429_runs} runs ({(gql_429_runs/total_runs*100) if total_runs > 0 else 0:.1f}% of total)")
     if api_err_count > 0:
         print(f" - API_ERROR        : {api_err_count} (Not counted in success rate)")
     print(f" - Success Rate     : {success_rate:.1f}%")
@@ -151,6 +162,7 @@ def main():
         sub_success = sub_s['success']
         sub_fail = sub_s['fail']
         sub_api = sub_s['api_err']
+        sub_gql = sub_s['gql_429']
         sub_rate = (sub_success / (sub_success + sub_fail)) * 100 if (sub_success + sub_fail) > 0 else 0
         sub_devs = len(sub_s['devices'])
         sub_efficiency = sub_success / (sub_devs * hours) if (sub_devs * hours) > 0 else 0
@@ -159,6 +171,7 @@ def main():
         print(f"lte{sub} (Subnet {sub} | Active Devices: {sub_devs}):")
         print(f"   Active Devices  : {', '.join(dev_list)}")
         print(f"   Runs            : {sub_total} | Success: {sub_success} | Fail: {sub_fail} | Success Rate: {sub_rate:.1f}%")
+        print(f"   GQL_429 Detected: {sub_gql} runs ({(sub_gql/sub_total*100) if sub_total > 0 else 0:.1f}%)")
         if sub_api > 0:
             print(f"   API_ERROR       : {sub_api} (Not counted in success rate)")
         print(f"   Work Efficiency : {sub_efficiency:.2f} successes/device/hour 🚀")

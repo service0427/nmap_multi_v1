@@ -116,7 +116,7 @@ def draw_dashboard():
     if len(sys.argv) > 1 and sys.argv[1] in ("-w", "--watch"):
         print(f"{YELLOW}Watching mode active (Refreshing every 2 seconds). Press Ctrl+C to exit.{RESET}")
     else:
-        print(f"{CYAN}Tip: Run './wifi_multi/check_speeds.sh --watch' to view real-time traffic flow.{RESET}")
+        print(f"{CYAN}Tip: Run './check_speeds.sh --watch' to view real-time traffic flow.{RESET}")
     print("==================================================================================================================")
 
 def main():

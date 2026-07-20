@@ -316,6 +316,13 @@ check_app_survival() {
         fi
     fi
 
+    # [🚨 GQL 429 Fail Fast Gate]
+    if [ "${GQL_429_FAIL_FAST:-false}" = "true" ] && [ -f "$ABS_LOG_DIR/gql_429_detected" ]; then
+        echo "[$(NOW)] [🚨] Strict Fail-Fast: GraphQL 429 detected!"
+        send_report_result "FAIL" "GQL_429_DETECTED"
+        stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+    fi
+
     # [🛡️ Strict Fail-Fast on any client-logger POST errorLog with message]
      if [ "${ERRORLOG_FAIL_FAST:-true}" = "true" ] && [ "$IS_DRIVING" = false ]; then
          local ERR_MSG=""
@@ -728,23 +735,29 @@ while true; do
                         human_random_sleep
                     elif [ "$ID" == "STEP_05_POI_ARRIVAL" ]; then
                         # [⚡ 통계 기반 정밀 제어] 주소 클릭 후 캡차 검증 완료까지 평균 10.2초 소요 (95% 확률로 11초 이내 발생)
-                        # 주소 클릭 시점(ADDR_CLICK_TS)으로부터 정확히 11초가 경과할 때까지 동적으로 슬립
-                        if [ -n "$ADDR_CLICK_TS" ]; then
-                            local ADDR_ELAPSED=$(( $(date +%s) - ADDR_CLICK_TS ))
-                            if [ $ADDR_ELAPSED -lt 11 ]; then
-                                local req_sleep=$(( 11 - ADDR_ELAPSED ))
-                                echo "[$(NOW)] [Delay] Dynamic Captcha Buffer sleep for ${req_sleep}s (Total: 11s since Address Click)..."
-                                sleep $req_sleep
-                            else
-                                echo "[$(NOW)] [Delay] Dynamic Captcha Buffer bypassed (already elapsed ${ADDR_ELAPSED}s since Address Click)..."
-                            fi
-                        else
-                            echo "[$(NOW)] [Delay] Default Captcha Buffer sleep for 5s..."
-                            sleep 5
-                        fi
-                        
-                        # [🚨 신규 방어선] 도착 클릭 직전 에러로그 재검사 (대기 도중 발생한 캡차 타임아웃 사전 차단)
-                        local TEMP_ERR_MSG=""
+                         # 주소 클릭 시점(ADDR_CLICK_TS)으로부터 정확히 11초가 경과할 때까지 동적으로 슬립
+                         if [ -n "$ADDR_CLICK_TS" ]; then
+                             local ADDR_ELAPSED=$(( $(date +%s) - ADDR_CLICK_TS ))
+                             if [ $ADDR_ELAPSED -lt 11 ]; then
+                                 local req_sleep=$(( 11 - ADDR_ELAPSED ))
+                                 echo "[$(NOW)] [Delay] Dynamic Captcha Buffer sleep for ${req_sleep}s (Total: 11s since Address Click)..."
+                                 sleep $req_sleep
+                             else
+                                 echo "[$(NOW)] [Delay] Dynamic Captcha Buffer bypassed (already elapsed ${ADDR_ELAPSED}s since Address Click)..."
+                             fi
+                         else
+                             echo "[$(NOW)] [Delay] Default Captcha Buffer sleep for 5s..."
+                             sleep 5
+                         fi
+                         
+                         # [🚨 신규 방어선] 도착 클릭 직전 에러로그 재검사 (대기 도중 발생한 캡차 타임아웃 사전 차단)
+                         if [ "${GQL_429_FAIL_FAST:-false}" = "true" ] && [ -f "$ABS_LOG_DIR/gql_429_detected" ]; then
+                              echo "[$(NOW)] [🚨] Pre-Arrival Fail-Fast: GraphQL 429 detected during captcha buffer sleep"
+                              send_report_result "FAIL" "GQL_429_DETECTED"
+                              stop_gps; adb -s "$DEV_ID" shell am force-stop "$PKG_NAME"; exit 1
+                         fi
+
+                         local TEMP_ERR_MSG=""
                         if [ -f "$ABS_LOG_DIR/errorLog_detected" ]; then
                             TEMP_ERR_MSG=$(cat "$ABS_LOG_DIR/errorLog_detected" 2>/dev/null | xargs)
                         else

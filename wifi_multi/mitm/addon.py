@@ -212,6 +212,19 @@ class ProxyV2ClassicLog:
     def response(self, flow: http.HTTPFlow):
         # 1. Track Driving/Arrival Events for Timing
         path = flow.request.path
+        
+        # [🛡️ GraphQL 429 Fail Fast Gate]
+        if os.environ.get("GQL_429_FAIL_FAST", "false").lower() == "true":
+            if "graphql" in path and flow.response and flow.response.status_code == 429:
+                try:
+                    marker_path = os.path.join(self.base_log_dir, "gql_429_detected")
+                    with open(marker_path, "w", encoding="utf-8") as f_marker:
+                        f_marker.write("GraphQL 429 Detected")
+                    print(f" [🛡️ MITM BLOCK] GraphQL 429 detected! Fail fast active (Device: {self.device_id})!")
+                    self._write_stealth_log("GraphQL 429 Blocked", "Intercepted GraphQL 429 response. Fail-fast active.")
+                except Exception as e:
+                    print(f" [!] Error writing local GQL 429 marker: {e}")
+
         if "global/driving" in path and flow.response.status_code == 200:
             self.update_summary({
                 "driving_start_time": datetime.datetime.now().isoformat(),
