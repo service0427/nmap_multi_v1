@@ -144,6 +144,7 @@ def main():
     try:
         real_ip = "UNKNOWN"
         bind_ip = "UNKNOWN"
+        summary_data = None
         
         # 1. Parse real_ip from session_summary.json
         summary_path = os.path.join(log_dir, "session_summary.json")
@@ -289,15 +290,23 @@ def main():
                 else:
                     curr_score = details.get("ip_score", 0)
                     
-                    # Scoring Logic (errorLog: +1, accessLog: -1, lower cap: 0)
+                    # 1) GraphQL 429 에러 횟수 집계
+                    graphql_429_count = 0
+                    if summary_data and isinstance(summary_data, dict):
+                        packets = summary_data.get("packets", [])
+                        for pkt in packets:
+                            if "graphql" in pkt.get("path", "") and pkt.get("status") == 429:
+                                graphql_429_count += 1
+
+                    # 2) 신규 스코어링 로직 적용
                     change_amount = 0
                     event_type = "NEUTRAL"
                     
-                    if has_real_error_log:
-                        new_score = min(100, curr_score + 1)
-                        change_amount = 1
-                        event_type = "ERR_LOG"
-                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit errorLog. Score: {curr_score} -> {new_score}"
+                    if graphql_429_count > 0:
+                        new_score = min(100, curr_score + graphql_429_count)
+                        change_amount = graphql_429_count
+                        event_type = "GQL_429"
+                        log_msg = f"[🛑 IP SCORING] {modem_name} ({real_ip}) hit {graphql_429_count} GraphQL 429s. Score: {curr_score} -> {new_score}"
                     elif has_access_log and reason == "Task Completed":
                         new_score = max(0, curr_score - 1)
                         change_amount = -1
@@ -305,7 +314,7 @@ def main():
                         log_msg = f"[🟢 IP SCORING] {modem_name} ({real_ip}) accessLog SUCCESS. Score: {curr_score} -> {new_score}"
                     else:
                         new_score = curr_score
-                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral (Reason: {reason}). Score: {curr_score}"
+                        log_msg = f"[⚪ IP SCORING] {modem_name} ({real_ip}) neutral. Score: {curr_score}"
                         
                     details["ip_score"] = new_score
                     details["last_score_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
