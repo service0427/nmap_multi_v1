@@ -80,7 +80,7 @@ date
 # 5. 패키지 리스트 업데이트 및 기본 도구 설치
 echo "[*] Updating package list & Installing basic tools..."
 sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent lsof
 
 # 6. Python 및 필수 라이브러리 설치
 echo "[*] Installing Python3 and required libraries..."
