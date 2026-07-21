@@ -8,10 +8,14 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Install Dependencies
-echo -e "\033[1;33m[1/6] Installing core dependencies...\033[0m"
-apt-get update > /dev/null
-apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager 2>/dev/null
-pip3 install mitmproxy frida-tools --break-system-packages 2>/dev/null || pip3 install mitmproxy frida-tools
+if ! command -v adb >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! command -v mitmdump >/dev/null 2>&1 || ! command -v frida >/dev/null 2>&1 || ! command -v lsof >/dev/null 2>&1; then
+    echo -e "\033[1;33m[1/6] Installing core dependencies...\033[0m"
+    apt-get update > /dev/null
+    apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager lsof 2>/dev/null
+    pip3 install mitmproxy frida-tools --break-system-packages 2>/dev/null || pip3 install mitmproxy frida-tools
+else
+    echo -e "\033[1;32m[1/6] Core dependencies already installed. Skipping apt/pip updates.\033[0m"
+fi
 
 # 1.5. Legacy Clean Up to Prevent Conflicts on Older Servers
 echo -e "\033[1;33m[1.5/6] Cleaning up legacy network & udev configs to prevent routing collisions...\033[0m"
@@ -60,20 +64,34 @@ sysctl -p /etc/sysctl.d/99-lte-proxy.conf > /dev/null
 
 # 3. DNS Blackhole Prevention (Tailscale Survival)
 echo -e "\033[1;33m[3/6] Locking Global DNS to prevent Tailscale drops...\033[0m"
-cat << EOF > /etc/systemd/resolved.conf
+DNS_NEEDS_RESTART=0
+if [ ! -f /etc/systemd/resolved.conf ] || ! grep -q "DNS=8.8.8.8 8.8.4.4" /etc/systemd/resolved.conf; then
+    cat << EOF > /etc/systemd/resolved.conf
 [Resolve]
 DNS=8.8.8.8 8.8.4.4
 FallbackDNS=1.1.1.1 1.0.0.1
 Domains=~.
 EOF
+    DNS_NEEDS_RESTART=1
+fi
+
 mkdir -p /etc/NetworkManager/conf.d
-cat << EOF > /etc/NetworkManager/conf.d/dns.conf
+if [ ! -f /etc/NetworkManager/conf.d/dns.conf ] || ! grep -q "dns=systemd-resolved" /etc/NetworkManager/conf.d/dns.conf; then
+    cat << EOF > /etc/NetworkManager/conf.d/dns.conf
 [main]
 dns=systemd-resolved
 EOF
-systemctl restart systemd-resolved
-systemctl restart NetworkManager
-sleep 3
+    DNS_NEEDS_RESTART=1
+fi
+
+if [ "$DNS_NEEDS_RESTART" -eq 1 ]; then
+    echo -e "   > Applying new DNS configurations and restarting NetworkManager..."
+    systemctl restart systemd-resolved
+    systemctl restart NetworkManager
+    sleep 3
+else
+    echo -e "   > DNS configuration already locked. Skipping NetworkManager restart."
+fi
 
 # 4. Dynamic Primary Interface Detection
 echo -e "\033[1;33m[4/6] Dynamically detecting primary wired interface...\033[0m"
