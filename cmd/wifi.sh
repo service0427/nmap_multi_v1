@@ -253,6 +253,26 @@ for serial in "${final_devices[@]}"; do
         adb -s "$serial" shell "settings put global captive_portal_mode 0" >/dev/null 2>&1
         adb -s "$serial" shell "settings put global captive_portal_detection_enabled 0" >/dev/null 2>&1
         
+        # 1. Unconditionally forget all saved networks (list-networks + sweep 0-20) & suggestions
+        echo "[$serial] Wiping all previously saved Wi-Fi networks..."
+        net_ids=$(adb -s "$serial" shell "cmd wifi list-networks" 2>/dev/null | awk 'NR>1 {print $1}' | sort -u | tr -d '\r')
+        for net_id in $net_ids; do
+            if [[ "$net_id" =~ ^[0-9]+$ ]]; then
+                adb -s "$serial" shell "cmd wifi forget-network $net_id" >/dev/null 2>&1 || true
+            fi
+        done
+        for id in $(seq 0 20); do
+            adb -s "$serial" shell "cmd wifi forget-network $id" >/dev/null 2>&1 || true
+        done
+        adb -s "$serial" shell "cmd wifi remove-all-suggestions" >/dev/null 2>&1 || true
+        
+        # 2. Force-toggle Wi-Fi OFF & ON to sever any active connection
+        adb -s "$serial" shell "cmd wifi set-wifi-enabled disabled" >/dev/null 2>&1
+        sleep 1
+        adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
+        sleep 1
+
+        # 3. Check for root (optional enhancement for connect)
         has_su=false
         has_su_cmd=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
         if [ -z "$has_su_cmd" ]; then
@@ -265,20 +285,11 @@ for serial in "${final_devices[@]}"; do
             fi
         fi
 
+        echo "[$serial] Connecting to '$chosen_ssid'..."
         if [ "$has_su" = "true" ]; then
-            net_ids=$(adb -s "$serial" shell "cmd wifi list-networks" 2>/dev/null | awk 'NR>1 {print $1}' | sort -u | tr -d '\r')
-            for net_id in $net_ids; do
-                if [[ "$net_id" =~ ^[0-9]+$ ]]; then
-                    echo "[$serial] Forgetting saved network ID: $net_id"
-                    adb -s "$serial" shell "cmd wifi forget-network $net_id" >/dev/null 2>&1 || true
-                fi
-            done
-            adb -s "$serial" shell "cmd wifi remove-all-suggestions" >/dev/null 2>&1 || true
-            sleep 1
-            echo "[$serial] Connecting to '$chosen_ssid'..."
             adb -s "$serial" shell "$has_su_cmd -c 'cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324'" >/dev/null 2>&1
         else
-            echo -e "\e[1;31m[$serial] [⚠️] Root (su) permission check failed. Skipping.\e[0m"
+            adb -s "$serial" shell "cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324" >/dev/null 2>&1
         fi
     ) &
 done
