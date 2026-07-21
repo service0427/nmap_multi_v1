@@ -3,7 +3,7 @@
 
 # --- [ADB TIMEOUT WRAPPER] ---
 adb() {
-    timeout 10 /usr/bin/adb "$@"
+    timeout 10 /usr/bin/adb "$@" 7>&- 8>&- 9>&-
 }
 
 DEV_ID=$1; LOG_DIR=$2; DEST_ID=$3
