@@ -2,7 +2,75 @@
 import os
 import sys
 import csv
+import json
 from datetime import datetime
+
+def find_session_folder(dev_id, date_str, task_id, ts_str):
+    device_dir = f"/home/tech/nmap_multi_v1/wifi_multi/logs/{dev_id}/{date_str}"
+    if not os.path.exists(device_dir):
+        return None
+        
+    try:
+        subdirs = [os.path.join(device_dir, d) for d in os.listdir(device_dir) if os.path.isdir(os.path.join(device_dir, d))]
+    except:
+        return None
+    
+    # 1. Try matching via report.json
+    for sd in subdirs:
+        report_path = os.path.join(sd, "report.json")
+        if os.path.exists(report_path):
+            try:
+                with open(report_path, "r", encoding="utf-8", errors="ignore") as rf:
+                    rep_data = json.load(rf)
+                    tid = str(rep_data.get("task_metadata", {}).get("task_id", ""))
+                    if tid == str(task_id):
+                        return sd
+            except:
+                pass
+                
+    # 2. Fallback: match via timestamp proximity
+    try:
+        csv_dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+    except:
+        return None
+        
+    best_folder = None
+    min_diff = 900 # Max 15 minutes difference
+    
+    for sd in subdirs:
+        bname = os.path.basename(sd)
+        parts = bname.split("_")
+        if not parts: continue
+        hms = parts[0]
+        if len(hms) == 6 and hms.isdigit():
+            try:
+                f_hour = int(hms[0:2])
+                f_min = int(hms[2:4])
+                f_sec = int(hms[4:6])
+                folder_dt = csv_dt.replace(hour=f_hour, minute=f_min, second=f_sec)
+                diff = (csv_dt - folder_dt).total_seconds()
+                if 0 <= diff < min_diff:
+                    min_diff = diff
+                    best_folder = sd
+            except:
+                pass
+                
+    return best_folder
+
+def check_429_in_session(folder_path):
+    if not folder_path:
+        return False
+    summary_file = os.path.join(folder_path, "session_summary.json")
+    if not os.path.exists(summary_file):
+        return False
+    try:
+        with open(summary_file, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+            if '"status": 429' in content or '"status_code": 429' in content:
+                return True
+    except:
+        pass
+    return False
 
 def main():
     history_file = "/home/tech/nmap_multi_v1/wifi_multi/logs/rotator_history/session_history.csv"
@@ -44,6 +112,7 @@ def main():
             subnet = row.get('Subnet', 'Unknown')
             msg = row.get('Message', '')
             dev_id = row.get('DeviceID', '')
+            task_id = row.get('TaskID', '')
 
             if not subnet:
                 subnet = 'Unknown'
@@ -64,9 +133,20 @@ def main():
             else:
                 fail_count += 1
 
-            # Count GQL_429 occurrences in message
-            if "GQL_429" in msg or "429" in msg:
+            # Extract date string for folder matching
+            date_str = ts.split()[0].replace("-", "") if ts else ""
+            
+            # Find the session directory and check for 429
+            had_429 = False
+            if dev_id and date_str and task_id:
+                folder = find_session_folder(dev_id, date_str, task_id, ts)
+                had_429 = check_429_in_session(folder)
+
+            if had_429 or "GQL_429" in msg or "429" in msg:
                 gql_429_runs += 1
+                had_429_event = True
+            else:
+                had_429_event = False
 
             # Group by subnet
             if subnet not in subnet_stats:
@@ -84,18 +164,18 @@ def main():
             else:
                 sub_s['fail'] += 1
 
-            if "GQL_429" in msg or "429" in msg:
+            if had_429_event:
                 sub_s['gql_429'] += 1
 
             # Failure reasons breakdown
             if status != 'SUCCESS' and status != 'API_ERROR':
                 reason = "Unknown"
-                if "GQL_429" in msg or "429" in msg:
-                    reason = "GQL_429_DETECTED"
-                elif "PACKET_STUCK" in msg:
+                if "PACKET_STUCK" in msg:
                     reason = "PACKET_STUCK"
                 elif "MISSING_ARRIVAL_PACKETS" in msg:
                     reason = "MISSING_ARRIVAL_PACKETS"
+                elif "GQL_429" in msg or "429" in msg or had_429_event:
+                    reason = "GQL_429_DETECTED"
                 elif "nCaptcha Timeout" in msg or "captcha" in msg.lower() or "ERROR_LOG_DETECTED" in msg:
                     reason = "nCaptcha Timeout"
                 elif "ADDRESS_NOT_FOUND" in msg:
