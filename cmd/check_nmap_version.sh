@@ -12,7 +12,7 @@ if [ -f "$PROJECT_ROOT/version.conf" ]; then
 else
     # Fallback to dynamic local check if version.conf is missing
     INSTALL_DIR="$PROJECT_ROOT/install"
-    TARGET_VER="6.8.0.5" # Fallback default
+    TARGET_VER="6.8.1.1" # Fallback default
     NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) | sort -V -r | head -n 1)
     if [ -n "$NMAP_DIR" ]; then
         folder_name=$(basename "$NMAP_DIR")

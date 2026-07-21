@@ -114,7 +114,7 @@ fi
 if [ -f "$BASE_DIR/version.conf" ]; then
     source "$BASE_DIR/version.conf"
 else
-    TARGET_NMAP_VERSION="6.8.0.5"
+    TARGET_NMAP_VERSION="6.8.1.1"
 fi
 
 # Ensure installation assets are present before initializing devices

@@ -11,9 +11,9 @@ if [ -f "$WORKSPACE_DIR/version.conf" ]; then
     source "$WORKSPACE_DIR/version.conf"
 else
     # Fallbacks in case config is missing
-    TARGET_NMAP_VERSION="6.8.0.5"
+    TARGET_NMAP_VERSION="6.8.1.1"
     GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
-    GDRIVE_NMAP_ID="1Trii2SMADiVPjzLrwOntYguPAN35CQqT"
+    GDRIVE_NMAP_ID="14aq_bcGGyj6-j2X0RXqtNXsz3ODFRVUX"
 fi
 
 TARGET_DIR="$WORKSPACE_DIR/install"
