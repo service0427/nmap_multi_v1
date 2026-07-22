@@ -307,7 +307,7 @@ def main():
                     
                     if reason == "Task Completed" or (gql_fail_fast_active and is_gql_429_event):
                         if is_gql_429_event:
-                            score_to_add = max(1, graphql_429_count)
+                            score_to_add = 1
                             new_score = min(100, curr_score + score_to_add)
                             change_amount = score_to_add
                             event_type = "GQL_429"
