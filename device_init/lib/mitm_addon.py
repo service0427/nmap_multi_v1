@@ -5,6 +5,7 @@ import random
 import threading
 import base64
 import re
+import gzip
 from mitmproxy import http
 
 # [NEW] Protobuf Decoding Support
@@ -183,6 +184,21 @@ class ProxyCoreWash:
 
         host = flow.request.pretty_host
         path = flow.request.path
+
+        # Banner Bypass (Always Active: Supports linchpin-client, maps-event-popup, and generic popup endpoints)
+        if any(k in path for k in ["linchpin-client/v2/popups", "maps-event-popup", "/popups"]) and flow.response.content:
+            try:
+                content = flow.response.content
+                is_gz = content.startswith(b'\x1f\x8b')
+                raw = gzip.decompress(content) if is_gz else content
+                res_json = json.loads(raw.decode('utf-8', 'ignore'))
+                for key in ["eventModal", "normalPopups", "eventNormalPopups", "eventPagePopups", "eventModalPopups"]:
+                    if key in res_json:
+                        res_json[key] = [] if "Popups" in key else None
+                work = json.dumps(res_json).encode('utf-8')
+                flow.response.content = bytes(gzip.compress(work) if is_gz else work)
+            except Exception:
+                pass
         
         # Noise checking
         is_noise = any(nh in host for nh in self.NOISE_HOSTS) or any(np in path for np in self.NOISE_PATHS)

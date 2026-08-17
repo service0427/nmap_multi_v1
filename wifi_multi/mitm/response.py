@@ -1,6 +1,7 @@
 import json
 import base64
 import os
+import gzip
 import datetime
 from mitmproxy import http
 from .whitelist import should_process
@@ -11,14 +12,20 @@ def handle_response(addon, flow: http.HTTPFlow):
     path = flow.request.path
     host = flow.request.pretty_host
 
-    # Banner Bypass (Always Active)
-    if "linchpin-client/v2/popups" in path and flow.response.content:
+    # Banner Bypass (Always Active: Supports linchpin-client, maps-event-popup, and generic popup endpoints)
+    if any(k in path for k in ["linchpin-client/v2/popups", "maps-event-popup", "/popups"]) and flow.response.content:
         try:
-            res_json = json.loads(flow.response.content.decode('utf-8', 'ignore'))
+            content = flow.response.content
+            is_gz = content.startswith(b'\x1f\x8b')
+            raw = gzip.decompress(content) if is_gz else content
+            res_json = json.loads(raw.decode('utf-8', 'ignore'))
             for key in ["eventModal", "normalPopups", "eventNormalPopups", "eventPagePopups", "eventModalPopups"]:
-                if key in res_json: res_json[key] = [] if "Popups" in key else None
-            flow.response.content = json.dumps(res_json).encode('utf-8')
-        except: pass
+                if key in res_json:
+                    res_json[key] = [] if "Popups" in key else None
+            work = json.dumps(res_json).encode('utf-8')
+            flow.response.content = bytes(gzip.compress(work) if is_gz else work)
+        except Exception:
+            pass
 
     # [V14.2] Filter logging noise using extracted whitelist logic
     if not should_process(host, path):
