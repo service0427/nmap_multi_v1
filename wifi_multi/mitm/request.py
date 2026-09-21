@@ -249,7 +249,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                         flow.request.content = smart_cleanse(flow.request.content)
                 return # Important: trafficjam/log-receiver handled
             
-            elif "nlogapp" in path_lower or "nelo" in path_lower or "nelo" in host.lower() or is_json:
+            elif "nlog" in path_lower or "nlog.naver.com" in host.lower() or "nelo" in path_lower or "nelo" in host.lower() or is_json:
                 try:
                     raw = flow.request.content
                     is_gz = raw.startswith(b'\x1f\x8b')

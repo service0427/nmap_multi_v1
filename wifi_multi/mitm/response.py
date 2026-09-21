@@ -65,7 +65,7 @@ def handle_response(addon, flow: http.HTTPFlow):
         ct_l = ct.lower()
         
         # JSON (Check for nested base64 for logs)
-        if "json" in ct_l or "nlogapp" in p:
+        if "json" in ct_l or "nlog" in p or "nlog.naver.com" in host.lower():
             try: 
                 bj = json.loads(c.decode('utf-8'))
                 

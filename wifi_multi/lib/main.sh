@@ -262,6 +262,12 @@ fi
 # while preserving the map tile caches (NaverNavi/ and naviguide/) to prevent massive download traffic and nCaptcha time-outs under QoS.
 echo " [$DEV_ID] [🧹] Force stopping Naver Map..."
 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap >/dev/null 2>&1
+for _ in {1..5}; do
+    if ! adb -s "$DEV_ID" shell pidof com.nhn.android.nmap >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.2
+done
 echo " [$DEV_ID] [🧼] Performing Smart Purge (preserving offline map tiles & webview caches)..."
 adb -s "$DEV_ID" shell "su -c '
     rm -rf /data/data/com.nhn.android.nmap/app_webview/Default/Cookies* \
@@ -425,7 +431,7 @@ for i in {1..10}; do
 done
 [ -z "$PID" ] && cleanup "App Launch Timeout"
 
-sleep 3
+sleep 0.5
 
 nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \

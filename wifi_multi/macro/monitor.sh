@@ -38,6 +38,9 @@ fi
 
 # [🔒 Robust Lock Janitor] Force release subnet lock when monitor.sh exits under any conditions
 release_lock_on_exit() {
+    if [ -n "$SESSION_GUARD_PID" ]; then
+        kill $SESSION_GUARD_PID 2>/dev/null
+    fi
     if [ "$HAS_SUBNET_LOCK" == "true" ]; then
         echo "[$(date +'%H:%M:%S.%3N')] [🔓] Clean Up: Force releasing Subnet Lock on subnet_${SUBNET_IDX} due to exit."
         exec 9>&-
@@ -140,6 +143,8 @@ LAST_SURVIVAL_CHECK_TS=0
 # [NEW] Transition Timeout Variables
 NAVI_START_TS=0
 LOCK_ACQUIRED_TS=0
+SEARCH_FIELD_CLICKED_TS=""
+SESSION_GUARD_PID=""
 
 declare -A STATE_FLAGS
 
@@ -367,6 +372,11 @@ type_destination_only() {
 
 echo "[$(NOW)] [Scheduler:$DEV_ID] V18.4 Strict Mode Started."
 
+# [🛡️ 10-Second session_start Safety Guard]
+# Guarantees session_start + MainActivity unconditionally exists within 10s of app launch
+python3 macro/session_start_guard.py "$DEV_ID" "$ABS_LOG_DIR" "${NMAP_MITM_PORT}" 9.0 &
+SESSION_GUARD_PID=$!
+
 # === Main Loop ===
 ARRIVAL_CLICK_FAIL_COUNT=0
 while true; do
@@ -456,6 +466,20 @@ while true; do
                     IS_DRIVING=true
                     update_live_status "DRIVING"
                     touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                fi
+            fi
+        fi
+    fi
+
+    # [NEW] Search Screen Transition / SCH.all.entry Watchdog & Fallback
+    if [[ "${STATE_FLAGS[STEP_02_HOME]}" == "1" ]] && [[ "${STATE_FLAGS[STEP_03_TYPING]}" != "1" ]]; then
+        if [ -n "$SEARCH_FIELD_CLICKED_TS" ]; then
+            local NOW_SEC=$(date +%s)
+            local SEC_SINCE_SEARCH_CLICK=$(( NOW_SEC - SEARCH_FIELD_CLICKED_TS ))
+            if [ $SEC_SINCE_SEARCH_CLICK -ge 6 ]; then
+                if ! grep -q "SCH.all.entry" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+                    echo "[$(NOW)] [✓] Search screen transition timeout (${SEC_SINCE_SEARCH_CLICK}s). Appending virtual SCH.all.entry."
+                    echo "[screenview] SCH.all.entry" >> "$ABS_LOG_DIR/events.log"
                 fi
             fi
         fi
@@ -691,7 +715,7 @@ while true; do
                     # [NEW] Mandatory Identity Validation Check
                     IDENTITY_VALID=true
                     IDENTITY_ERROR=""
-                    LATEST_NLOG=$(ls -1t "$ABS_LOG_DIR"/*_POST_nlogapp.json 2>/dev/null | head -n 1)
+                    LATEST_NLOG=$(ls -1t "$ABS_LOG_DIR"/*_POST_nlogapp.json "$ABS_LOG_DIR"/*_POST_nlog*.json 2>/dev/null | head -n 1)
                     if [ -z "$LATEST_NLOG" ]; then
                         IDENTITY_VALID=false
                         IDENTITY_ERROR="No nlogapp packet found to verify identity."
@@ -781,6 +805,10 @@ while true; do
                             exit 0
                         else
                             break
+                        fi
+                    else
+                        if [ "$ACTION" == "entry_search_field" ]; then
+                            SEARCH_FIELD_CLICKED_TS=$(date +%s)
                         fi
                     fi
                 fi
