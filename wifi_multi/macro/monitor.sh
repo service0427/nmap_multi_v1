@@ -721,7 +721,7 @@ while true; do
                         LOG_SSAID=$(jq -r '(.request.body.usr.ssaid // .request.body._decoded.usr.ssaid // empty)' "$LATEST_NLOG" 2>/dev/null)
                         LOG_IDFV=$(jq -r '(.request.body.usr.idfv // .request.body._decoded.usr.idfv // empty)' "$LATEST_NLOG" 2>/dev/null)
                         LOG_NI=$(jq -r '(.request.body.usr.ni // .request.body._decoded.usr.ni // empty)' "$LATEST_NLOG" 2>/dev/null)
-                        LOG_FULL_TOKEN=$(jq -r '(.request.body.evts[0].nlog_id // .request.body._decoded.evts[0].nlog_id // empty)' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_FULL_TOKEN=$(jq -r '([( .request.body.evts[]?.nlog_id, .request.body._decoded.evts[]?.nlog_id ) | select(. != null and . != "")] | first // empty)' "$LATEST_NLOG" 2>/dev/null)
                         LOG_TOKEN=$(echo "$LOG_FULL_TOKEN" | awk -F'.' '{print $NF}')
                         
                         [ "$LOG_ADID" != "$NMAP_ID_ADID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="ADID mismatch: Req($NMAP_ID_ADID) vs Log($LOG_ADID)"
