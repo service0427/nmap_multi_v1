@@ -69,8 +69,8 @@ def handle_response(addon, flow: http.HTTPFlow):
             try: 
                 bj = json.loads(c.decode('utf-8'))
                 
-                # 부하가 상당히 심하므로 response 에서는 base64 디코딩 및 body_protobuf 해석 처리를 생략합니다.
-                if is_response:
+                # drive_v3_driving 경로는 파일이 너무 크기 때문에 response nested base64 디코딩 생략
+                if is_response and ("driving" in p or "drive_v3_driving" in cp):
                     return bj
                     
                 def scan(o):
@@ -93,8 +93,8 @@ def handle_response(addon, flow: http.HTTPFlow):
         if "octet-stream" in ct_l or "protobuf" in ct_l or b"\x00" in c:
             b64_str = "base64:" + base64.b64encode(c).decode('ascii')
             
-            # 부하가 상당히 심하므로 response 에서는 base64 디코딩 및 body_protobuf 해석 처리를 생략합니다.
-            if is_response:
+            # drive_v3_driving 경로는 파일이 너무 크기 때문에 response base64 디코딩 생략
+            if is_response and ("driving" in p or "drive_v3_driving" in cp):
                 return b64_str
                 
             decoded = addon.try_pbf_decode(c)
@@ -104,13 +104,17 @@ def handle_response(addon, flow: http.HTTPFlow):
         try: return c.decode('utf-8', 'ignore')
         except: return "base64:" + base64.b64encode(c).decode('ascii')
 
-    # [V2.0.5] include trafficjam original body if captured in request phase
+    # [V2.0.5] include trafficjam / receiver original body if captured in request phase
     tj_mod = getattr(flow.request, "modified_decoded", None)
+    ct_req = flow.request.headers.get("Content-Type", "").lower()
     if tj_mod:
-        req_body = {
-            "_raw": "base64:" + base64.b64encode(flow.request.content).decode('ascii'),
-            "_decoded": tj_mod
-        }
+        if "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod):
+            req_body = tj_mod
+        else:
+            req_body = {
+                "_raw": "base64:" + base64.b64encode(flow.request.content).decode('ascii'),
+                "_decoded": tj_mod
+            }
     else:
         req_body = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
         

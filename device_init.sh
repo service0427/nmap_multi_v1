@@ -20,6 +20,7 @@ source "$BASE_DIR/device_init/modules/naver_map_setup.sh"
 source "$BASE_DIR/device_init/modules/app_installation.sh"
 source "$BASE_DIR/device_init/modules/mitm_recovery.sh"
 source "$BASE_DIR/device_init/modules/touch_protection.sh"
+source "$BASE_DIR/device_init/modules/screen_lock.sh"
 
 # Verify host PC naming convention (P01~P20 / M01~M50)
 HOST_NAME=$(hostname 2>/dev/null | tr -d '\r\n')
@@ -30,8 +31,31 @@ if [ -n "$HOST_NAME" ]; then
     fi
 fi
 
-# Get target device from argument (optional)
-TARGET_DEVICE=$1
+# Concurrency Lock: Prevent multiple overlapping device_init runs
+LOCK_FILE="$BASE_DIR/.device_init.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+    echo -e "\e[1;31m[-] 에러: 이미 다른 device_init.sh 인스턴스가 실행 중입니다.\e[0m"
+    echo -e "    진행 중인 작업을 확인하거나 기존 프로세스를 정리한 후 다시 시도해주세요."
+    exit 1
+fi
+
+# Parse options and target device (optional)
+AUTO_PROCEED=false
+TARGET_DEVICE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y|--yes|--skip-failed)
+            AUTO_PROCEED=true
+            shift
+            ;;
+        *)
+            TARGET_DEVICE="$1"
+            shift
+            ;;
+    esac
+done
 
 # Get connected devices
 if [ -z "$TARGET_DEVICE" ]; then
@@ -90,31 +114,68 @@ if [ -z "$TARGET_DEVICE" ]; then
         echo -e "\n\e[1;31m[⚠️] 일부 디바이스의 Root 권한이 확보되지 않았습니다.\e[0m"
         
         if [ ${#FAILED_DEVICES[@]} -ne 0 ]; then
-            echo -e "\n${YELLOW}[!] Magisk 권한 승인이 필요한 디바이스:${NC}"
+            echo -e "\n${YELLOW}[!] Magisk/Root 권한 승인이 필요한 디바이스 (${#FAILED_DEVICES[@]}대):${NC}"
             for serial in "${FAILED_DEVICES[@]}"; do
                 echo -e "  - ${serial}"
             done
-            echo -e "  -> 대상 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭해주세요."
+            echo -e "  -> 대상 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭하거나 기기 상태를 확인해주세요."
         fi
         
         if [ ${#NO_SU_DEVICES[@]} -ne 0 ]; then
-            echo -e "\n${YELLOW}[!] 'su' 명령어를 찾을 수 없거나 루팅이 확인되지 않는 디바이스:${NC}"
+            echo -e "\n${YELLOW}[!] 'su' 명령어를 찾을 수 없거나 루팅이 확인되지 않는 디바이스 (${#NO_SU_DEVICES[@]}대):${NC}"
             for serial in "${NO_SU_DEVICES[@]}"; do
                 echo -e "  - ${serial}"
             done
             echo -e "  -> 기기가 정상적으로 루팅(Magisk)되어 있는지 확인해주세요."
         fi
-        
-        echo -e "\n승인 완료 후 이 스크립트를 다시 구동해주시기 바랍니다."
-        exit 1
+
+        # Filter out problematic devices
+        VALID_DEVICES=()
+        for serial in $DEVICES; do
+            is_bad=false
+            for bad_serial in "${FAILED_DEVICES[@]}" "${NO_SU_DEVICES[@]}"; do
+                if [ "$serial" = "$bad_serial" ]; then
+                    is_bad=true
+                    break
+                fi
+            done
+            if [ "$is_bad" = false ]; then
+                VALID_DEVICES+=("$serial")
+            fi
+        done
+
+        confirm_choice=""
+        if [ "$AUTO_PROCEED" = true ]; then
+            confirm_choice="y"
+        else
+            prompt_msg="[?] 문제 있는 디바이스를 제외하고 정상 승인된 디바이스(${#VALID_DEVICES[@]}대)만 계속 진행하시겠습니까? (y/N): "
+            if [ -c /dev/tty ] && [ -r /dev/tty ]; then
+                read -r -p "$prompt_msg" confirm_choice < /dev/tty
+            else
+                read -r -p "$prompt_msg" confirm_choice
+            fi
+        fi
+
+        if [[ "$confirm_choice" =~ ^[yY](es)?$ ]]; then
+            if [ ${#VALID_DEVICES[@]} -eq 0 ]; then
+                echo -e "\e[1;31m[-] 진행 가능한 정상 디바이스가 없습니다.\e[0m"
+                exit 1
+            fi
+            echo -e "\n${YELLOW}[*] 문제 디바이스를 제외하고 총 ${#VALID_DEVICES[@]}대의 디바이스에 대해 초기화를 계속 진행합니다.${NC}\n"
+            DEVICES="${VALID_DEVICES[*]}"
+        else
+            echo -e "\n초기화 작업을 중단합니다. 승인 완료 후 이 스크립트를 다시 구동해주시기 바랍니다."
+            exit 1
+        fi
+    else
+        echo -e "${GREEN}[✓] All connected devices passed root check. Proceeding to initialization...${NC}\n"
     fi
-    echo -e "${GREEN}[✓] All connected devices passed root check. Proceeding to initialization...${NC}\n"
 fi
 # Source global configurations
 if [ -f "$BASE_DIR/version.conf" ]; then
     source "$BASE_DIR/version.conf"
 else
-    TARGET_NMAP_VERSION="6.8.1.1"
+    TARGET_NMAP_VERSION="6.10.0.16"
 fi
 
 # Ensure installation assets are present before initializing devices
@@ -188,6 +249,7 @@ for serial in $DEVICES; do
         init_sound "$serial" "$HAS_SU"
         init_screen_orientation "$serial" "$HAS_SU"
         init_touch_protection "$serial" "$HAS_SU"
+        init_screen_lock "$serial" "$HAS_SU"
 
         # Apply MITM certificate recovery and reboot
         force_reboot_flag="false"

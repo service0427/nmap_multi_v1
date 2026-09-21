@@ -167,27 +167,31 @@ def handle_request(addon, flow: http.HTTPFlow):
         with open(event_log_path, "a", encoding="utf-8") as ef:
             ef.write(f"[URL] {path_lower}\n")
 
-    # [V2.0.5] Capture original content for auditing before any modification
-    if flow.request.content:
-        if "trafficjam" in path_lower:
-            raw = flow.request.content
-            is_gz = raw.startswith(b'\x1f\x8b')
+    # [V2.0.5] Capture original content for auditing before any modification (except large driving routes)
+    if flow.request.content and "driving" not in path_lower:
+        raw = flow.request.content
+        is_gz = raw.startswith(b'\x1f\x8b')
+        try:
             work_raw = gzip.decompress(raw) if is_gz else raw
-            
-            orig_audit = {
-                "_raw": "base64:" + base64.b64encode(work_raw).decode('ascii'),
-                "_decoded": None
-            }
-            
-            try:
-                if "json" in flow.request.headers.get("Content-Type", "").lower():
-                    orig_audit["_decoded"] = json.loads(work_raw.decode('utf-8', 'ignore'))
-                elif HAS_BLACKBOX:
-                    dec, _ = blackboxprotobuf.decode_message(work_raw)
-                    orig_audit["_decoded"] = to_jsonable(dec)
-            except: pass
-            
-            flow.request.trafficjam_original = orig_audit
+        except Exception:
+            work_raw = raw
+        
+        orig_audit = {
+            "_raw": "base64:" + base64.b64encode(work_raw).decode('ascii'),
+            "_decoded": None
+        }
+        
+        try:
+            ct = flow.request.headers.get("Content-Type", "").lower()
+            if "json" in ct:
+                orig_audit["_decoded"] = json.loads(work_raw.decode('utf-8', 'ignore'))
+            elif HAS_BLACKBOX:
+                dec, _ = blackboxprotobuf.decode_message(work_raw)
+                orig_audit["_decoded"] = to_jsonable(dec)
+        except Exception:
+            pass
+        
+        flow.request.trafficjam_original = orig_audit
 
     # 2. Exhaustive Identity Washing (Headers & URL)
     try:
@@ -198,18 +202,22 @@ def handle_request(addon, flow: http.HTTPFlow):
             if old_val != new_val: flow.request.headers[k] = new_val
     except: pass
 
-    # 3. Targeted Body Washing (trafficjam/nlogapp specialized)
+    # 3. Targeted Body Washing (trafficjam/receiver/nlogapp specialized)
     if flow.request.content:
         path_lower = path.lower()
         content_type = flow.request.headers.get("Content-Type", "").lower()
         is_json = "json" in content_type
         
         try:
-            if "trafficjam" in path_lower or "log-receiver" in host.lower():
-                # Handle trafficjam or log-receiver (location, log, etc.)
+            if "trafficjam" in path_lower or "receiver" in path_lower or "log-receiver" in host.lower():
+                # Handle trafficjam or log-receiver / receiver (location, log, etc.)
                 raw = flow.request.content
                 is_gz = raw.startswith(b'\x1f\x8b')
-                if is_gz: raw = gzip.decompress(raw)
+                if is_gz:
+                    try:
+                        raw = gzip.decompress(raw)
+                    except Exception:
+                        pass
                 
                 modified = False
                 # Try Protobuf first
@@ -217,7 +225,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                     try:
                         dec, mt = blackboxprotobuf.decode_message(raw)
                         if dec:
-                            if "trafficjam" in path_lower:
+                            if "trafficjam" in path_lower or "location" in path_lower:
                                 jitter_location_dict(dec)
                             # Apply identity washing
                             dec = smart_cleanse(dec)
@@ -229,13 +237,14 @@ def handle_request(addon, flow: http.HTTPFlow):
                             work = blackboxprotobuf.encode_message(dec, mt)
                             flow.request.content = bytes(gzip.compress(work) if is_gz else work)
                             modified = True
-                    except: pass
+                    except Exception:
+                        pass
                 
                 # Fallback to JSON or if is_json
                 if not modified:
                     try:
                         body_json = json.loads(raw.decode('utf-8', 'ignore'))
-                        if "trafficjam" in path_lower:
+                        if "trafficjam" in path_lower or "location" in path_lower:
                             jitter_location_dict(body_json)
                         body_json = smart_cleanse(body_json)
                         wash_network_env(body_json)
@@ -245,9 +254,9 @@ def handle_request(addon, flow: http.HTTPFlow):
                         
                         work = json.dumps(body_json).encode('utf-8')
                         flow.request.content = bytes(gzip.compress(work) if is_gz else work)
-                    except:
+                    except Exception:
                         flow.request.content = smart_cleanse(flow.request.content)
-                return # Important: trafficjam/log-receiver handled
+                return # Important: trafficjam/log-receiver/receiver handled
             
             elif "nlog" in path_lower or "nlog.naver.com" in host.lower() or "nelo" in path_lower or "nelo" in host.lower() or is_json:
                 try:
@@ -256,8 +265,29 @@ def handle_request(addon, flow: http.HTTPFlow):
                     if is_gz:
                         raw = gzip.decompress(raw)
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
+                    
+                    # [V2.2.0] Dynamically register real device identities from raw body to handle version update ID changes
+                    if "usr" in body_json and isinstance(body_json["usr"], dict):
+                        for k, spoof_env in [("adid", "NMAP_ID_ADID"), ("ssaid", "NMAP_ID_SSAID"), ("idfv", "NMAP_ID_IDFV"), ("ni", "NMAP_ID_NI")]:
+                            cur_val = body_json["usr"].get(k)
+                            spoof_val = os.environ.get(spoof_env)
+                            if cur_val and spoof_val and len(cur_val) > 3:
+                                if cur_val != spoof_val and cur_val not in IDENTITY_MAP:
+                                    IDENTITY_MAP[cur_val] = spoof_val
+                                    print(f"[*] Dynamically registered identity: {k} {cur_val[:6]}... -> {spoof_val[:6]}...", flush=True)
+                                body_json["usr"][k] = spoof_val
+                    
+                    # Ensure da-dd and da-dv headers match target identity
+                    if os.environ.get("NMAP_ID_ADID") and "da-dd" in flow.request.headers:
+                        flow.request.headers["da-dd"] = os.environ.get("NMAP_ID_ADID")
+                    if os.environ.get("NMAP_ID_IDFV") and "da-dv" in flow.request.headers:
+                        flow.request.headers["da-dv"] = os.environ.get("NMAP_ID_IDFV")
+
                     body_json = smart_cleanse(body_json)
                     wash_network_env(body_json)
+                    
+                    # [V2.1.0] Save modified object for consistent logging
+                    flow.request.modified_decoded = body_json
                     
                     work = json.dumps(body_json).encode('utf-8')
                     flow.request.content = bytes(gzip.compress(work) if is_gz else work)

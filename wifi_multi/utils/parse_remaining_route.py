@@ -35,13 +35,13 @@ def main():
         
     latest_session_dir = os.path.join(latest_date_dir, session_dirs[0])
     
-    # Extract latest global driving log
+    # Extract latest driving log
     driving_logs = []
     for f in os.listdir(latest_session_dir):
-        if "_GET_v3_global_routeend.json" in f:
+        if "routeend.json" in f:
             print(f"[!] Route already ended for {device_id}. Skipping.")
             sys.exit(1)
-        if "_GET_v3_global_driving.json" in f:
+        if "_GET_drive_v3_driving.json" in f or "_GET_v3_global_driving.json" in f or ("_GET_" in f and "driving.json" in f):
             try:
                 idx = int(f.split("_")[0])
                 driving_logs.append((idx, f))

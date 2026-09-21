@@ -77,11 +77,11 @@ fi
 
 if [ -z "$DETECTED_VERSION" ]; then
     echo -e "${YELLOW}[!] 아카이브 내부에서 버전 정보를 자동으로 감지하지 못했습니다.${NC}"
-    read -p "[?] 네이버 지도 버전 번호를 수동 입력하세요 (예: 6.8.1.1): " DETECTED_VERSION < /dev/tty
+    read -p "[?] 네이버 지도 버전 번호를 수동 입력하세요 (예: 6.10.0.16): " DETECTED_VERSION < /dev/tty
 fi
 
 if [[ ! "$DETECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}[-] 오류: 올바르지 않은 버전 포맷입니다 ($DETECTED_VERSION). 4자리 버전 형식(예: 6.8.1.1)이어야 합니다.${NC}"
+    echo -e "${RED}[-] 오류: 올바르지 않은 버전 포맷입니다 ($DETECTED_VERSION). 4자리 버전 형식(예: 6.10.0.16)이어야 합니다.${NC}"
     rm -f "$TMP_ARCHIVE"
     exit 1
 fi

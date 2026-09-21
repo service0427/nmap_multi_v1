@@ -14,3 +14,5 @@ tests/
 scratch/
 api_backup/
 wifi_multi/config/
+.*.lock
+*.lock

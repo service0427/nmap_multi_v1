@@ -21,8 +21,17 @@ def log_print(msg):
     sys.stdout.flush()
 
 def get_latest_driving_packet(log_dir):
-    pattern = os.path.join(log_dir, "*_GET_v3_global_driving.json")
-    files = glob.glob(pattern)
+    # Support both new (*_GET_drive_v3_driving.json) and legacy (*_GET_v3_global_driving.json)
+    patterns = [
+        os.path.join(log_dir, "*_GET_drive_v3_driving.json"),
+        os.path.join(log_dir, "*_GET_v3_global_driving.json"),
+        os.path.join(log_dir, "*_GET_*driving*.json")
+    ]
+    files = []
+    for p in patterns:
+        files = glob.glob(p)
+        if files:
+            break
     if not files: return None
     try:
         files.sort(key=lambda x: int(os.path.basename(x).split('_')[0]), reverse=True)

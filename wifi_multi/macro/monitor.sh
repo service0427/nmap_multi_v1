@@ -252,7 +252,7 @@ check_app_survival() {
                 local AGE=$(( NOW_SEC - LINKS_TIME ))
                 if [ $AGE -gt 30 ]; then
                     local DRIVING_FILE
-                    DRIVING_FILE=$(ls -1 "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | head -n 1)
+                    DRIVING_FILE=$(ls -1 "$ABS_LOG_DIR"/*_drive_v3_driving.json "$ABS_LOG_DIR"/*_global_driving.json 2>/dev/null | head -n 1)
                     local DRIVING_SIZE=0
                     if [ -n "$DRIVING_FILE" ]; then
                         DRIVING_SIZE=$(stat -c %s "$DRIVING_FILE" 2>/dev/null || echo 0)
@@ -429,7 +429,7 @@ while true; do
 
     # [NEW] Auto-Recovery for Stuck Navigation / Resume Guidance State
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" != "1" ]]; then
-        if grep -q -E "v3/global/driving|trafficjam/location" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
+        if grep -q -E "drive/v3/driving|v3/global/driving|receiver/log|trafficjam" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
             # Verify if we are actually in navigation vs on Home screen (with safety timeout)
             timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui_recovery.xml" >/dev/null 2>&1
             RECOVERY_XML=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui_recovery.xml" 2>/dev/null)
@@ -474,8 +474,8 @@ while true; do
     # [NEW] Search Screen Transition / SCH.all.entry Watchdog & Fallback
     if [[ "${STATE_FLAGS[STEP_02_HOME]}" == "1" ]] && [[ "${STATE_FLAGS[STEP_03_TYPING]}" != "1" ]]; then
         if [ -n "$SEARCH_FIELD_CLICKED_TS" ]; then
-            local NOW_SEC=$(date +%s)
-            local SEC_SINCE_SEARCH_CLICK=$(( NOW_SEC - SEARCH_FIELD_CLICKED_TS ))
+            NOW_SEC=$(date +%s)
+            SEC_SINCE_SEARCH_CLICK=$(( NOW_SEC - SEARCH_FIELD_CLICKED_TS ))
             if [ $SEC_SINCE_SEARCH_CLICK -ge 6 ]; then
                 if ! grep -q "SCH.all.entry" "$ABS_LOG_DIR/events.log" 2>/dev/null; then
                     echo "[$(NOW)] [✓] Search screen transition timeout (${SEC_SINCE_SEARCH_CLICK}s). Appending virtual SCH.all.entry."
@@ -517,10 +517,10 @@ while true; do
                 N_PAT="navi.drivemode"
                 U_PAT=""
             else
-                # QoS 안전장치가 꺼진 경우: 기존 v3/global/driving 패킷 기준 감지
+                # QoS 안전장치가 꺼진 경우: driving 패킷 기준 감지 (신구 버전 호환)
                 T_PAT=""
                 N_PAT=""
-                U_PAT="v3/global/driving.*rptype=[02]"
+                U_PAT="(v3/global/driving|drive/v3/driving).*rptype="
             fi
         fi
 
@@ -654,9 +654,9 @@ while true; do
                     sleep "$WAIT_SEC"
                     echo "[$(NOW)] [Action] EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."
                     
-                    # Verify captured packets existence (routeend is mandatory, trafficjam is optional)
+                    # Verify captured packets existence (routeend is mandatory, receiver/trafficjam is optional)
                     ROUTEEND_FILE=$(ls -1 "$ABS_LOG_DIR"/*routeend*.json 2>/dev/null | head -n 1)
-                    TRAFFICJAM_FILE=$(ls -1 "$ABS_LOG_DIR"/*_trafficjam_log.json 2>/dev/null | head -n 1)
+                    TRAFFICJAM_FILE=$(ls -1 "$ABS_LOG_DIR"/*_POST_receiver_log.json "$ABS_LOG_DIR"/*_trafficjam_log.json 2>/dev/null | head -n 1)
                     
                     if [ -z "$ROUTEEND_FILE" ]; then
                         echo "[$(NOW)] [🚨] SUCCESS VERIFICATION FAILED: Missing routeend packet."
@@ -666,29 +666,26 @@ while true; do
 
                     ACTUAL_DIST=0; ACTUAL_TIME=0
                     
-                    # 1. Try legacy trafficjam_log first (for Naver Map 6.7.x)
-                    for f in $(ls -1v "$ABS_LOG_DIR"/*_trafficjam_log.json 2>/dev/null); do
+                    # 1. Try receiver_log first (for Naver Map 6.10.x)
+                    for f in $(ls -1v "$ABS_LOG_DIR"/*_POST_receiver_log.json 2>/dev/null); do
                         DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
                         TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
                         if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ]; then
                             ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
-                            echo "    > Found Stats in legacy trafficjam_log ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
+                            echo "    > Found Stats in receiver_log ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
                             break
                         fi
                     done
                     
-                    # 2. Try new log-receiver POST_log if legacy is missing (for Naver Map 6.8.x)
+                    # 2. Try legacy trafficjam_log / log-receiver if receiver_log has no distance
                     if [ "$ACTUAL_DIST" = "0" ] || [ "$ACTUAL_TIME" = "0" ]; then
-                        for f in $(ls -1v "$ABS_LOG_DIR"/*_POST_log.json 2>/dev/null); do
-                            URL_CHECK=$(jq -r '.url // empty' "$f" 2>/dev/null)
-                            if [[ "$URL_CHECK" == *"log-receiver"* ]]; then
-                                DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
-                                TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
-                                if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ]; then
-                                    ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
-                                    echo "    > Found Stats in new log-receiver ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
-                                    break
-                                fi
+                        for f in $(ls -1v "$ABS_LOG_DIR"/*_trafficjam_log.json "$ABS_LOG_DIR"/*_POST_log.json 2>/dev/null); do
+                            DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
+                            TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
+                            if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ]; then
+                                ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
+                                echo "    > Found Stats in fallback log ($(basename "$f")): ${ACTUAL_DIST}m | ${ACTUAL_TIME}s"
+                                break
                             fi
                         done
                     fi
@@ -720,11 +717,11 @@ while true; do
                         IDENTITY_VALID=false
                         IDENTITY_ERROR="No nlogapp packet found to verify identity."
                     else
-                        LOG_ADID=$(jq -r '.request.body.usr.adid // empty' "$LATEST_NLOG" 2>/dev/null)
-                        LOG_SSAID=$(jq -r '.request.body.usr.ssaid // empty' "$LATEST_NLOG" 2>/dev/null)
-                        LOG_IDFV=$(jq -r '.request.body.usr.idfv // empty' "$LATEST_NLOG" 2>/dev/null)
-                        LOG_NI=$(jq -r '.request.body.usr.ni // empty' "$LATEST_NLOG" 2>/dev/null)
-                        LOG_FULL_TOKEN=$(jq -r '.request.body.evts[0].nlog_id // empty' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_ADID=$(jq -r '(.request.body.usr.adid // .request.body._decoded.usr.adid // empty)' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_SSAID=$(jq -r '(.request.body.usr.ssaid // .request.body._decoded.usr.ssaid // empty)' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_IDFV=$(jq -r '(.request.body.usr.idfv // .request.body._decoded.usr.idfv // empty)' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_NI=$(jq -r '(.request.body.usr.ni // .request.body._decoded.usr.ni // empty)' "$LATEST_NLOG" 2>/dev/null)
+                        LOG_FULL_TOKEN=$(jq -r '(.request.body.evts[0].nlog_id // .request.body._decoded.evts[0].nlog_id // empty)' "$LATEST_NLOG" 2>/dev/null)
                         LOG_TOKEN=$(echo "$LOG_FULL_TOKEN" | awk -F'.' '{print $NF}')
                         
                         [ "$LOG_ADID" != "$NMAP_ID_ADID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="ADID mismatch: Req($NMAP_ID_ADID) vs Log($LOG_ADID)"

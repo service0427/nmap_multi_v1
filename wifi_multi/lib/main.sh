@@ -132,8 +132,8 @@ cleanup() {
     if [ "$IS_SUCCESS" = false ]; then
         # Report FAIL only if it wasn't a success or got overridden by leak audit
         local REPORT_STATUS="FAIL"
-        # ADDRESS_NOT_FOUND 이거나 App Closed 인 경우 어드민 격리 패널티를 피하기 위해 API_ERROR로 우회
-        if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]]; then
+        # ADDRESS_NOT_FOUND, App Closed, 또는 BATTERY_LOW인 경우 어드민 격리 패널티를 피하기 위해 API_ERROR로 우회
+        if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]] || [[ "$REASON" == *"BATTERY_LOW"* ]]; then
             REPORT_STATUS="API_ERROR"
         fi
         local endpoint="/api/v1/report_result"
@@ -150,6 +150,8 @@ cleanup() {
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
+    # Dim screen to minimum (1) and maintain fast charging while idle/waiting
+    adb -s "$DEV_ID" shell "settings put system screen_brightness 1; settings put system screen_brightness_mode 0; su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null" >/dev/null 2>&1
     rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON" "${DEV_TMP_DIR}/guidance_started"
     exit 0
 }
@@ -292,6 +294,17 @@ adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.POST_NOT
 adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.RECORD_AUDIO >/dev/null 2>&1
 # Grant Draw Over Other Apps (SYSTEM_ALERT_WINDOW) since pm clear resets AppOps
 adb -s "$DEV_ID" shell appops set com.nhn.android.nmap SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
+
+# Apply active driving power profile (Lock 60Hz, Dark Mode, Moderate Brightness 50, High-Current USB, Disable Protect Battery)
+adb -s "$DEV_ID" shell "
+    settings put system screen_brightness_mode 0
+    settings put system screen_brightness 50
+    settings put system peak_refresh_rate 60.0
+    settings put system min_refresh_rate 60.0
+    settings put global protect_battery 0
+    cmd uimode night yes
+    su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null
+" >/dev/null 2>&1
 sleep 1
 
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)

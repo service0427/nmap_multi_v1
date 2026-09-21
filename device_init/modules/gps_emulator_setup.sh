@@ -114,7 +114,7 @@ init_gps_emulator() {
     fi
     
     # Click OK/Accept button (android:id/button1) dynamically
-    python3 "$script_dir/device_init/utils/ui_clicker.py" "$serial" "id:android:id/button1" >/dev/null 2>&1 || true
+    timeout 15 python3 "$script_dir/device_init/utils/ui_clicker.py" "$serial" "id:android:id/button1" >/dev/null 2>&1 || true
     
     # Force stop to complete the initialization
     adb -s "$serial" shell am force-stop com.rosteam.gpsemulator

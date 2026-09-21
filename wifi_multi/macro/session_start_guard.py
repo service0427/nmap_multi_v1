@@ -91,7 +91,7 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
                 pass
 
     # 2. Device environmental info
-    app_ver = "6.7.3.2"
+    app_ver = "6.10.0.16"
     pkg_dump = get_device_prop(device_id, ["dumpsys", "package", "com.nhn.android.nmap"])
     for line in pkg_dump.splitlines():
         if "versionName=" in line:
@@ -129,7 +129,7 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
         "location": "korea_real/korea",
         "tool": {
             "name": "nlog-sdk",
-            "ver": "2.6.0"
+            "ver": "2.6.2"
         },
         "send_ts": current_ts_ms,
         "usr": {

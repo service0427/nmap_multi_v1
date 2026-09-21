@@ -209,13 +209,13 @@ while true; do
         
         # Extract values using jq
         # Note: usr is inside .request.body
-        ADID=$(jq -r '.request.body.usr.adid // empty' "$TARGET_FILE")
-        SSAID=$(jq -r '.request.body.usr.ssaid // empty' "$TARGET_FILE")
-        IDFV=$(jq -r '.request.body.usr.idfv // empty' "$TARGET_FILE")
-        NI=$(jq -r '.request.body.usr.ni // empty' "$TARGET_FILE")
+        ADID=$(jq -r '(.request.body.usr.adid // .request.body._decoded.usr.adid // empty)' "$TARGET_FILE")
+        SSAID=$(jq -r '(.request.body.usr.ssaid // .request.body._decoded.usr.ssaid // empty)' "$TARGET_FILE")
+        IDFV=$(jq -r '(.request.body.usr.idfv // .request.body._decoded.usr.idfv // empty)' "$TARGET_FILE")
+        NI=$(jq -r '(.request.body.usr.ni // .request.body._decoded.usr.ni // empty)' "$TARGET_FILE")
         
         # Token is the last part of nlog_id in evts[0]
-        FULL_NLOG_ID=$(jq -r '.request.body.evts[0].nlog_id // empty' "$TARGET_FILE")
+        FULL_NLOG_ID=$(jq -r '(.request.body.evts[0].nlog_id // .request.body._decoded.evts[0].nlog_id // empty)' "$TARGET_FILE")
         TOKEN=$(echo "$FULL_NLOG_ID" | awk -F'.' '{print $NF}')
         
         # Check if ALL 4 IDs are present and not empty/null

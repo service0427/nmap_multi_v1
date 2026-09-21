@@ -8,9 +8,9 @@ def dump_ui(device_id):
     """지정된 기기의 현재 UI 계층을 덤프하고 읽어옵니다."""
     dump_path = "/sdcard/window_dump.xml"
     subprocess.run(["adb", "-s", device_id, "shell", "uiautomator", "dump", dump_path], 
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=8)
     
-    xml_output = subprocess.check_output(["adb", "-s", device_id, "shell", "cat", dump_path]).decode('utf-8', errors='ignore')
+    xml_output = subprocess.check_output(["adb", "-s", device_id, "shell", "cat", dump_path], timeout=5).decode('utf-8', errors='ignore')
     return xml_output
 
 def find_bounds_by_target(xml_data, target):
@@ -65,7 +65,7 @@ def click_target(device_id, target):
                 if center_coord:
                     x, y = center_coord
                     print(f"[✓] [{device_id}] 주소 발견! 클릭 좌표: ({x}, {y})")
-                    subprocess.run(["adb", "-s", device_id, "shell", "input", "tap", str(x), str(y)], check=True)
+                    subprocess.run(["adb", "-s", device_id, "shell", "input", "tap", str(x), str(y)], check=True, timeout=5)
                     return True
             print(f"[-] [{device_id}] 주소를 찾을 수 없습니다. (시도 {attempt+1}/{max_retries})")
         except Exception as e:

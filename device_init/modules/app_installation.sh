@@ -84,15 +84,22 @@ init_app_installation() {
     local installed_packages=$(adb -s "$serial" shell pm list packages | cut -d':' -f2 | tr -d '\r')
     local nmap_dir=""
     
-    if [ -d "$INSTALL_DIR/naver_map" ]; then
+    if [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}" ]; then
+        nmap_dir="$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}"
+    elif [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ]; then
+        nmap_dir="$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
+    elif [ -d "$INSTALL_DIR/naver_map" ]; then
         nmap_dir="$INSTALL_DIR/naver_map"
     else
-        # Use version sort in reverse to ensure the highest version is picked first (e.g. naver_map_6.8.0.5 over 6.7.3)
+        # Use version sort in reverse to ensure the highest version is picked first (e.g. naver_map_6.10.0.16)
         nmap_dir=$(find "$INSTALL_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) | sort -V -r | head -n 1)
     fi
 
     if [ -n "$nmap_dir" ] && [ -d "$nmap_dir" ]; then
-        local nmap_apks=$(find "$nmap_dir" -maxdepth 1 -name "*.apk" | tr '\n' ' ' | xargs)
+        local nmap_apks=$(ls -1 "$nmap_dir"/base.apk "$nmap_dir"/split_*.apk 2>/dev/null | tr '\n' ' ' | xargs)
+        if [ -z "$nmap_apks" ]; then
+            nmap_apks=$(find "$nmap_dir" -maxdepth 1 -name "*.apk" | tr '\n' ' ' | xargs)
+        fi
         if [ -n "$nmap_apks" ]; then
             if echo "$installed_packages" | grep -qx "$nmap_pkg"; then
                 local device_ver=$(adb -s "$serial" shell "dumpsys package $nmap_pkg 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" | tr -d '\r\n ' || true)
@@ -103,7 +110,7 @@ init_app_installation() {
                 elif [ "$folder_name" = "naver_map" ]; then
                     target_ver=""
                 else
-                    echo -e "    \e[1;31m[-] Error: Invalid Naver Map folder name '$folder_name'. Target version must be in 4-digit format (e.g. naver_map_6.8.0.5 or com.nhn.android.nmap_6.8.0.5).\e[0m" >&2
+                    echo -e "    \e[1;31m[-] Error: Invalid Naver Map folder name '$folder_name'. Target version must be in 4-digit format (e.g. naver_map_6.10.0.16 or com.nhn.android.nmap_6.10.0.16).\e[0m" >&2
                     exit 1
                 fi
                 
@@ -124,7 +131,7 @@ init_app_installation() {
                     sleep 2
                     echo -e "    - Installing new Naver Map from $folder_name..."
                     local install_res
-                    install_res=$(adb -s "$serial" install-multiple $nmap_apks 2>&1)
+                    install_res=$(adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
                     if [ $? -ne 0 ]; then
                         echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
                     else
@@ -137,7 +144,7 @@ init_app_installation() {
             else
                 echo -e "    - Naver Map not found. Installing from $nmap_dir..."
                 local install_res
-                install_res=$(adb -s "$serial" install-multiple $nmap_apks 2>&1)
+                install_res=$(adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
                 if [ $? -ne 0 ]; then
                     echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
                 else

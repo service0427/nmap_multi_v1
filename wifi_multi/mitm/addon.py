@@ -225,7 +225,7 @@ class ProxyV2ClassicLog:
                 except Exception as e:
                     print(f" [!] Error writing local GQL 429 marker: {e}")
 
-        if "global/driving" in path and flow.response.status_code == 200:
+        if ("global/driving" in path or "drive/v3/driving" in path) and flow.response.status_code == 200:
             self.update_summary({
                 "driving_start_time": datetime.datetime.now().isoformat(),
                 "status": "DRIVING"
