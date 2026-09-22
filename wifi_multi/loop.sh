@@ -181,13 +181,18 @@ while true; do
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
             CURRENT_TIME=$(date +%s)
             if [ "$BATT_LEVEL" -lt 25 ]; then
-                echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%). Entering MAX SLEEP (Fast-Charging Standby)..."
-                "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
+                if [ -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" ]; then
+                    echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%), but Deep Sleep manually disabled via Web UI. Keeping default mode..."
+                else
+                    echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%). Entering MAX SLEEP (Fast-Charging Standby)..."
+                    "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
+                fi
                 mkdir -p "logs/${DEV_ID}"
                 echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
                 DEV_INDEX=$((DEV_INDEX + 1))
                 continue
             elif [ "$BATT_LEVEL" -le 30 ]; then
+                rm -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
                 echo "[🔋] [$DEV_ID] Battery preparing (${BATT_LEVEL}% in 25~30%). Default mode set, standby charging (Task execution starts at >= 31%)..."
                 "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "default"
                 mkdir -p "logs/${DEV_ID}"
@@ -195,6 +200,7 @@ while true; do
                 DEV_INDEX=$((DEV_INDEX + 1))
                 continue
             fi
+            rm -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
         fi
 
         # Ensure ADBKeyboard is enabled and set as default IME

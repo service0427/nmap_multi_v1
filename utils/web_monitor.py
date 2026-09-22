@@ -107,6 +107,7 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
         "latest_log": "-",
         "current_task": None,
         "disabled": False,
+        "is_deep_sleep": False,
         "usb_path": "N/A"
     }
     
@@ -142,6 +143,10 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
                     pass
     except:
         pass
+
+    # 2.5. Check Deep Sleep State
+    deep_sleep_file = os.path.join(LOG_BASE_DIR, serial, "tmp", "deep_sleep_active")
+    info["is_deep_sleep"] = os.path.exists(deep_sleep_file)
 
     # 3. Find Latest Task Details from execution.log & session files (Safety fallback / Contrast)
     task_data = {
@@ -661,6 +666,44 @@ def sleep(dev_id):
 def reboot(dev_id):
     subprocess.Popen(["adb", "-s", dev_id, "reboot"])
     return "OK"
+
+@app.route('/api/toggle_deep_sleep/<serial>', methods=['POST', 'GET'])
+@app.route('/toggle_deep_sleep/<serial>', methods=['POST', 'GET'])
+def toggle_deep_sleep(serial):
+    try:
+        tmp_dir = os.path.join(LOG_BASE_DIR, serial, "tmp")
+        os.makedirs(tmp_dir, exist_ok=True)
+        deep_sleep_file = os.path.join(tmp_dir, "deep_sleep_active")
+        manual_off_file = os.path.join(tmp_dir, "deep_sleep_manual_off")
+        is_currently_sleep = os.path.exists(deep_sleep_file)
+        power_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "wifi_multi", "lib", "power_mode.sh")
+        
+        if is_currently_sleep:
+            target_mode = "default"
+            with open(manual_off_file, "w") as f:
+                f.write(str(int(time.time())))
+            if os.path.exists(deep_sleep_file):
+                try: os.remove(deep_sleep_file)
+                except: pass
+        else:
+            target_mode = "deep_sleep"
+            if os.path.exists(manual_off_file):
+                try: os.remove(manual_off_file)
+                except: pass
+            with open(deep_sleep_file, "w") as f:
+                f.write(str(int(time.time())))
+            
+        subprocess.Popen(["bash", power_script, serial, target_mode])
+        
+        new_state = (target_mode == "deep_sleep")
+        return jsonify({
+            "status": "success",
+            "serial": serial,
+            "mode": target_mode,
+            "is_deep_sleep": new_state
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/set_theme_all/<mode>')
 def set_theme_all(mode):

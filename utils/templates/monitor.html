@@ -65,6 +65,11 @@
         .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
         @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+        .btn-deep-sleep { padding: 1px 5px; font-size: 0.72em; font-weight: bold; border-radius: 4px; border: none; cursor: pointer; transition: all 0.2s ease; align-items: center; text-decoration: none; user-select: none; }
+        .btn-deep-sleep.active { background: #FF9800; color: #111; box-shadow: 0 0 6px rgba(255, 152, 0, 0.8); animation: pulse-gold 1.5s infinite; }
+        .btn-deep-sleep.inactive { background: #37474F; color: #90A4AE; border: 1px dashed #78909C; }
+        @keyframes pulse-gold { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.82; transform: scale(0.96); } }
+
         /* [NEW] Live Task Info Styles */
         .live-task-box { background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 4px; padding: 6px; margin-bottom: 8px; text-align: left; font-size: 0.85em; height: 74px; box-sizing: border-box; }
         .live-task-dest { color: #4CAF50; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
@@ -203,6 +208,15 @@
                         <span id="battery-{{ i }}" style="color: #2196F3;" class="{{ 'battery-warning' if b_val != -1 and b_val < 80 else '' }}">
                             🔋 {{ dev.battery if dev else '??' }}%
                         </span>
+                        {% set is_deep = dev.is_deep_sleep if dev and dev.is_deep_sleep else false %}
+                        {% set show_deep_btn = (dev and not dev.offline and b_val != -1 and b_val < 20) %}
+                        <button id="btn-deep-sleep-{{ i }}" 
+                                onclick="toggleDeepSleep('{{ dev.id }}', {{ i }})" 
+                                class="btn-deep-sleep {{ 'active' if is_deep else 'inactive' }}" 
+                                style="display: {{ 'inline-flex' if show_deep_btn else 'none' }};" 
+                                title="{{ '초절전모드 가동 중 (클릭 시 기본모드로 복원)' if is_deep else '초절전모드 꺼짐 (클릭 시 초절전모드 가동)' }}">
+                            ⚡{{ '절전ON' if is_deep else '절전OFF' }}
+                        </button>
                     </span>
                 </div>
                 <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
@@ -409,6 +423,42 @@
             fetch(`/sleep/${devId}`);
         }
 
+        function toggleDeepSleep(devId, slotIdx) {
+            if (!devId && typeof slotIdx !== 'undefined') {
+                devId = slotDeviceIds[slotIdx];
+            }
+            if (!devId) return;
+            const btn = document.getElementById('btn-deep-sleep-' + slotIdx);
+            if (btn) {
+                btn.style.opacity = '0.5';
+                btn.style.pointerEvents = 'none';
+            }
+            fetch('/api/toggle_deep_sleep/' + encodeURIComponent(devId), { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (btn) {
+                        btn.style.opacity = '1';
+                        btn.style.pointerEvents = 'auto';
+                        if (data.is_deep_sleep) {
+                            btn.className = 'btn-deep-sleep active';
+                            btn.innerText = '⚡절전ON';
+                            btn.title = '초절전모드 가동 중 (클릭 시 기본모드로 복원)';
+                        } else {
+                            btn.className = 'btn-deep-sleep inactive';
+                            btn.innerText = '⚡절전OFF';
+                            btn.title = '초절전모드 꺼짐 (클릭 시 초절전모드 가동)';
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('toggleDeepSleep error:', err);
+                    if (btn) {
+                        btn.style.opacity = '1';
+                        btn.style.pointerEvents = 'auto';
+                    }
+                });
+        }
+
         function rebootDevice(slotIdx) {
             const devId = slotDeviceIds[slotIdx];
             if(!devId) return;
@@ -564,9 +614,10 @@
                     </div>
                     <div class="diag-item">
                         <span id="ip-${i}" style="color: #4CAF50;">N/A</span>
-                        <span style="margin-left: auto; display: flex; gap: 8px;">
+                        <span style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
                             <span id="temp-${i}" style="color: #ff9800;">🌡️ ??°C</span>
                             <span id="battery-${i}" style="color: #2196F3;">🔋 ??%</span>
+                            <button id="btn-deep-sleep-${i}" onclick="toggleDeepSleep('', ${i})" class="btn-deep-sleep inactive" style="display: none;" title="초절전 모드 ON/OFF">⚡절전OFF</button>
                         </span>
                     </div>
                     <div class="diag-item" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888;">
@@ -778,6 +829,26 @@
                         } else {
                             battEl.innerText = '🔋 ' + (dev.battery || '??') + '%';
                             battEl.className = '';
+                        }
+                    }
+
+                    const deepSleepBtn = document.getElementById('btn-deep-sleep-' + i);
+                    if (deepSleepBtn) {
+                        const bVal = parseInt(dev ? dev.battery : -1);
+                        if (!isNaN(bVal) && bVal < 20 && dev && !dev.offline) {
+                            deepSleepBtn.style.display = 'inline-flex';
+                            if (dev.is_deep_sleep) {
+                                deepSleepBtn.className = 'btn-deep-sleep active';
+                                deepSleepBtn.innerText = '⚡절전ON';
+                                deepSleepBtn.title = '초절전모드 가동 중 (클릭 시 기본모드로 복원)';
+                            } else {
+                                deepSleepBtn.className = 'btn-deep-sleep inactive';
+                                deepSleepBtn.innerText = '⚡절전OFF';
+                                deepSleepBtn.title = '초절전모드 꺼짐 (클릭 시 초절전모드 가동)';
+                            }
+                            deepSleepBtn.onclick = function() { toggleDeepSleep(dev.id, i); };
+                        } else {
+                            deepSleepBtn.style.display = 'none';
                         }
                     }
 

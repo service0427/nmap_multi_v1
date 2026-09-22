@@ -47,6 +47,10 @@ set_power_mode() {
                 settings put secure doze_always_on 0 2>/dev/null
                 input keyevent 223 2>/dev/null
             " >/dev/null 2>&1
+            local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+            local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
+            mkdir -p "$(dirname "$state_file")" 2>/dev/null
+            touch "$state_file" 2>/dev/null
             ;;
 
         default|active|run|wake)
@@ -86,6 +90,9 @@ set_power_mode() {
                     echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode
                 ' 2>/dev/null
             " >/dev/null 2>&1
+            local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+            local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
+            rm -f "$state_file" 2>/dev/null
             ;;
 
         *)
