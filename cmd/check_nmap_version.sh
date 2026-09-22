@@ -22,7 +22,28 @@ else
     fi
 fi
 
-TARGET_DEVICE="$1"
+AUTO_UPDATE=false
+FORCE_UPDATE=false
+TARGET_DEVICE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -u|--update|-y|--yes)
+            AUTO_UPDATE=true
+            shift
+            ;;
+        -f|--force)
+            FORCE_UPDATE=true
+            shift
+            ;;
+        *)
+            if [ -z "$TARGET_DEVICE" ]; then
+                TARGET_DEVICE="$1"
+            fi
+            shift
+            ;;
+    esac
+done
 
 # 연결된 기기 리스팅
 if [ -n "$TARGET_DEVICE" ]; then
@@ -98,5 +119,41 @@ echo -e "============================================================\n"
 
 if [ $needs_update_count -gt 0 ]; then
     echo -e "${YELLOW}[⚠️] 업데이트 또는 설치가 필요한 기기가 총 ${needs_update_count}대 발견되었습니다.${NC}"
-    echo -e "    - 신규/업데이트 설치 및 패치는 ${GREEN}./device_init.sh${NC} 를 구동하여 진행하시기 바랍니다."
+    
+    do_update=false
+    if [ "$AUTO_UPDATE" = true ]; then
+        do_update=true
+    else
+        prompt_msg="[?] 업데이트 대상 기기(${needs_update_count}대)의 네이버 지도 앱만 지금 즉시 패치/업데이트하시겠습니까? (y/N): "
+        if [ -c /dev/tty ] && [ -r /dev/tty ]; then
+            read -r -p "$prompt_msg" confirm_choice < /dev/tty
+        else
+            read -r -p "$prompt_msg" confirm_choice
+        fi
+        if [[ "$confirm_choice" =~ ^[yY](es)?$ ]]; then
+            do_update=true
+        fi
+    fi
+
+    if [ "$do_update" = true ]; then
+        echo -e "\n${CYAN}============================================================${NC}"
+        echo -e "${CYAN}🚀 네이버 지도 앱 전용 패치 시작 (대상: ${needs_update_count}대)${NC}"
+        echo -e "${CYAN}============================================================${NC}"
+        bash "$CMD_DIR/patch_naver_map.sh" "${needs_update_list[*]}"
+        
+        echo -e "\n${GREEN}[*] 패치 완료 후 버전 재검증 실행 중...${NC}"
+        exec bash "$0" $TARGET_DEVICE
+    else
+        echo -e "${YELLOW}[*] 업데이트를 건너뛰었습니다.${NC}"
+        echo -e "    - 네이버 지도 앱만 즉시 패치하려면: ${GREEN}./cmd.sh --nmap -u${NC} 또는 ${GREEN}bash cmd/patch_naver_map.sh${NC}"
+    fi
+else
+    echo -e "${GREEN}[✓] 모든 연결 기기가 최신 버전($TARGET_VER)입니다.${NC}"
+    if [ "$FORCE_UPDATE" = true ]; then
+        echo -e "\n${CYAN}============================================================${NC}"
+        echo -e "${CYAN}🚀 [강제 재패치] 네이버 지도 앱 패치 시작...${NC}"
+        echo -e "${CYAN}============================================================${NC}"
+        bash "$CMD_DIR/patch_naver_map.sh" $TARGET_DEVICE
+        echo -e "\n${GREEN}[✓] 네이버 지도 앱 강제 재패치가 완료되었습니다.${NC}"
+    fi
 fi

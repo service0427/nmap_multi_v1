@@ -13,7 +13,12 @@ if [ -z "$TARGET_DEVICE" ]; then
     echo "[*] 대상 기기가 지정되지 않았습니다. 연결된 전체 기기를 대상으로 패치를 시작합니다."
     DEVICES=$(adb devices | grep -w "device" | awk '{print $1}')
 else
-    echo "[*] 단일 기기 강제 패치를 시작합니다: $TARGET_DEVICE"
+    dev_count=$(echo "$TARGET_DEVICE" | wc -w)
+    if [ "$dev_count" -gt 1 ]; then
+        echo "[*] 지정된 ${dev_count}대 기기 패치를 시작합니다."
+    else
+        echo "[*] 단일 기기 패치를 시작합니다: $TARGET_DEVICE"
+    fi
     DEVICES=$TARGET_DEVICE
 fi
 
@@ -80,7 +85,7 @@ for serial in $DEVICES; do
     # 2. 신규 앱 설치
     echo "[$(date '+%H:%M:%S')] [$serial] 신규 Naver Map APK 파일들을 기기로 전송(Push) 중..."
     echo "[$(date '+%H:%M:%S')] [$serial] 기기 내부에서 최적화 및 설치 실행 중 (약 10~15초 소요)..."
-    adb -s "$serial" install-multiple $NMAP_APKS >/dev/null 2>&1
+    adb -s "$serial" install-multiple -r -d -g $NMAP_APKS >/dev/null 2>&1
 
     # 3. 환경 설정 잔재 소거
     adb -s "$serial" shell "$HAS_SU -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
