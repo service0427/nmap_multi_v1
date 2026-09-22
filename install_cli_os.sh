@@ -4,8 +4,8 @@
 # [수동 실행 절차]
 # OS 설치 시 OpenSSH Server를 체크한 후, 터미널에서 다음 명령어들을 순서대로 실행하세요.
 # 1. sudo apt update && sudo apt install -y git
-# 2. git clone https://github.com/service0427/nmap_mini.git
-# 3. cd nmap_mini
+# 2. git clone https://github.com/service0427/nmap_multi_v1.git
+# 3. cd nmap_multi_v1
 # 4. chmod +x install_cli_os.sh
 # 5. ./install_cli_os.sh
 #
@@ -80,18 +80,18 @@ date
 # 5. 패키지 리스트 업데이트 및 기본 도구 설치
 echo "[*] Updating package list & Installing basic tools..."
 sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent lsof
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent lsof android-sdk-platform-tools-common
 
 # 6. Python 및 필수 라이브러리 설치
 echo "[*] Installing Python3 and required libraries..."
 sudo apt install -y python3 python3-pip python3-dev python3-venv
 sudo python3 -m pip install --upgrade --ignore-installed pip --break-system-packages
-sudo python3 -m pip install --ignore-installed blackboxprotobuf flask frida-tools mitmproxy requests huawei-lte-api --break-system-packages
+sudo python3 -m pip install --ignore-installed blackboxprotobuf flask frida-tools mitmproxy requests huawei-lte-api gdown pillow --break-system-packages
 
-# [V1.2] Frida & Mitmproxy PATH 안정화 (심볼릭 링크 강제 생성)
+# [V1.2] Frida, Mitmproxy & gdown PATH 안정화 (심볼릭 링크 강제 생성)
 # 최신 OS에서 externally-managed-environment 에러 대응 및 PATH 누락 방지
 echo "[*] Verifying tool availability and creating symlinks..."
-for cmd in frida mitmdump mitmproxy; do
+for cmd in frida mitmdump mitmproxy gdown; do
     # 1. 이미 경로에 있는지 확인
     if ! command -v $cmd >/dev/null 2>&1; then
         # 2. 일반적인 pip 설치 경로 탐색
@@ -127,7 +127,7 @@ fi
 
 # 9. mitmproxy 인증서 자동 초기 생성
 echo "[*] Initializing mitmproxy CA Certificate..."
-CERT_PATH="/home/tech/.mitmproxy/mitmproxy-ca-cert.pem"
+CERT_PATH="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 if [ ! -f "$CERT_PATH" ]; then
     if command -v mitmdump >/dev/null 2>&1; then
         echo "  -> Generating mitmproxy certificates (running mitmdump in background for 2s)..."
@@ -154,6 +154,10 @@ echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-ip-forward.conf >/dev/n
 
 # 9.2. ADB Key 루트 디렉토리 동기화 및 권한 설정
 echo "[*] Synchronizing ADB Keys to root directory..."
+# ADB 서버를 1회 실행하여 키가 없을 경우 기본 adbkey 자동 생성 보장
+adb start-server >/dev/null 2>&1
+sleep 1
+
 if [ -f "$HOME/.android/adbkey" ]; then
     sudo mkdir -p /root/.android
     sudo cp "$HOME/.android/adbkey" /root/.android/adbkey
