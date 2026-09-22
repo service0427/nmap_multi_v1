@@ -40,6 +40,69 @@ if ! flock -n 200; then
     exit 1
 fi
 
+# Graceful Ctrl+C (SIGINT) Interruption & Descendant Cleanup Handling
+INTERRUPTING=false
+
+get_all_descendants() {
+    local pids=("$@")
+    local all_desc=()
+    while [ ${#pids[@]} -gt 0 ]; do
+        local next_pids=()
+        for p in "${pids[@]}"; do
+            local children
+            children=$(pgrep -P "$p" 2>/dev/null)
+            if [ -n "$children" ]; then
+                all_desc+=($children)
+                next_pids+=($children)
+            fi
+        done
+        pids=("${next_pids[@]}")
+    done
+    echo "${all_desc[@]}"
+}
+
+kill_all_children() {
+    local desc
+    desc=$(get_all_descendants $$)
+    if [ -n "$desc" ]; then
+        kill -9 $desc 2>/dev/null
+    fi
+    pkill -9 -P $$ 2>/dev/null
+    kill -9 $(jobs -p) 2>/dev/null
+    flock -u 200 2>/dev/null
+    rm -f "$LOCK_FILE" 2>/dev/null
+}
+
+handle_sigint() {
+    if [ "$INTERRUPTING" = true ]; then
+        echo -e "\n\e[1;31m[*] 강제 종료 신호 재감지. 즉시 종료합니다...\e[0m"
+        kill_all_children
+        exit 130
+    fi
+    INTERRUPTING=true
+
+    echo -e "\n\e[1;33m[!] Ctrl+C (인터럽트) 신호가 감지되었습니다.\e[0m"
+    local prompt_msg="[?] 디바이스 초기화/패치 작업을 중단하고 실행 중인 모든 프로세스를 종료하시겠습니까? (y/N): "
+    
+    local confirm=""
+    if [ -c /dev/tty ] && [ -r /dev/tty ]; then
+        read -r -p "$prompt_msg" confirm < /dev/tty 2>/dev/null
+    else
+        read -r -p "$prompt_msg" confirm 2>/dev/null
+    fi
+
+    if [[ "$confirm" =~ ^[yY](es)?$ ]]; then
+        echo -e "\n\e[1;31m[*] 초기화 작업을 중단합니다. 모든 백그라운드 프로세스를 정리합니다...\e[0m"
+        kill_all_children
+        exit 130
+    else
+        echo -e "\e[1;32m[*] 초기화 작업을 계속 진행합니다...\e[0m"
+        INTERRUPTING=false
+    fi
+}
+
+trap handle_sigint SIGINT
+
 # Parse options and target device (optional)
 AUTO_PROCEED=false
 TARGET_DEVICE=""
@@ -265,5 +328,7 @@ for serial in $DEVICES; do
         sleep 3
 done
 
-wait
+while [ -n "$(jobs -p)" ]; do
+    wait $(jobs -p) 2>/dev/null || true
+done
 echo -e "${GREEN}[✓] Device Initialization Complete.${NC}"
