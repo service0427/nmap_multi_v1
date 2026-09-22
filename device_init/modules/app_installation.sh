@@ -79,6 +79,16 @@ init_app_installation() {
         echo -e "    [!] Failed to verify 'curl' on device."
     fi
 
+    # Pre-Installation Security Bypass: Disable package verifier & Google Play Store
+    # Prevents Google Play Protect dialogs (e.g. 'Unsafe app blocked' for legacy targetSdk APKs like ADBKeyboard) from hanging installations.
+    echo -e "    - Pre-configuring package verifier & Play Protect bypass..."
+    adb -s "$serial" shell "
+        settings put global package_verifier_enable 0
+        settings put global verifier_verify_adb_installs 0
+        settings put global package_verifier_user_consent -1
+        pm disable-user --user 0 com.android.vending
+    " >/dev/null 2>&1
+
     # 3. Naver Map (com.nhn.android.nmap) Dynamic Version Check & Clean Install
     local nmap_pkg="com.nhn.android.nmap"
     local installed_packages=$(adb -s "$serial" shell pm list packages | cut -d':' -f2 | tr -d '\r')
@@ -166,9 +176,9 @@ init_app_installation() {
         else
             echo -e "    - $pkg not found. Installing..."
             if [ "$type" -eq "0" ]; then
-                adb -s "$serial" install $files >/dev/null 2>&1
+                timeout 60 adb -s "$serial" install -r -d -g --bypass-low-target-sdk-block $files >/dev/null 2>&1
             else
-                adb -s "$serial" install-multiple $files >/dev/null 2>&1
+                timeout 120 adb -s "$serial" install-multiple -r -d -g $files >/dev/null 2>&1
             fi
             
             # Verify installation

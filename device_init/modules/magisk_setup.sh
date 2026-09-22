@@ -59,7 +59,47 @@ init_magisk_setup() {
                 # Check if module directory exists under /data/adb/modules/
                 local is_installed=$(adb -s "$serial" shell "$has_su -c '[ -d /data/adb/modules/$mod_id ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
                 
+                # Module-specific integrity verification (Detect partial / corrupt installs)
+                local is_corrupt=false
                 if [ "$is_installed" = "YES" ]; then
+                    if [ "$mod_id" = "magisk-frida" ]; then
+                        local has_fs=$(adb -s "$serial" shell "$has_su -c '[ -x /data/adb/modules/magisk-frida/system/bin/frida-server ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
+                        if [ "$has_fs" != "YES" ]; then
+                            echo -e "    - Module ${YELLOW}$zip_name${NC} (ID: $mod_id) is installed but ${YELLOW}CORRUPT / INCOMPLETE${NC} (missing system/bin/frida-server)."
+                            is_corrupt=true
+                        fi
+                    fi
+                fi
+
+                # Self-healing repair for corrupt / incomplete module
+                if [ "$is_corrupt" = true ]; then
+                    echo -e "    - Attempting self-healing repair for $mod_id..."
+                    local has_src=$(adb -s "$serial" shell "$has_su -c '[ -f /data/adb/modules/magisk-frida/files/frida-server-arm64 ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
+                    if [ "$has_src" = "YES" ]; then
+                        adb -s "$serial" shell "$has_su -c '
+                            mkdir -p /data/adb/modules/magisk-frida/system/bin /data/adb/modules/magisk-frida/logs
+                            cp /data/adb/modules/magisk-frida/files/frida-server-arm64 /data/adb/modules/magisk-frida/system/bin/frida-server
+                            chmod 755 /data/adb/modules/magisk-frida/system/bin/frida-server
+                            chown 0:2000 /data/adb/modules/magisk-frida/system/bin/frida-server
+                            chcon u:object_r:system_file:s0 /data/adb/modules/magisk-frida/system/bin/frida-server
+                            rm -f /data/adb/modules/magisk-frida/disable
+                        '" >/dev/null 2>&1
+                        echo -e "    [✓] Self-healing repair completed. frida-server binary restored."
+                        reboot_required=true
+                        is_installed="YES"
+                    else
+                        echo -e "    - Source binary missing. Purging corrupt module directory to force clean reinstall..."
+                        adb -s "$serial" shell "$has_su -c 'rm -rf /data/adb/modules/$mod_id'" >/dev/null 2>&1
+                        is_installed="NO"
+                    fi
+                fi
+
+                if [ "$is_installed" = "YES" ]; then
+                    # Ensure logs directory exists for service.sh stdout/stderr redirection
+                    if [ "$mod_id" = "magisk-frida" ]; then
+                        adb -s "$serial" shell "$has_su -c 'mkdir -p /data/adb/modules/magisk-frida/logs'" >/dev/null 2>&1
+                    fi
+
                     # Check if the module is currently disabled
                     local is_disabled=$(adb -s "$serial" shell "$has_su -c '[ -f /data/adb/modules/$mod_id/disable ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
                     if [ "$is_disabled" = "YES" ]; then
@@ -77,6 +117,26 @@ init_magisk_setup() {
                     # Run unattended installation and capture output/errors
                     local install_log=$(adb -s "$serial" shell "$has_su -c 'magisk --install-module \"$zip_path\"'" 2>&1)
                     
+                    # Post-installation verification and fallback repair
+                    if [ "$mod_id" = "magisk-frida" ]; then
+                        local has_fs=$(adb -s "$serial" shell "$has_su -c '[ -x /data/adb/modules/magisk-frida/system/bin/frida-server ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
+                        if [ "$has_fs" != "YES" ]; then
+                            echo -e "    - [Fallback] Deploying frida-server binary directly..."
+                            adb -s "$serial" shell "$has_su -c '
+                                mkdir -p /data/adb/modules/magisk-frida/system/bin /data/adb/modules/magisk-frida/logs
+                                if [ -f /data/adb/modules/magisk-frida/files/frida-server-arm64 ]; then
+                                    cp /data/adb/modules/magisk-frida/files/frida-server-arm64 /data/adb/modules/magisk-frida/system/bin/frida-server
+                                else
+                                    unzip -p \"$zip_path\" files/frida-server-arm64 > /data/adb/modules/magisk-frida/system/bin/frida-server 2>/dev/null
+                                fi
+                                chmod 755 /data/adb/modules/magisk-frida/system/bin/frida-server
+                                chown 0:2000 /data/adb/modules/magisk-frida/system/bin/frida-server
+                                chcon u:object_r:system_file:s0 /data/adb/modules/magisk-frida/system/bin/frida-server
+                                rm -f /data/adb/modules/magisk-frida/disable
+                            '" >/dev/null 2>&1
+                        fi
+                    fi
+
                     # Verify installation
                     local verify_install=$(adb -s "$serial" shell "$has_su -c '[ -d /data/adb/modules/$mod_id ] && echo \"YES\" || echo \"NO\"'" | tr -d '\r')
                     if [ "$verify_install" = "YES" ]; then
