@@ -111,6 +111,7 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
     }
     
     # 1. Check Working Status (Lightweight)
+    cstatus = None
     try:
         subprocess.check_output(["pgrep", "-f", f"lib/main.sh {serial}"])
         info["status"] = "WORKING"
@@ -122,7 +123,7 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
                 with open(task_info_path, 'r') as f:
                     cdata = json.load(f)
                     cstatus = cdata.get("status")
-                    if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED"]:
+                    if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING"]:
                         info["status"] = cstatus
         except:
             pass
@@ -326,6 +327,9 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
             info["status"] = "SUCCESS"
             task_data["status"] = "SUCCESS"
             info["current_task"] = task_data
+        elif cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING"]:
+            info["status"] = cstatus
+            info["current_task"] = None
         else:
             info["status"] = "IDLE"
             info["current_task"] = None

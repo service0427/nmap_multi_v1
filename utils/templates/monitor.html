@@ -60,6 +60,7 @@
         .badge-penalty { background: #4A148C; color: white; }
         .badge-unauthorized { background: #555555; color: white; }
         .badge-disabled { background: #616161; color: #ccc; }
+        .badge-charging { background: #0288D1; color: white; }
         
         .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
         @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
@@ -188,7 +189,7 @@
             <div class="diag-overlay" style="height: 63px;">
                 <div class="diag-item">
                     {% set is_active = dev and dev.status != 'IDLE' and not dev.offline %}
-                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-disabled' if dev.disabled else ('badge-cooldown' if dev.status in ['IP_COOLDOWN', 'COOLDOWN'] else ('badge-penalty' if dev.status == 'PENALTY' else ('badge-unauthorized' if dev.status == 'UNAUTHORIZED' else ('badge-working' if is_active else 'badge-idle'))))) }}" id="badge-{{ i }}">
+                    <span class="status-badge {{ 'badge-offline' if not dev or dev.offline else ('badge-disabled' if dev.disabled else ('badge-charging' if dev.status == 'CHARGING' else ('badge-cooldown' if dev.status in ['IP_COOLDOWN', 'COOLDOWN'] else ('badge-penalty' if dev.status == 'PENALTY' else ('badge-unauthorized' if dev.status == 'UNAUTHORIZED' else ('badge-working' if is_active else 'badge-idle')))))) }}" id="badge-{{ i }}">
                         {{ 'OFFLINE' if not dev or dev.offline else ('DISABLED' if dev.disabled else (dev.status if dev.status else 'IDLE')) }}
                     </span>
                     <span id="model-{{ i }}" style="color: #888; margin-left: auto;">{{ dev.model if dev else 'N/A' }}</span>
@@ -747,6 +748,8 @@
                             badgeClass = 'badge-offline';
                         } else if (dev.disabled) {
                             badgeClass = 'badge-disabled';
+                        } else if (dev.status === 'CHARGING') {
+                            badgeClass = 'badge-charging';
                         } else if (dev.status === 'IP_COOLDOWN' || dev.status === 'COOLDOWN') {
                             badgeClass = 'badge-cooldown';
                         } else if (dev.status === 'PENALTY') {

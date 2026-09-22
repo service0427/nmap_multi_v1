@@ -150,8 +150,12 @@ cleanup() {
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
-    # Dim screen to minimum (1) and maintain fast charging while idle/waiting
-    adb -s "$DEV_ID" shell "settings put system screen_brightness 1; settings put system screen_brightness_mode 0; su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null" >/dev/null 2>&1
+    # Dim screen to minimum (1) and maintain fast charging while idle/waiting (or deep sleep if BATTERY_LOW)
+    if [[ "$REASON" == *"BATTERY_LOW"* ]]; then
+        "$LIB_DIR/power_mode.sh" "$DEV_ID" "deep_sleep"
+    else
+        adb -s "$DEV_ID" shell "settings put system screen_brightness 1; settings put system screen_brightness_mode 0; su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null" >/dev/null 2>&1
+    fi
     rm -f "$LOCK_FILE" "$CURRENT_TASK_JSON" "${DEV_TMP_DIR}/guidance_started"
     exit 0
 }
@@ -295,16 +299,8 @@ adb -s "$DEV_ID" shell pm grant com.nhn.android.nmap android.permission.RECORD_A
 # Grant Draw Over Other Apps (SYSTEM_ALERT_WINDOW) since pm clear resets AppOps
 adb -s "$DEV_ID" shell appops set com.nhn.android.nmap SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
 
-# Apply active driving power profile (Lock 60Hz, Dark Mode, Moderate Brightness 50, High-Current USB, Disable Protect Battery)
-adb -s "$DEV_ID" shell "
-    settings put system screen_brightness_mode 0
-    settings put system screen_brightness 50
-    settings put system peak_refresh_rate 60.0
-    settings put system min_refresh_rate 60.0
-    settings put global protect_battery 0
-    cmd uimode night yes
-    su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null
-" >/dev/null 2>&1
+# Apply active driving power profile (Default Mode: Wakeup, Stay-Awake, 60Hz, Brightness 50, Full Performance)
+"$LIB_DIR/power_mode.sh" "$DEV_ID" "default"
 sleep 1
 
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)

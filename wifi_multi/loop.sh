@@ -177,13 +177,8 @@ while true; do
         BATT_LEVEL=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | grep -E "^\s*level:" | head -n 1 | awk '{print $2}')
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
             if [ "$BATT_LEVEL" -lt 20 ]; then
-                echo "[🔋] [$DEV_ID] Battery low (${BATT_LEVEL}% < 20%). Screen dimmed to 1, fast-charging active..."
-                adb -s "$DEV_ID" shell "
-                    settings put system screen_brightness 1
-                    settings put system screen_brightness_mode 0
-                    settings put global protect_battery 0
-                    su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null
-                " >/dev/null 2>&1
+                echo "[🔋] [$DEV_ID] Battery low (${BATT_LEVEL}% < 20%). Entering MAX SLEEP (Fast-Charging Standby)..."
+                "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
                 mkdir -p "logs/${DEV_ID}"
                 CURRENT_TIME=$(date +%s)
                 echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
