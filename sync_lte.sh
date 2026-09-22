@@ -7,6 +7,12 @@ if [ "$EUID" -ne 0 ]; then
   exec sudo "$0" "$@"
 fi
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 echo -e "\033[0;34m⚡ Fast LTE Route Syncing...\033[0m"
-/usr/local/bin/lte-sync
+if [ -f "$SCRIPT_DIR/utils/lte_recovery.py" ]; then
+    python3 "$SCRIPT_DIR/utils/lte_recovery.py" --force
+elif [ -x "/usr/local/bin/lte-sync" ]; then
+    /usr/local/bin/lte-sync
+fi
 echo -e "\033[0;32m✅ LTE Route Sync Completed!\033[0m"

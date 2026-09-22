@@ -6,6 +6,16 @@ import sys
 import json
 from datetime import datetime
 
+# Import LTE Multi-Modem Self-Healing Watchdog
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from lte_recovery import check_and_heal_lte_modems
+except ImportError:
+    try:
+        from utils.lte_recovery import check_and_heal_lte_modems
+    except ImportError:
+        check_and_heal_lte_modems = None
+
 def run_adb_cmd(args, timeout_sec=5):
     """Runs an adb command wrapped in linux timeout tool to prevent D-state hangs."""
     cmd = ["timeout", str(timeout_sec), "adb"] + args
@@ -332,6 +342,13 @@ def main():
             else:
                 global_hang_streak = 0
                 log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
+
+            # 4. LTE Multi-Modem Self-Healing Watchdog (Detects unmapped/reconnected modems, broken routes)
+            if check_and_heal_lte_modems:
+                try:
+                    check_and_heal_lte_modems()
+                except Exception as lte_err:
+                    log("ERROR", f"LTE healing watchdog exception: {lte_err}")
         except Exception as e:
             log("ERROR", f"Exception in main loop: {e}")
             
