@@ -136,6 +136,20 @@ if [ $needs_update_count -gt 0 ]; then
     fi
 
     if [ "$do_update" = true ]; then
+        # 목표 버전 설치 파일 존재 여부 사전 확인
+        target_asset_exists=false
+        for p in "$PROJECT_ROOT/install/naver_map_${TARGET_VER}" "$PROJECT_ROOT/install/com.nhn.android.nmap_${TARGET_VER}"; do
+            if [ -d "$p" ] && [ -n "$(find "$p" -maxdepth 1 -name '*.apk' 2>/dev/null)" ]; then
+                target_asset_exists=true
+                break
+            fi
+        done
+        if [ "$target_asset_exists" = false ]; then
+            echo -e "\n${YELLOW}[*] 목표 버전(${TARGET_VER}) 패치 파일이 install/ 폴더에 없습니다.${NC}"
+            echo -e "${YELLOW}[*] update_nmap.sh 를 호출하여 최신 파일 다운로드를 먼저 진행합니다...${NC}"
+            bash "$PROJECT_ROOT/update_nmap.sh" -y
+        fi
+
         echo -e "\n${CYAN}============================================================${NC}"
         echo -e "${CYAN}🚀 네이버 지도 앱 전용 패치 시작 (대상: ${needs_update_count}대)${NC}"
         echo -e "${CYAN}============================================================${NC}"

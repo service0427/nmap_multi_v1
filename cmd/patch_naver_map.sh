@@ -40,12 +40,42 @@ elif [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/com.nhn.android.nmap_${
     NMAP_DIR="$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
 elif [ -d "$INSTALL_DIR/naver_map" ]; then
     NMAP_DIR="$INSTALL_DIR/naver_map"
-else
-    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) | sort -V -r | head -n 1)
+fi
+
+# 목표 버전 폴더가 없을 경우 자동 다운로드/압축 해제 시도
+if [ -z "$NMAP_DIR" ] && [ -n "$TARGET_NMAP_VERSION" ]; then
+    echo "[*] 로컬 install/ 폴더에 목표 버전(${TARGET_NMAP_VERSION}) 설치 파일이 없습니다."
+    
+    # 1. 로컬 tar.gz 아카이브 존재 여부 확인
+    for arch in "$PROJECT_ROOT/naver_map_${TARGET_NMAP_VERSION}.tar.gz" "$PROJECT_ROOT/com.nhn.android.nmap_${TARGET_NMAP_VERSION}.tar.gz"; do
+        if [ -f "$arch" ]; then
+            echo "[*] 로컬 아카이브 발견: $(basename "$arch"). 압축 해제 중..."
+            mkdir -p "$INSTALL_DIR"
+            tar -xzf "$arch" -C "$INSTALL_DIR"
+            break
+        fi
+    done
+    
+    # 2. 그래도 없으면 update_nmap.sh 자동 실행
+    if [ ! -d "$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}" ] && [ ! -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ]; then
+        if [ -f "$PROJECT_ROOT/update_nmap.sh" ]; then
+            echo "[*] Google Drive에서 ${TARGET_NMAP_VERSION} 자산 자동 다운로드를 진행합니다..."
+            bash "$PROJECT_ROOT/update_nmap.sh" -y
+        fi
+    fi
+    
+    # 3. 다운로드/압축 해제 후 재확인
+    if [ -d "$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}" ]; then
+        NMAP_DIR="$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}"
+    elif [ -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ]; then
+        NMAP_DIR="$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
+    fi
 fi
 
 if [ -z "$NMAP_DIR" ] || [ ! -d "$NMAP_DIR" ]; then
-    echo "[-] 에러: install 폴더 하위에 네이버 지도 패치용 폴더(naver_map_${TARGET_NMAP_VERSION} 또는 com.nhn.android.nmap_*)가 존재하지 않습니다."
+    echo "[-] 에러: 목표 버전(${TARGET_NMAP_VERSION})의 네이버 지도 패치 폴더를 찾을 수 없습니다."
+    echo "    - 구버전으로 잘못 설치되는 것을 방지하기 위해 패치를 중단합니다."
+    echo "    - 해결 방법: './update_nmap.sh' 를 실행하여 ${TARGET_NMAP_VERSION} 설치 파일을 먼저 다운로드해주세요."
     exit 1
 fi
 
