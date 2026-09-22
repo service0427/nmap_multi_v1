@@ -13,8 +13,8 @@ init_naver_map() {
 
     echo -e "\n[*] Checking Naver Map (com.nhn.android.nmap) status..."
 
-    # Check if package is installed
-    local is_installed=$(adb -s "$serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r')
+    # Check if package is installed (timeout 5s)
+    local is_installed=$(timeout 5 adb -s "$serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r')
     if [ -z "$is_installed" ]; then
         echo -e "    ${YELLOW}[⚠️] Naver Map is NOT installed. Skipping this module.${NC}"
         return 0
@@ -24,7 +24,7 @@ init_naver_map() {
     local is_initialized="NO"
 
     if [ -n "$has_su" ]; then
-        is_initialized=$(adb -s "$serial" shell "$has_su -c '[ -f $pref_file ] && echo \"YES\" || echo \"NO\"'" 2>/dev/null | tr -d '\r')
+        is_initialized=$(timeout 5 adb -s "$serial" shell "$has_su -c '[ -f $pref_file ] && echo \"YES\" || echo \"NO\"'" 2>/dev/null | tr -d '\r')
     fi
 
     # 1. First-time Launch & Initialize preferences
@@ -33,8 +33,8 @@ init_naver_map() {
     else
         echo -e "    - Naver Map is NOT initialized. Performing first-time launch..."
         
-        # Start Naver Map using monkey launcher
-        adb -s "$serial" shell "monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
+        # Start Naver Map using monkey launcher (timeout 5s)
+        timeout 5 adb -s "$serial" shell "monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1" >/dev/null 2>&1
         
         # Poll up to 15 seconds waiting for preference file to be created
         local count=0
@@ -42,7 +42,12 @@ init_naver_map() {
         while [ $count -lt $max_wait ]; do
             sleep 1
             count=$((count + 1))
-            local check=$(adb -s "$serial" shell "$has_su -c '[ -f $pref_file ] && echo \"YES\" || echo \"NO\"'" 2>/dev/null | tr -d '\r')
+            # Quick check if device dropped connection
+            if [ "$(timeout 2 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')" != "device" ]; then
+                echo -e "    ${YELLOW}[⚠️] 디바이스 연결이 끊어졌습니다. 초기화 중단.${NC}"
+                return 1
+            fi
+            local check=$(timeout 4 adb -s "$serial" shell "$has_su -c '[ -f $pref_file ] && echo \"YES\" || echo \"NO\"'" 2>/dev/null | tr -d '\r')
             if [ "$check" = "YES" ]; then
                 echo -e "    [✓] Naver Map settings initialized successfully (Took ${count}s)."
                 is_initialized="YES"
@@ -56,7 +61,7 @@ init_naver_map() {
 
         # Force stop the app after initialization
         echo -e "    - Forcing Naver Map to close..."
-        adb -s "$serial" shell "am force-stop com.nhn.android.nmap"
+        timeout 5 adb -s "$serial" shell "am force-stop com.nhn.android.nmap" >/dev/null 2>&1
     fi
 
     # 2. Grant Runtime Permissions
@@ -253,10 +258,15 @@ else
 fi
 EOF
 
-    # Push and execute the helper script
-    adb -s "$serial" push "$HOST_TMP/nmap_mute_$serial.sh" /data/local/tmp/nmap_mute.sh >/dev/null 2>&1
-    adb -s "$serial" shell "$has_su -c 'sh /data/local/tmp/nmap_mute.sh'"
-    adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/nmap_mute.sh'"
+    # Push and execute the helper script (with timeouts)
+    if [ "$(timeout 2 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')" != "device" ]; then
+        rm -f "$HOST_TMP/nmap_mute_$serial.sh"
+        echo -e "    ${YELLOW}[⚠️] 디바이스 연결 끊김. 뮤트 설정 중단.${NC}"
+        return 1
+    fi
+    timeout 10 adb -s "$serial" push "$HOST_TMP/nmap_mute_$serial.sh" /data/local/tmp/nmap_mute.sh >/dev/null 2>&1
+    timeout 10 adb -s "$serial" shell "$has_su -c 'sh /data/local/tmp/nmap_mute.sh'" >/dev/null 2>&1
+    timeout 5 adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/nmap_mute.sh'" >/dev/null 2>&1
     rm -f "$HOST_TMP/nmap_mute_$serial.sh"
 
     # C. Restore permissions & labels
@@ -264,7 +274,7 @@ EOF
     if [ -n "$has_su" ]; then
         su_cmd="$has_su"
     fi
-    adb -s "$serial" shell "$su_cmd -c 'chown -R $app_uid:$app_uid /data/data/com.nhn.android.nmap/shared_prefs/ && chmod -R 777 /data/data/com.nhn.android.nmap/shared_prefs/ && restorecon -R /data/data/com.nhn.android.nmap'" >/dev/null 2>&1
+    timeout 5 adb -s "$serial" shell "$su_cmd -c 'chown -R $app_uid:$app_uid /data/data/com.nhn.android.nmap/shared_prefs/ && chmod -R 777 /data/data/com.nhn.android.nmap/shared_prefs/ && restorecon -R /data/data/com.nhn.android.nmap'" >/dev/null 2>&1
     
     # Verification checks (Perform cat on device and grep on host for safety and simplicity)
     local v_tts=$(adb -s "$serial" shell "$has_su -c 'cat /data/data/com.nhn.android.nmap/shared_prefs/NativeNaviDefaults.xml'" 2>/dev/null | grep 'name="NaviTtsTurnGuide"' | tr -d '\r')

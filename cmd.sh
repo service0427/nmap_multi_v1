@@ -40,6 +40,29 @@ case "$1" in
         shift
         bash "$CMD_DIR/extract_real_idfv.sh" "$@"
         ;;
+    --help|-h)
+        echo -e "\n============================================================"
+        echo -e " 📱 Nmap Multi Control CLI (cmd.sh)"
+        echo -e "============================================================"
+        echo -e "  --nmap [<기기ID>] [-u]  : 네이버 지도 버전 검수 및 패치"
+        echo -e "                            - 전체 검수: ./cmd.sh --nmap"
+        echo -e "                            - 전체 패치: ./cmd.sh --nmap -u"
+        echo -e "                            - 단일 검수: ./cmd.sh --nmap <기기ID>"
+        echo -e "                            - 단일 패치: ./cmd.sh --nmap -u <기기ID>"
+        echo -e "                            (예: ./cmd.sh --nmap -u R3CR70JFFWD)"
+        echo -e "  --home                 : 전체 기기 홈 화면 복귀"
+        echo -e "  --dark                 : 전체 기기 다크모드 적용"
+        echo -e "  --light                : 전체 기기 라이트모드 적용"
+        echo -e "  --portrait             : 전체 기기 세로모드 고정"
+        echo -e "  --reboot               : 전체 기기 재부팅"
+        echo -e "  --ip                   : 전체 기기 Wi-Fi IP 확인"
+        echo -e "  --wifi                 : Wi-Fi 재연결 및 상태 설정"
+        echo -e "  --imei                 : 기기 IMEI 추출"
+        echo -e "  --adid                 : 기기 ADID 추출"
+        echo -e "  --idfv                 : 기기 IDFV 추출"
+        echo -e "  인자 없음              : 전체 기기 화면 그리드 실행"
+        echo -e "============================================================\n"
+        ;;
     *)
         # 인자 없이 실행 시: 연결된 모든 기기의 화면을 그리드로 정렬하여 띄움
         python3 "$CMD_DIR/open_missing.py" --keep "$@"

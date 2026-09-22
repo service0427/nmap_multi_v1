@@ -36,6 +36,10 @@ while [[ $# -gt 0 ]]; do
             FORCE_UPDATE=true
             shift
             ;;
+        -s|--serial|-d|--device)
+            TARGET_DEVICE="$2"
+            shift 2
+            ;;
         *)
             if [ -z "$TARGET_DEVICE" ]; then
                 TARGET_DEVICE="$1"
@@ -71,16 +75,26 @@ NC="\e[0m"
 
 echo -e "\n============================================================"
 echo -e " 🗺️  Naver Map Version Checker (Server Target: \e[1;36m$TARGET_VER\e[0m)"
+echo -e " 💡 단일 기기 지정 명령어:"
+echo -e "    - 버전 검수: \e[1;32m./cmd.sh --nmap <기기ID>\e[0m (예: ./cmd.sh --nmap R3CR70JFFWD)"
+echo -e "    - 즉시 패치: \e[1;32m./cmd.sh --nmap -u <기기ID>\e[0m 또는 \e[1;32mbash cmd/patch_naver_map.sh <기기ID>\e[0m"
 echo -e "============================================================"
 printf "  %-3s  %-15s | %-15s | %-12s\n" "No." "Device ID" "Version" "Status"
 echo -e "------------------------------------------------------------"
 
-# 병렬 처리를 위한 임시 파일 활용
+# 병렬 처리를 위한 임시 파일 활용 (타임아웃 적용으로 연결 끊김/D-state 무한 행 방지)
 tmp_file=$(mktemp)
 for serial in $DEVICES; do
     (
-        # 패키지 버전명 획득
-        version=$(adb -s "$serial" shell "dumpsys package com.nhn.android.nmap 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" | tr -d '\r\n ')
+        # 기기 연결 상태 점검 (타임아웃 3초)
+        dev_state=$(timeout 3 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')
+        if [ "$dev_state" != "device" ]; then
+            printf "%s:Disconnected:${RED}Offline${NC}\n" "$serial" >> "$tmp_file"
+            exit 0
+        fi
+
+        # 패키지 버전명 획득 (타임아웃 5초)
+        version=$(timeout 5 adb -s "$serial" shell "dumpsys package com.nhn.android.nmap 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" 2>/dev/null | tr -d '\r\n ')
         
         if [ -z "$version" ]; then
             # 설치 안 됨
@@ -124,6 +138,7 @@ if [ $needs_update_count -gt 0 ]; then
     if [ "$AUTO_UPDATE" = true ]; then
         do_update=true
     else
+        echo -e "\n  💡 특정 기기 1대만 지정하여 패치하려면: ${GREEN}./cmd.sh --nmap -u <기기ID>${NC} (예: ./cmd.sh --nmap -u R3CR70JFFWD)"
         prompt_msg="[?] 업데이트 대상 기기(${needs_update_count}대)의 네이버 지도 앱만 지금 즉시 패치/업데이트하시겠습니까? (y/N): "
         if [ -c /dev/tty ] && [ -r /dev/tty ]; then
             read -r -p "$prompt_msg" confirm_choice < /dev/tty
@@ -159,7 +174,8 @@ if [ $needs_update_count -gt 0 ]; then
         exec bash "$0" $TARGET_DEVICE
     else
         echo -e "${YELLOW}[*] 업데이트를 건너뛰었습니다.${NC}"
-        echo -e "    - 네이버 지도 앱만 즉시 패치하려면: ${GREEN}./cmd.sh --nmap -u${NC} 또는 ${GREEN}bash cmd/patch_naver_map.sh${NC}"
+        echo -e "    - 전체 기기 즉시 패치: ${GREEN}./cmd.sh --nmap -u${NC}"
+        echo -e "    - 단일 기기 즉시 패치: ${GREEN}./cmd.sh --nmap -u <기기ID>${NC} 또는 ${GREEN}bash cmd/patch_naver_map.sh <기기ID>${NC}"
     fi
 else
     echo -e "${GREEN}[✓] 모든 연결 기기가 최신 버전($TARGET_VER)입니다.${NC}"
