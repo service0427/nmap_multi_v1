@@ -34,16 +34,18 @@ fi
 
 # 패치 대상 디렉토리 탐색
 NMAP_DIR=""
-if [ -d "$INSTALL_DIR/naver_map" ]; then
-    NMAP_DIR="$INSTALL_DIR/naver_map"
+if [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}" ]; then
+    NMAP_DIR="$INSTALL_DIR/naver_map_${TARGET_NMAP_VERSION}"
 elif [ -n "$TARGET_NMAP_VERSION" ] && [ -d "$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}" ]; then
     NMAP_DIR="$INSTALL_DIR/com.nhn.android.nmap_${TARGET_NMAP_VERSION}"
+elif [ -d "$INSTALL_DIR/naver_map" ]; then
+    NMAP_DIR="$INSTALL_DIR/naver_map"
 else
-    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "com.nhn.android.nmap*" | sort -V -r | head -n 1)
+    NMAP_DIR=$(find "$INSTALL_DIR" -maxdepth 1 -type d \( -name "com.nhn.android.nmap*" -o -name "naver_map_*" \) | sort -V -r | head -n 1)
 fi
 
 if [ -z "$NMAP_DIR" ] || [ ! -d "$NMAP_DIR" ]; then
-    echo "[-] 에러: install 폴더 하위에 네이버 지도 패치용 폴더(naver_map 또는 com.nhn.android.nmap_*)가 존재하지 않습니다."
+    echo "[-] 에러: install 폴더 하위에 네이버 지도 패치용 폴더(naver_map_${TARGET_NMAP_VERSION} 또는 com.nhn.android.nmap_*)가 존재하지 않습니다."
     exit 1
 fi
 
