@@ -154,7 +154,7 @@ init_app_installation() {
             else
                 echo -e "    - Naver Map not found. Installing from $nmap_dir..."
                 local install_res
-                install_res=$(adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
+                install_res=$(timeout 120 adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
                 if [ $? -ne 0 ]; then
                     echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
                 else
