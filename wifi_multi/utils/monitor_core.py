@@ -31,8 +31,14 @@ def get_device_diagnostics(serial):
     try:
         batt_raw = subprocess.check_output(["adb", "-s", serial, "shell", "dumpsys battery"], timeout=5).decode()
         for line in batt_raw.splitlines():
-            if "level:" in line: info["battery"] = line.split(":")[1].strip()
-            if "temperature:" in line: info["temp"] = int(line.split(":")[1].strip()) / 10
+            line_s = line.strip()
+            if line_s.startswith("level:"):
+                info["battery"] = line_s.split(":", 1)[1].strip()
+            elif line_s.startswith("temperature:"):
+                try:
+                    info["temp"] = int(line_s.split(":", 1)[1].strip()) / 10
+                except:
+                    pass
     except:
         pass
 

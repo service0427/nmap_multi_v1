@@ -168,7 +168,7 @@ exec > >(tee -a "$EXEC_LOG") 2>&1
 echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 
 # Get Environment Snapshot (No bc package requirement)
-BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep level | awk '{print $2}')
+BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep -E '^\s*level:' | head -n 1 | awk '{print $2}')
 # --- [BATTERY SAFETY GATE] ---
 if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
     if [ "$BATT_LEVEL" -lt 20 ]; then
@@ -177,7 +177,7 @@ if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
     fi
 fi
 
-TEMP_RAW=$(adb -s "$DEV_ID" shell dumpsys battery | grep temperature | awk '{print $2}')
+TEMP_RAW=$(adb -s "$DEV_ID" shell dumpsys battery | grep -E '^\s*temperature:' | head -n 1 | awk '{print $2}')
 if [ -n "$TEMP_RAW" ] && [ "$TEMP_RAW" -eq "$TEMP_RAW" ] 2>/dev/null; then
     TEMP_C="$((TEMP_RAW / 10)).$((TEMP_RAW % 10))"
 else

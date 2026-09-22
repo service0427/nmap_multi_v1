@@ -174,7 +174,7 @@ while true; do
         fi
 
         # --- Battery Gate & Low Battery Charging Standby (<20%) ---
-        BATT_LEVEL=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | grep -E "level:" | head -n 1 | awk '{print $2}')
+        BATT_LEVEL=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | grep -E "^\s*level:" | head -n 1 | awk '{print $2}')
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
             if [ "$BATT_LEVEL" -lt 20 ]; then
                 echo "[🔋] [$DEV_ID] Battery low (${BATT_LEVEL}% < 20%). Screen dimmed to 1, fast-charging active..."
