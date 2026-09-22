@@ -340,7 +340,10 @@ if [ -n "$NMAP_BIND_IP" ]; then
     BIND_OPT="--set connect_addr=$NMAP_BIND_IP"
 fi
 
-nohup mitmdump -p "$NMAP_MITM_PORT" $BIND_OPT -s mitm/addon.py --ssl-insecure --listen-host 0.0.0.0 --set flow_detail=0 > "$CAPTURE_LOG_DIR/mitm.log" 2>&1 &
+# [OPT] Bypass TLS decryption on heavy vector tiles, 3D models, video trailers, and telemetry
+IGNORE_HOSTS_REGEX='^(.*\.pstatic\.net|.*tivan\.naver\.com|resty-base3d-map\.naver\.com|panorama\.map\.naver\.com|.*appsflyersdk\.com|.*crashlytics\.com|.*akamaized\.net)(:[0-9]+)?$'
+
+nohup mitmdump -p "$NMAP_MITM_PORT" $BIND_OPT --ignore-hosts "$IGNORE_HOSTS_REGEX" -s mitm/addon.py --ssl-insecure --listen-host 0.0.0.0 --set flow_detail=0 > "$CAPTURE_LOG_DIR/mitm.log" 2>&1 &
 MITM_PID=$!
 setsid python3 gps/auto_reloader.py "$CAPTURE_LOG_DIR" "$DEV_ID" >> "$EXEC_LOG" 2>&1 &
 RELOAD_PID=$!

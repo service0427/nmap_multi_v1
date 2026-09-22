@@ -447,25 +447,88 @@ def refresh_device_slots():
     except:
         pass
 
-def diag_background_thread():
-    while True:
-        refresh_device_slots()
-        time.sleep(10) # 10초마다 무거운 진단 갱신
+# --- SMART ON-DEMAND & WEB CONTROL ---
+MONITOR_MODE = "auto"   # auto, active, paused
+LAST_CLIENT_SEEN = 0
+IS_MONITORING = False
 
-# 초기 1회 실행 후 스레드 시작
-refresh_device_slots()
+def mark_client_activity():
+    global LAST_CLIENT_SEEN
+    LAST_CLIENT_SEEN = time.time()
+
+def is_monitoring_needed():
+    now = time.time()
+    if MONITOR_MODE == "paused":
+        return False
+    if MONITOR_MODE == "active":
+        return True
+    return (now - LAST_CLIENT_SEEN) < 30
+
+def diag_background_thread():
+    global IS_MONITORING
+    while True:
+        needed = is_monitoring_needed()
+        IS_MONITORING = needed
+        if needed:
+            try:
+                refresh_device_slots()
+            except Exception as e:
+                print(f"[!] Error in refresh_device_slots: {e}", flush=True)
+            time.sleep(5)
+        else:
+            time.sleep(2)
+
+# Start background thread (dormant until web access)
 threading.Thread(target=diag_background_thread, daemon=True).start()
 
 @app.route('/')
 def index():
+    mark_client_activity()
+    if not IS_MONITORING or device_slots[0] is None:
+        try:
+            refresh_device_slots()
+        except:
+            pass
     device_id = request.args.get('device_id', '').strip()
     hostname = socket.gethostname()
-    return render_template_string(get_html_template(), slots=device_slots, MAX_SLOTS=MAX_SLOTS, hostname=hostname, target_device_id=device_id)
+    return render_template_string(
+        get_html_template(),
+        slots=device_slots,
+        MAX_SLOTS=MAX_SLOTS,
+        hostname=hostname,
+        target_device_id=device_id,
+        monitor_mode=MONITOR_MODE,
+        is_active=is_monitoring_needed()
+    )
 
 @app.route('/status')
 def status():
-    # Return the current parsed device states for seamless AJAX updates
-    return jsonify({"slots": device_slots})
+    mark_client_activity()
+    return jsonify({
+        "slots": device_slots,
+        "monitor_mode": MONITOR_MODE,
+        "is_active": is_monitoring_needed()
+    })
+
+@app.route('/api/toggle_monitor', methods=['POST'])
+def toggle_monitor():
+    global MONITOR_MODE
+    mark_client_activity()
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode")
+    if mode in ["auto", "active", "paused"]:
+        MONITOR_MODE = mode
+    else:
+        MONITOR_MODE = "paused" if MONITOR_MODE != "paused" else "auto"
+
+    if MONITOR_MODE != "paused":
+        threading.Thread(target=refresh_device_slots, daemon=True).start()
+
+    return jsonify({
+        "status": "success",
+        "monitor_mode": MONITOR_MODE,
+        "is_active": is_monitoring_needed()
+    })
 
 @app.route('/api/toggle_device', methods=['POST'])
 def toggle_device():
@@ -615,6 +678,9 @@ def gen_frames(dev_id):
                 # -p 옵션으로 압축된 png 추출 (대역폭 절약)
                 cmd = ["adb", "-s", dev_id, "exec-out", "screencap", "-p"]
                 frame = subprocess.check_output(cmd, timeout=5)
+                png_idx = frame.find(b"\x89PNG")
+                if png_idx != -1:
+                    frame = frame[png_idx:]
                 yield (b'--frame\r\n'
                        b'Content-Type: image/png\r\n\r\n' + frame + b'\r\n')
                 time.sleep(REFRESH_INTERVAL)
