@@ -173,14 +173,24 @@ while true; do
             timeout 5 adb -s "$DEV_ID" shell "am force-stop com.nhn.android.nmap; settings put global http_proxy :0" >/dev/null 2>&1
         fi
 
-        # --- Battery Gate & Low Battery Charging Standby (<20%) ---
+        # --- Battery 3-Stage Power & Gate Management ---
+        # 1. < 25%  : Deep Sleep (Screen OFF, Fast-Charging Standby)
+        # 2. 25~30% : Default Mode Prepared (Screen ON, Stay-Awake, but NO task execution)
+        # 3. >= 31% : Task Execution Allowed
         BATT_LEVEL=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | grep -E "^\s*level:" | head -n 1 | awk '{print $2}')
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
-            if [ "$BATT_LEVEL" -lt 20 ]; then
-                echo "[🔋] [$DEV_ID] Battery low (${BATT_LEVEL}% < 20%). Entering MAX SLEEP (Fast-Charging Standby)..."
+            CURRENT_TIME=$(date +%s)
+            if [ "$BATT_LEVEL" -lt 25 ]; then
+                echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%). Entering MAX SLEEP (Fast-Charging Standby)..."
                 "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
                 mkdir -p "logs/${DEV_ID}"
-                CURRENT_TIME=$(date +%s)
+                echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
+                DEV_INDEX=$((DEV_INDEX + 1))
+                continue
+            elif [ "$BATT_LEVEL" -le 30 ]; then
+                echo "[🔋] [$DEV_ID] Battery preparing (${BATT_LEVEL}% in 25~30%). Default mode set, standby charging (Task execution starts at >= 31%)..."
+                "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "default"
+                mkdir -p "logs/${DEV_ID}"
                 echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
                 DEV_INDEX=$((DEV_INDEX + 1))
                 continue

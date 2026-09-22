@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Power Mode Controller for Device Fleet
-# - deep_sleep : Max power saving & fast charging when battery < 20%
-# - default    : Standard active mode for navigation task execution
+# - Stage 1 (< 25%)  : deep_sleep (Max power saving & fast charging, screen OFF)
+# - Stage 2 (25~30%) : default    (Prepared in normal mode, standby charging)
+# - Stage 3 (>= 31%) : default    (Full navigation task execution allowed)
 # ==============================================================================
 
 set_power_mode() {

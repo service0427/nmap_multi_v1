@@ -132,8 +132,8 @@ cleanup() {
     if [ "$IS_SUCCESS" = false ]; then
         # Report FAIL only if it wasn't a success or got overridden by leak audit
         local REPORT_STATUS="FAIL"
-        # ADDRESS_NOT_FOUND, App Closed, 또는 BATTERY_LOW인 경우 어드민 격리 패널티를 피하기 위해 API_ERROR로 우회
-        if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]] || [[ "$REASON" == *"BATTERY_LOW"* ]]; then
+        # ADDRESS_NOT_FOUND, App Closed, BATTERY_LOW 또는 BATTERY_WARMUP인 경우 어드민 격리 패널티를 피하기 위해 API_ERROR로 우회
+        if [ "$REASON" = "ADDRESS_NOT_FOUND" ] || [ "$REASON" = "App Closed" ] || [[ "$REASON" == *"ADDRESS_NOT_FOUND"* ]] || [[ "$REASON" == *"BATTERY_LOW"* ]] || [[ "$REASON" == *"BATTERY_WARMUP"* ]]; then
             REPORT_STATUS="API_ERROR"
         fi
         local endpoint="/api/v1/report_result"
@@ -150,9 +150,11 @@ cleanup() {
     adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
     adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
     adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
-    # Dim screen to minimum (1) and maintain fast charging while idle/waiting (or deep sleep if BATTERY_LOW)
+    # Dim screen to minimum (1) and maintain fast charging while idle/waiting (deep sleep if <25%, default prepared if 25~30%)
     if [[ "$REASON" == *"BATTERY_LOW"* ]]; then
         "$LIB_DIR/power_mode.sh" "$DEV_ID" "deep_sleep"
+    elif [[ "$REASON" == *"BATTERY_WARMUP"* ]]; then
+        "$LIB_DIR/power_mode.sh" "$DEV_ID" "default"
     else
         adb -s "$DEV_ID" shell "settings put system screen_brightness 1; settings put system screen_brightness_mode 0; su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null" >/dev/null 2>&1
     fi
@@ -174,10 +176,16 @@ echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 # Get Environment Snapshot (No bc package requirement)
 BATT_LEVEL=$(adb -s "$DEV_ID" shell dumpsys battery | grep -E '^\s*level:' | head -n 1 | awk '{print $2}')
 # --- [BATTERY SAFETY GATE] ---
+# 1. < 25%  : Critical battery -> Abort task and enter deep sleep
+# 2. 25~30% : Warmup state -> Abort task, maintain prepared default mode, charge to >= 31%
+# 3. >= 31% : Proceed with navigation task
 if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
-    if [ "$BATT_LEVEL" -lt 20 ]; then
-        echo " [$DEV_ID] [🚨] BATTERY CRITICAL: ${BATT_LEVEL}% (Threshold < 20%). Aborting task to prevent hard shutdown."
+    if [ "$BATT_LEVEL" -lt 25 ]; then
+        echo " [$DEV_ID] [🚨] BATTERY CRITICAL: ${BATT_LEVEL}% (Threshold < 25%). Aborting task to prevent hard shutdown."
         cleanup "BATTERY_LOW_${BATT_LEVEL}%"
+    elif [ "$BATT_LEVEL" -le 30 ]; then
+        echo " [$DEV_ID] [⚠️] BATTERY WARMUP: ${BATT_LEVEL}% (Required >= 31%). Aborting task for charging warmup."
+        cleanup "BATTERY_WARMUP_${BATT_LEVEL}%"
     fi
 fi
 
