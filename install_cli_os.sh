@@ -20,14 +20,26 @@ echo "============================================================"
 echo "   Server Initial Setup Start"
 echo "============================================================"
 
-# 1. Sudo 비밀번호 생략 설정 (현재 사용자)
-echo "[*] Configuring passwordless sudo for $USER..."
-if ! sudo grep -q "^$USER ALL=(ALL) NOPASSWD:ALL" "/etc/sudoers.d/$USER" 2>/dev/null; then
-    echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$USER" >/dev/null
-    sudo chmod 0440 "/etc/sudoers.d/$USER"
-    echo "  -> Passwordless sudo enabled for $USER."
-else
-    echo "  -> Passwordless sudo already configured. Skipping."
+# 1. Sudo 비밀번호 생략 설정 (현재 사용자 및 sudo 실행자)
+TARGET_USER="${SUDO_USER:-$USER}"
+echo "[*] Configuring passwordless sudo for $TARGET_USER..."
+if [ "$TARGET_USER" != "root" ]; then
+    if ! sudo grep -q "^$TARGET_USER ALL=(ALL) NOPASSWD:ALL" "/etc/sudoers.d/$TARGET_USER" 2>/dev/null; then
+        echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/$TARGET_USER" >/dev/null
+        sudo chmod 0440 "/etc/sudoers.d/$TARGET_USER"
+        echo "  -> Passwordless sudo enabled for $TARGET_USER."
+    else
+        echo "  -> Passwordless sudo already configured for $TARGET_USER. Skipping."
+    fi
+fi
+
+# tech 계정이 시스템에 존재하면 tech 계정도 항상 비밀번호 생략 보장
+if id "tech" &>/dev/null && [ "$TARGET_USER" != "tech" ]; then
+    if ! sudo grep -q "^tech ALL=(ALL) NOPASSWD:ALL" "/etc/sudoers.d/tech" 2>/dev/null; then
+        echo "tech ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/tech" >/dev/null
+        sudo chmod 0440 "/etc/sudoers.d/tech"
+        echo "  -> Passwordless sudo enabled for tech."
+    fi
 fi
 
 # 2. SSH 키 설정 (자동 등록)
