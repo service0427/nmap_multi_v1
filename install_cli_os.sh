@@ -80,7 +80,7 @@ date
 # 5. 패키지 리스트 업데이트 및 기본 도구 설치
 echo "[*] Updating package list & Installing basic tools..."
 sudo apt update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent lsof android-sdk-platform-tools-common
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git screen adb curl wget build-essential cron net-tools nano ffmpeg jq openssl libssl-dev zlib1g-dev libffi-dev tcpdump iputils-ping dnsutils quota unzip iptables-persistent lsof android-sdk-platform-tools-common isc-dhcp-client network-manager
 
 # 6. Python 및 필수 라이브러리 설치
 echo "[*] Installing Python3 and required libraries..."
@@ -107,6 +107,11 @@ for cmd in frida mitmdump mitmproxy gdown; do
         echo "  -> $cmd is already in PATH."
     fi
 done
+
+# Ensure dhclient is directly accessible in /usr/bin if installed in /usr/sbin
+if [ -f /usr/sbin/dhclient ] && [ ! -f /usr/bin/dhclient ]; then
+    sudo ln -sf /usr/sbin/dhclient /usr/bin/dhclient
+fi
 
 # 7. Node.js 최신 LTS 버전 설치
 echo "[*] Installing Node.js (Latest LTS)..."
@@ -158,7 +163,7 @@ echo "[*] Synchronizing ADB Keys to root directory..."
 adb start-server >/dev/null 2>&1
 sleep 1
 
-if [ -f "$HOME/.android/adbkey" ]; then
+if [ -f "$HOME/.android/adbkey" ] && [ "$HOME" != "/root" ]; then
     sudo mkdir -p /root/.android
     sudo cp "$HOME/.android/adbkey" /root/.android/adbkey
     sudo cp "$HOME/.android/adbkey.pub" /root/.android/adbkey.pub

@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 1. Install Dependencies
-if ! command -v adb >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! command -v mitmdump >/dev/null 2>&1 || ! command -v frida >/dev/null 2>&1 || ! command -v lsof >/dev/null 2>&1; then
+if ! command -v dhclient >/dev/null 2>&1 || ! command -v nmcli >/dev/null 2>&1 || ! command -v adb >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || ! command -v mitmdump >/dev/null 2>&1 || ! command -v frida >/dev/null 2>&1 || ! command -v lsof >/dev/null 2>&1; then
     echo -e "\033[1;33m[1/6] Installing core dependencies...\033[0m"
     apt-get update > /dev/null
     apt-get install -y adb jq python3-pip curl net-tools iproute2 isc-dhcp-client network-manager lsof 2>/dev/null
@@ -86,8 +86,8 @@ fi
 
 if [ "$DNS_NEEDS_RESTART" -eq 1 ]; then
     echo -e "   > Applying new DNS configurations and restarting NetworkManager..."
-    systemctl restart systemd-resolved
-    systemctl restart NetworkManager
+    systemctl restart systemd-resolved 2>/dev/null || true
+    systemctl restart NetworkManager 2>/dev/null || true
     sleep 3
 else
     echo -e "   > DNS configuration already locked. Skipping NetworkManager restart."
@@ -170,9 +170,13 @@ fi
 echo -e "\033[1;33m[5/6] Generating dynamic lte-sync daemon...\033[0m"
 cat <<EOF > /usr/local/bin/lte-sync
 #!/usr/bin/env python3
-import os, subprocess, re, time
+import os, subprocess, re, time, shutil
+
+# Ensure standard system binary paths are present in PATH for udev runs
+os.environ["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:" + os.environ.get("PATH", "")
 
 PRIMARY_IFACE = "$WIRED_IFACE"
+DHCLIENT_BIN = shutil.which("dhclient") or ("/usr/sbin/dhclient" if os.path.exists("/usr/sbin/dhclient") else "/sbin/dhclient")
 
 def get_gateway_ip(iface):
     try:
@@ -192,7 +196,8 @@ def get_gateway_ip(iface):
 
     try:
         # 3. If no route, run dhclient
-        subprocess.run(["dhclient", "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(DHCLIENT_BIN):
+            subprocess.run([DHCLIENT_BIN, "-v", iface], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         res = subprocess.check_output(f"ip -4 route show dev {iface}", shell=True).decode()
         match_default = re.search(r'default via (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', res)
         if match_default:
@@ -266,12 +271,15 @@ def main():
                 pgrep_out = subprocess.check_output(f"pgrep -f 'dhclient.*{new_name}'", shell=True).decode().strip()
                 if pgrep_out:
                     for pid in pgrep_out.split():
-                        subprocess.run(["kill", "-9", pid])
+                        subprocess.run(["kill", "-9", pid], stderr=subprocess.DEVNULL)
             except:
                 pass
             # Clean up all existing IP addresses to prevent secondary IP accumulation
             subprocess.run(["ip", "addr", "flush", "dev", new_name])
-            subprocess.run(["dhclient", "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.path.exists(DHCLIENT_BIN):
+                subprocess.run([DHCLIENT_BIN, "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                print(f" [!] ERROR: dhclient binary not found at '{DHCLIENT_BIN}'. Please run: apt install -y isc-dhcp-client")
             
             table_id = subnet
             subprocess.run(f"grep -q \"^{table_id} lte{table_id}\" /etc/iproute2/rt_tables || echo \"{table_id} lte{table_id}\" >> /etc/iproute2/rt_tables", shell=True)
