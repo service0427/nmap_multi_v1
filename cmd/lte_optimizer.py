@@ -6,6 +6,7 @@ LTE Multi-Modem Diagnostic & Auto-Cure Optimizer
 - Checks & optimizes Linux kernel TCP socket tuning (fixes FIN-WAIT-1 & TIME-WAIT socket accumulation)
 - Checks & repairs routing table rules per LTE interface
 - Tests latency (ping) and public IP connectivity
+- Supports --reboot for recovering frozen/deadlocked modems
 """
 
 import os
@@ -52,7 +53,7 @@ CLR_BLUE = "\033[1;34m"
 CLR_CYAN = "\033[1;36m"
 CLR_WHITE = "\033[1;37m"
 
-def run_cmd(cmd, check=False, timeout=10):
+def run_cmd(cmd, check=False, timeout=15):
     try:
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
         if check and res.returncode != 0:
@@ -61,7 +62,7 @@ def run_cmd(cmd, check=False, timeout=10):
     except Exception:
         return None
 
-def run_sudo(cmd, timeout=10):
+def run_sudo(cmd, timeout=15):
     if os.geteuid() == 0:
         return run_cmd(cmd, timeout=timeout)
     return run_cmd(f"sudo {cmd}", timeout=timeout)
@@ -134,51 +135,91 @@ def logout_modem_raw(modem_ip):
             f"http://{modem_ip}/api/user/logout",
             data='<?xml version="1.0" encoding="UTF-8"?><request><Logout>1</Logout></request>',
             headers={"Content-Type": "application/xml"},
-            timeout=2
+            timeout=3
         )
     except Exception:
         pass
 
-def check_and_cure_sip_alg(modem_ip, cure=True):
+def check_and_cure_sip_alg(modem_ip, cure=True, max_retries=3, timeout=12):
     """
-    Check Huawei Modem SIP ALG.
+    Check Huawei Modem SIP ALG with adaptive timeout & retries.
     Returns: (initial_status, cured_status, message)
     initial_status: 'ENABLED', 'DISABLED', 'ERROR', 'UNREACHABLE'
     """
-    try:
-        conn = Connection(f"http://{modem_ip}/", username=MODEM_USER, password=MODEM_PASS, timeout=5)
+    last_err = None
+
+    for attempt in range(1, max_retries + 1):
         try:
-            client = Client(conn)
-        except Exception as e:
-            if "Already login" in str(e):
-                logout_modem_raw(modem_ip)
-                time.sleep(1)
-                conn = Connection(f"http://{modem_ip}/", username=MODEM_USER, password=MODEM_PASS, timeout=5)
+            conn = Connection(f"http://{modem_ip}/", username=MODEM_USER, password=MODEM_PASS, timeout=timeout)
+            client = None
+            try:
                 client = Client(conn)
-            else:
-                return "ERROR", None, f"Login failed: {e}"
+            except Exception as e:
+                err_str = str(e)
+                if "Already login" in err_str or "108003" in err_str:
+                    logout_modem_raw(modem_ip)
+                    time.sleep(1.5)
+                    conn = Connection(f"http://{modem_ip}/", username=MODEM_USER, password=MODEM_PASS, timeout=timeout)
+                    client = Client(conn)
+                else:
+                    raise e
 
-        sip_info = client.security.sip()
-        initial_status = "ENABLED" if sip_info.get("SipStatus") == "1" else "DISABLED"
-        cured_status = initial_status
+            sip_info = client.security.sip()
+            initial_status = "ENABLED" if sip_info.get("SipStatus") == "1" else "DISABLED"
+            cured_status = initial_status
 
-        if initial_status == "ENABLED" and cure:
-            client.security.set_sip(enabled=False, port=5060)
-            time.sleep(0.5)
-            verify_info = client.security.sip()
-            cured_status = "ENABLED" if verify_info.get("SipStatus") == "1" else "DISABLED"
+            if initial_status == "ENABLED" and cure:
+                client.security.set_sip(enabled=False, port=5060)
+                time.sleep(0.5)
+                verify_info = client.security.sip()
+                cured_status = "ENABLED" if verify_info.get("SipStatus") == "1" else "DISABLED"
 
+            try:
+                client.user.logout()
+            except Exception:
+                pass
+
+            return initial_status, cured_status, None
+
+        except requests.exceptions.Timeout:
+            last_err = f"Timeout ({timeout}s) - Modem CPU overloaded"
+        except requests.exceptions.ConnectionError:
+            last_err = "Connection refused or unreachable"
+        except Exception as e:
+            last_err = str(e)
+
+        if attempt < max_retries:
+            time.sleep(1.5)
+
+    return "ERROR", None, last_err
+
+def reboot_modem_device(iface, subnet, gw):
+    """Reboot modem via Hilink API, falling back to USB driver unbind/bind"""
+    # 1. API Reboot
+    if gw:
         try:
-            client.user.logout()
-        except Exception:
-            pass
+            conn = Connection(f"http://{gw}/", username=MODEM_USER, password=MODEM_PASS, timeout=8)
+            client = Client(conn)
+            client.device.reboot()
+            print(f"     ✔ [{iface}] Hilink API reboot command sent successfully.")
+            return True
+        except Exception as e:
+            print(f"     ⚠ [{iface}] API reboot failed ({e}), attempting USB hardware reset...")
 
-        return initial_status, cured_status, None
-
-    except requests.exceptions.RequestException:
-        return "UNREACHABLE", None, "Modem not responding"
+    # 2. USB reset via driver unbind/bind
+    try:
+        cmd = f"ls -la /sys/class/net/{iface}/device/driver/ | grep {iface} | awk '{{print $9}}'"
+        usb_path = run_cmd(cmd)
+        if usb_path:
+            run_sudo(f"echo '{usb_path}' | tee /sys/bus/usb/drivers/cdc_ether/unbind > /dev/null")
+            time.sleep(2)
+            run_sudo(f"echo '{usb_path}' | tee /sys/bus/usb/drivers/cdc_ether/bind > /dev/null")
+            print(f"     ✔ [{iface}] USB driver rebound ({usb_path}).")
+            return True
     except Exception as e:
-        return "ERROR", None, str(e)
+        print(f"     ❌ [{iface}] USB reset failed: {e}")
+
+    return False
 
 def check_and_cure_routing(iface, subnet, cure=True):
     """Ensure routing table and IP rules exist for LTE interface"""
@@ -233,14 +274,15 @@ def check_and_cure_routing(iface, subnet, cure=True):
 
 def test_connectivity(iface):
     """Test ping latency to 8.8.8.8 and get public IP"""
-    ping_out = run_cmd(f"ping -c 3 -W 2 -I {iface} 8.8.8.8", timeout=8)
+    ping_out = run_cmd(f"ping -c 3 -W 3 -I {iface} 8.8.8.8", timeout=15)
     loss = "100%"
     avg_rtt = "N/A"
     
     if ping_out:
-        loss_match = re.search(r"(\d+)% packet loss", ping_out)
+        loss_match = re.search(r"([\d.]+)% packet loss", ping_out)
         if loss_match:
-            loss = f"{loss_match.group(1)}%"
+            loss_val = float(loss_match.group(1))
+            loss = f"{loss_val:.0f}%"
         rtt_match = re.search(r"rtt min/avg/max/mdev = [\d.]+/([\d.]+)/", ping_out)
         if rtt_match:
             avg_rtt = f"{float(rtt_match.group(1)):.1f}ms"
@@ -248,7 +290,7 @@ def test_connectivity(iface):
     # Public IP
     public_ip = "N/A"
     for url in ["https://api.ipify.org", "https://icanhazip.com"]:
-        ip_res = run_cmd(f"curl --interface {iface} -s -m 4 {url}", timeout=5)
+        ip_res = run_cmd(f"curl --interface {iface} -s -m 5 {url}", timeout=6)
         if ip_res and re.match(r"^\d+\.\d+\.\d+\.\d+$", ip_res.strip()):
             public_ip = ip_res.strip()
             break
@@ -326,10 +368,13 @@ def print_header(title):
 
 def main():
     parser = argparse.ArgumentParser(description="LTE Multi-Modem Diagnostic & Auto-Cure Optimizer")
-    parser.add_argument("--check-only", action="store_true", help="Only check status without modifying settings")
+    parser.add_argument("target", nargs="?", default=None, help="Target interface or subnet (e.g. lte11, 11)")
     parser.add_argument("--iface", type=str, help="Specific interface to target (e.g. lte12)")
+    parser.add_argument("--check-only", action="store_true", help="Only check status without modifying settings")
+    parser.add_argument("--reboot", action="store_true", help="Reboot target modem to resolve deep freeze/deadlock")
     args = parser.parse_args()
 
+    target_name = args.target or args.iface
     cure = not args.check_only
     action_label = "Checking & Auto-Curing" if cure else "Checking Only (Dry-Run)"
 
@@ -337,10 +382,10 @@ def main():
 
     # 1. Discover interfaces
     all_interfaces = get_lte_interfaces()
-    if args.iface:
-        interfaces = [i for i in all_interfaces if i["iface"] == args.iface or str(i["subnet"]) == args.iface]
+    if target_name:
+        interfaces = [i for i in all_interfaces if i["iface"] == target_name or str(i["subnet"]) == target_name]
         if not interfaces:
-            print(f"{CLR_RED}[❌] Specified interface '{args.iface}' not found!{CLR_RESET}")
+            print(f"{CLR_RED}[❌] Specified interface '{target_name}' not found!{CLR_RESET}")
             sys.exit(1)
     else:
         interfaces = all_interfaces
@@ -351,6 +396,15 @@ def main():
         sys.exit(0)
 
     print(f"{CLR_CYAN}[*] Detected {len(interfaces)} LTE modem interface(s): {', '.join(i['iface'] for i in interfaces)}{CLR_RESET}\n")
+
+    # Optional Modem Reboot
+    if args.reboot:
+        print(f"{CLR_BOLD}[*] Reboot requested. Rebooting target modems...{CLR_RESET}")
+        for item in interfaces:
+            reboot_modem_device(item["iface"], item["subnet"], item["gateway"])
+        print(f"  ⏳ Waiting 20 seconds for modems to restart and acquire IP leases...")
+        time.sleep(20)
+        print(f"  ✔ Resuming diagnostic & optimization...")
 
     # Record initial socket stats
     sockets_before = get_socket_counts()
@@ -466,6 +520,24 @@ def main():
     print(f"  • TIME-WAIT Sockets  : {CLR_YELLOW if sockets_before['time_wait'] > 1000 else CLR_GREEN}{sockets_before['time_wait']}{CLR_RESET} -> {CLR_GREEN}{sockets_after['time_wait']}{CLR_RESET} (Max timeout reduced to 15s)")
     print(f"  • Active Established : {sockets_after['established']}")
 
+    # 6. Detailed Issue Reporting & Suggestions
+    has_issues = False
+    for r in results:
+        if r["sip_err"] or r["cured_sip"] != "DISABLED" or r["loss"] != "0%":
+            if not has_issues:
+                print(f"\n{CLR_BOLD}{CLR_YELLOW}[!] Detailed Diagnostics & Action Needed:{CLR_RESET}")
+                has_issues = True
+            
+            print(f"  • {CLR_BOLD}{r['iface']}{CLR_RESET} (Gateway: {r['gw']}):")
+            if r["sip_err"]:
+                print(f"     - SIP ALG Issue: {CLR_RED}{r['sip_err']}{CLR_RESET}")
+            if r["loss"] != "0%":
+                print(f"     - Packet Loss: {CLR_RED}{r['loss']}{CLR_RESET} (Latency: {r['rtt']})")
+            
+            print(f"     👉 {CLR_CYAN}Solution:{CLR_RESET} The modem CPU is currently hung/overloaded by SIP packet storm.")
+            print(f"        Run reboot command: {CLR_WHITE}./cmd.sh --lte --reboot {r['iface']}{CLR_RESET}")
+            print(f"        or smart recovery : {CLR_WHITE}python3 wifi_multi/smart_toggle.py {r['subnet']}{CLR_RESET}")
+
     # Check overall health
     all_mtu_ok = all(r["cured_mtu"] == TARGET_MTU for r in results)
     all_sip_ok = all(r["cured_sip"] == "DISABLED" for r in results)
@@ -475,7 +547,7 @@ def main():
     if all_mtu_ok and all_sip_ok and all_loss_ok and (sys_cured == "TUNED"):
         print(f"{CLR_BOLD}{CLR_GREEN} ✔ ALL LTE MODEMS FULLY OPTIMIZED & HEALTHY! (Packet Loss 0%){CLR_RESET}")
     else:
-        print(f"{CLR_BOLD}{CLR_YELLOW} ⚠ Optimization completed with minor warnings. Check table above.{CLR_RESET}")
+        print(f"{CLR_BOLD}{CLR_YELLOW} ⚠ Optimization completed with warnings on some modems. Check details above.{CLR_RESET}")
     print(f"{CLR_BOLD}{CLR_BLUE}======================================================================{CLR_RESET}\n")
 
 if __name__ == "__main__":
