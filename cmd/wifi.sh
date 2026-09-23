@@ -39,15 +39,10 @@ get_current_ssid() {
 # --- Phase 1: Wi-Fi SSID Selection ---
 chosen_ssid=""
 if [ -z "$TARGET_SSID" ]; then
-    # Use up to 3 connected devices to scan Wi-Fi in parallel (helps bypass local congestion/interference)
-    scanners=()
-    for i in "${!all_devices[@]}"; do
-        if [ $i -lt 3 ]; then
-            scanners+=("${all_devices[$i]}")
-        fi
-    done
+    # Randomly select up to 3 connected devices to scan Wi-Fi in parallel
+    scanners=($(printf "%s\n" "${all_devices[@]}" | shuf | head -n 3))
 
-    echo -e "\n[*] Scanning Wi-Fi networks using ${#scanners[@]} devices in parallel (${scanners[*]})..."
+    echo -e "\n[*] Scanning Wi-Fi networks using ${#scanners[@]} randomly selected devices in parallel (${scanners[*]})..."
     
     for serial in "${scanners[@]}"; do
         (

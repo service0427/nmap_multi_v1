@@ -14,13 +14,21 @@
 # - OpenSSH Server는 OS 설치 단계에서 이미 체크 후 설치되었다고 가정합니다.
 # ============================================================
 
-# install_cli_os.sh: Server Initial Setup Script (CUI Ready)
+# Sudo 실행 방지 (일반 사용자로 실행 강제)
+if [ "$EUID" -eq 0 ]; then
+    echo -e "\n\033[1;31m============================================================\033[0m"
+    echo -e "\033[1;31m[❌] 에러: install_cli_os.sh 스크립트는 'sudo'를 빼고 실행해야 합니다!\033[0m"
+    echo -e "\033[1;33m[*] 이유: sudo로 실행할 경우 SSH 키, PM2, 환경 변수가 /root 경로로 잡혀 권한이 꼬입니다.\033[0m"
+    echo -e "\033[1;32m[*] 올바른 실행 방법: ./install_cli_os.sh\033[0m"
+    echo -e "\033[1;31m============================================================\033[0m\n"
+    exit 1
+fi
 
 echo "============================================================"
 echo "   Server Initial Setup Start"
 echo "============================================================"
 
-# 1. Sudo 비밀번호 생략 설정 (현재 사용자 및 sudo 실행자)
+# 1. Sudo 비밀번호 생략 설정 (현재 사용자)
 TARGET_USER="${SUDO_USER:-$USER}"
 echo "[*] Configuring passwordless sudo for $TARGET_USER..."
 if [ "$TARGET_USER" != "root" ]; then
