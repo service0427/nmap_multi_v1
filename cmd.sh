@@ -40,10 +40,17 @@ case "$1" in
         shift
         bash "$CMD_DIR/extract_real_idfv.sh" "$@"
         ;;
+    --reset)
+        shift
+        bash "$CMD_DIR/reset_penalty.sh" "$@"
+        ;;
     --help|-h)
         echo -e "\n============================================================"
         echo -e " 📱 Nmap Multi Control CLI (cmd.sh)"
         echo -e "============================================================"
+        echo -e "  --reset [<기기ID>]     : 벌점(Penalty) 리셋 및 작업 재개"
+        echo -e "                            - 전체 리셋: ./cmd.sh --reset"
+        echo -e "                            - 단일 리셋: ./cmd.sh --reset <기기ID>"
         echo -e "  --nmap [<기기ID>] [-u]  : 네이버 지도 버전 검수 및 패치"
         echo -e "                            - 전체 검수: ./cmd.sh --nmap"
         echo -e "                            - 전체 패치: ./cmd.sh --nmap -u"
