@@ -33,7 +33,7 @@ fi
 # Function to get current SSID of a device
 get_current_ssid() {
     local serial=$1
-    adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep "SSID:" | head -1 | sed -E 's/.*SSID: "([^"]+)".*/\1/' | tr -d '\r\n'
+    timeout 3 adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep "SSID:" | head -1 | sed -E 's/.*SSID: "([^"]+)".*/\1/' | tr -d '\r\n'
 }
 
 # --- Phase 1: Wi-Fi SSID Selection ---
@@ -50,30 +50,39 @@ if [ -z "$TARGET_SSID" ]; then
     echo -e "\n[*] Scanning Wi-Fi networks using ${#scanners[@]} devices in parallel (${scanners[*]})..."
     
     for serial in "${scanners[@]}"; do
-        wifi_status=$(adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep "Wifi is" | tr -d '\r')
-        if [[ "$wifi_status" == *"disabled"* ]]; then
-            adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
-        fi
-        adb -s "$serial" shell "cmd wifi start-scan" >/dev/null 2>&1 &
+        (
+            wifi_status=$(timeout 3 adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep "Wifi is" | tr -d '\r')
+            if [[ "$wifi_status" == *"disabled"* ]]; then
+                timeout 3 adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
+            fi
+            timeout 3 adb -s "$serial" shell "cmd wifi start-scan" >/dev/null 2>&1
+        ) &
     done
     wait
-    sleep 5
+    sleep 3
 
-    # Gather all unique SSIDs starting with "Moon" or ending with "-11" to "-20" from all scanning devices
+    # Gather all unique SSIDs starting with "Moon" or ending with "-11" to "-20" from all scanning devices in parallel
     ssids=()
-    raw_ssids=""
+    tmp_scan_dir=$(mktemp -d -p "$CMD_DIR")
     for serial in "${scanners[@]}"; do
-        device_ssids=$(adb -s "$serial" shell "cmd wifi list-scan-results" 2>/dev/null | awk 'NR>1 {
-            ssid=""
-            for (i=5; i<=NF; i++) {
-                if ($i ~ /^\[/) break;
-                if (ssid == "") ssid = $i;
-                else ssid = ssid " " $i;
-            }
-            if (ssid != "" && ssid != "SSID") print ssid;
-        }')
-        raw_ssids+=$'\n'"$device_ssids"
+        (
+            device_ssids=$(timeout 4 adb -s "$serial" shell "cmd wifi list-scan-results" 2>/dev/null | awk 'NR>1 {
+                ssid=""
+                for (i=5; i<=NF; i++) {
+                    if ($i ~ /^\[/) break;
+                    if (ssid == "") ssid = $i;
+                    else ssid = ssid " " $i;
+                }
+                if (ssid != "" && ssid != "SSID") print ssid;
+            }')
+            if [ -n "$device_ssids" ]; then
+                echo "$device_ssids" > "$tmp_scan_dir/$serial.txt"
+            fi
+        ) &
     done
+    wait
+    raw_ssids=$(cat "$tmp_scan_dir"/*.txt 2>/dev/null || true)
+    rm -rf "$tmp_scan_dir"
 
     while IFS= read -r line; do
         ssid=$(echo "$line" | xargs)
@@ -249,34 +258,34 @@ echo -e "\nConnecting devices to Wi-Fi SSID: \e[1;32m$chosen_ssid\e[0m (Password
 for serial in "${final_devices[@]}"; do
     (
         echo "[$serial] Initializing Wi-Fi switch..."
-        adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
-        adb -s "$serial" shell "settings put global captive_portal_mode 0" >/dev/null 2>&1
-        adb -s "$serial" shell "settings put global captive_portal_detection_enabled 0" >/dev/null 2>&1
+        timeout 4 adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
+        timeout 4 adb -s "$serial" shell "settings put global captive_portal_mode 0" >/dev/null 2>&1
+        timeout 4 adb -s "$serial" shell "settings put global captive_portal_detection_enabled 0" >/dev/null 2>&1
         
         # 1. Unconditionally forget all saved networks (list-networks + sweep 0-20) & suggestions
         echo "[$serial] Wiping all previously saved Wi-Fi networks..."
-        net_ids=$(adb -s "$serial" shell "cmd wifi list-networks" 2>/dev/null | awk 'NR>1 {print $1}' | sort -u | tr -d '\r')
+        net_ids=$(timeout 4 adb -s "$serial" shell "cmd wifi list-networks" 2>/dev/null | awk 'NR>1 {print $1}' | sort -u | tr -d '\r')
         for net_id in $net_ids; do
             if [[ "$net_id" =~ ^[0-9]+$ ]]; then
-                adb -s "$serial" shell "cmd wifi forget-network $net_id" >/dev/null 2>&1 || true
+                timeout 3 adb -s "$serial" shell "cmd wifi forget-network $net_id" >/dev/null 2>&1 || true
             fi
         done
         for id in $(seq 0 20); do
-            adb -s "$serial" shell "cmd wifi forget-network $id" >/dev/null 2>&1 || true
+            timeout 2 adb -s "$serial" shell "cmd wifi forget-network $id" >/dev/null 2>&1 || true
         done
-        adb -s "$serial" shell "cmd wifi remove-all-suggestions" >/dev/null 2>&1 || true
+        timeout 3 adb -s "$serial" shell "cmd wifi remove-all-suggestions" >/dev/null 2>&1 || true
         
         # 2. Force-toggle Wi-Fi OFF & ON to sever any active connection
-        adb -s "$serial" shell "cmd wifi set-wifi-enabled disabled" >/dev/null 2>&1
+        timeout 3 adb -s "$serial" shell "cmd wifi set-wifi-enabled disabled" >/dev/null 2>&1
         sleep 1
-        adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
+        timeout 3 adb -s "$serial" shell "cmd wifi set-wifi-enabled enabled" >/dev/null 2>&1
         sleep 1
 
         # 3. Check for root (optional enhancement for connect)
         has_su=false
-        has_su_cmd=$(adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
+        has_su_cmd=$(timeout 3 adb -s "$serial" shell "which su" 2>/dev/null | tr -d '\r')
         if [ -z "$has_su_cmd" ]; then
-            has_su_cmd=$(adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
+            has_su_cmd=$(timeout 3 adb -s "$serial" shell "ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null" | head -1 | tr -d '\r')
         fi
         if [ -n "$has_su_cmd" ]; then
             su_test=$(timeout 3 adb -s "$serial" shell "$has_su_cmd -c 'id'" 2>/dev/null | tr -d '\r')
@@ -287,9 +296,9 @@ for serial in "${final_devices[@]}"; do
 
         echo "[$serial] Connecting to '$chosen_ssid'..."
         if [ "$has_su" = "true" ]; then
-            adb -s "$serial" shell "$has_su_cmd -c 'cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324'" >/dev/null 2>&1
+            timeout 6 adb -s "$serial" shell "$has_su_cmd -c 'cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324'" >/dev/null 2>&1
         else
-            adb -s "$serial" shell "cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324" >/dev/null 2>&1
+            timeout 6 adb -s "$serial" shell "cmd wifi connect-network \"$chosen_ssid\" wpa2 13241324" >/dev/null 2>&1
         fi
     ) &
 done
@@ -314,7 +323,8 @@ echo -e "============================================="
 tmp_status=$(mktemp -p "$CMD_DIR")
 for serial in "${final_devices[@]}"; do
     (
-        current_status=$(adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep -E "SSID|Wifi is" | tr -d '\r\n')
+        current_status=$(timeout 4 adb -s "$serial" shell "cmd wifi status" 2>/dev/null | grep -E "SSID|Wifi is" | tr -d '\r\n')
+        if [ -z "$current_status" ]; then current_status="Device not responding (Deep Sleep/Saver?)"; fi
         echo "[$serial]: $current_status" >> "$tmp_status"
     ) &
 done
