@@ -55,14 +55,15 @@ def get_lte_interfaces():
     return sorted(interfaces)
 
 def get_public_ip(interface):
-    try:
-        output = subprocess.check_output([
-            "curl", "--interface", interface, "-s", "-m", "10", "https://api.ipify.org"
-        ], stderr=subprocess.DEVNULL).decode().strip()
-        if re.match(r'^\d+\.\d+\.\d+\.\d+$', output):
-            return output
-    except:
-        pass
+    for url in ["https://api.ipify.org", "https://icanhazip.com"]:
+        try:
+            output = subprocess.check_output([
+                "curl", "--interface", interface, "-s", "-m", "20", url
+            ], stderr=subprocess.DEVNULL).decode().strip()
+            if re.match(r'^\d+\.\d+\.\d+\.\d+$', output):
+                return output
+        except:
+            pass
     return None
 
 def run_smart_toggle(subnet):
