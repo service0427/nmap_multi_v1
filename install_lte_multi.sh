@@ -54,11 +54,17 @@ udevadm control --reload-rules 2>/dev/null || true
 
 
 # 2. Kernel Tuning
-echo -e "\033[1;33m[2/6] Optimizing kernel for identical MAC devices...\033[0m"
+echo -e "\033[1;33m[2/6] Optimizing kernel for identical MAC devices & LTE TCP socket recycling...\033[0m"
 cat <<EOF > /etc/sysctl.d/99-lte-proxy.conf
 net.ipv4.conf.all.arp_ignore=1
 net.ipv4.conf.all.arp_announce=2
 net.ipv4.conf.all.rp_filter=2
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_keepalive_time=60
+net.ipv4.tcp_keepalive_intvl=10
+net.ipv4.tcp_keepalive_probes=5
+net.ipv4.ip_local_port_range=1024 65535
 EOF
 sysctl -p /etc/sysctl.d/99-lte-proxy.conf > /dev/null
 
@@ -276,6 +282,8 @@ def main():
                 pass
             # Clean up all existing IP addresses to prevent secondary IP accumulation
             subprocess.run(["ip", "addr", "flush", "dev", new_name])
+            # Enforce MTU 1420 to eliminate packet fragmentation on LTE carrier networks
+            subprocess.run(["ip", "link", "set", "dev", new_name, "mtu", "1420"])
             if os.path.exists(DHCLIENT_BIN):
                 subprocess.run([DHCLIENT_BIN, "-v", new_name], timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
@@ -301,6 +309,22 @@ def main():
                 subprocess.run(f"iptables -t nat -C POSTROUTING -o {new_name} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o {new_name} -j MASQUERADE", shell=True)
             except Exception as e:
                 print(f"Error setting up NAT for {new_name}: {e}")
+
+            # Automatically disable Huawei modem internal SIP ALG (prevents CPU lockup & ACK loss)
+            try:
+                from huawei_lte_api.Client import Client
+                from huawei_lte_api.Connection import Connection
+                conn = Connection(f"http://{gw}/", username="admin", password="KdjLch!@7024", timeout=3)
+                cli = Client(conn)
+                if cli.security.sip().get("SipStatus") == "1":
+                    cli.security.set_sip(enabled=False, port=5060)
+                try:
+                    cli.user.logout()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
             print(f"✅ {new_name} Synced and Isolated")
 
 if __name__ == "__main__":

@@ -74,6 +74,9 @@ for iface in $MODEM_IFACES; do
         sudo ip link set "$TARGET_NAME" up
     fi
     
+    # Enforce MTU 1420 to eliminate packet fragmentation on LTE carrier networks
+    sudo ip link set "$TARGET_NAME" mtu 1420
+    
     # Apply Routing strictly to this IP
     echo "Routing: Mapping $IP to Table $TABLE_ID via $TARGET_NAME"
     sudo ip route replace default via 192.168.$SUBNET.1 dev "$TARGET_NAME" table "$TABLE_ID"

@@ -44,10 +44,20 @@ case "$1" in
         shift
         bash "$CMD_DIR/reset_penalty.sh" "$@"
         ;;
+    --lte|--lte-check)
+        shift
+        bash "$CMD_DIR/check_lte.sh" "$@"
+        ;;
     --help|-h)
         echo -e "\n============================================================"
         echo -e " 📱 Nmap Multi Control CLI (cmd.sh)"
         echo -e "============================================================"
+        echo -e "  --lte [<인터페이스>]   : LTE 모뎀 종합 진단 및 자동 최적화/치료"
+        echo -e "                            - SIP ALG 자동 비활성화 (모뎀 멈춤/ACK 누락 방지)"
+        echo -e "                            - LTE 인터페이스 MTU 1420 최적화 (패킷 손실 방지)"
+        echo -e "                            - 커널 TCP 소켓 회수 튜닝 (FIN-WAIT-1/TIME-WAIT 정리)"
+        echo -e "                            - 라우팅 테이블/규칙 점검 및 복구"
+        echo -e "                            (옵션: ./cmd.sh --lte [lte12], --check-only)"
         echo -e "  --reset [<기기ID>]     : 벌점(Penalty) 리셋 및 작업 재개"
         echo -e "                            - 전체 리셋: ./cmd.sh --reset"
         echo -e "                            - 단일 리셋: ./cmd.sh --reset <기기ID>"

@@ -259,6 +259,9 @@ class SmartToggle:
             if not interface:
                 return False
             
+            # Enforce MTU 1420 to eliminate packet fragmentation
+            subprocess.run(f"sudo ip link set dev {interface} mtu 1420", shell=True, stderr=subprocess.DEVNULL)
+
             success = True
             
             # 라우팅 테이블 추가 (자동 감지된 테이블 사용)
@@ -344,6 +347,13 @@ class SmartToggle:
                 else:
                     raise
             
+            # Disable SIP ALG to prevent CPU freeze & ACK packet loss
+            try:
+                if client.security.sip().get('SipStatus') == '1':
+                    client.security.set_sip(enabled=False, port=5060)
+            except Exception:
+                pass
+
             # 현재 네트워크 모드
             current_mode = client.net.net_mode()
             
