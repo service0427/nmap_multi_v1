@@ -40,7 +40,8 @@ SYSCTL_PARAMS = {
     "net.ipv4.tcp_keepalive_time": "60",
     "net.ipv4.tcp_keepalive_intvl": "10",
     "net.ipv4.tcp_keepalive_probes": "5",
-    "net.ipv4.ip_local_port_range": "1024 65535",
+    "net.ipv4.ip_local_port_range": "30000 65535",
+    "net.ipv4.ip_local_reserved_ports": "5000,6379,10000-11000,20000-21000",
 }
 
 # ANSI Colors
