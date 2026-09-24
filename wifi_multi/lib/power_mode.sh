@@ -63,10 +63,14 @@ set_power_mode() {
                 # 2. Disable Airplane Mode & Enable Wi-Fi for SSID Connection
                 cmd connectivity airplane-mode disable 2>/dev/null || settings put global airplane_mode_on 0 2>/dev/null
                 svc wifi enable 2>/dev/null
+                cmd wifi set-wifi-enabled enabled 2>/dev/null
 
-                # 3. Wake Screen & Dismiss Keyguard
+                # 3. Wake Screen, Exit Doze & Dismiss Keyguard
+                cmd deviceidle unforce 2>/dev/null
                 input keyevent 224 2>/dev/null
                 wm dismiss-keyguard 2>/dev/null
+                input keyevent 82 2>/dev/null
+                settings put secure lockscreen.disabled 1 2>/dev/null
                 settings put global stay_on_while_plugged_in 7 2>/dev/null
                 settings put system screen_off_timeout 2147483647 2>/dev/null
 
@@ -84,16 +88,20 @@ set_power_mode() {
                 settings put system min_refresh_rate 60.0 2>/dev/null
                 cmd uimode night yes 2>/dev/null
 
-                # 7. Maintain High-Current USB Charging
+                # 7. Maintain Fast Charging & High-Current USB
                 settings put global protect_battery 0 2>/dev/null
+                settings put system super_fast_charging 1 2>/dev/null
+                settings put system adaptive_fast_charging 1 2>/dev/null
                 su -c '
                     echo 1 > /sys/class/power_supply/battery/batt_high_current_usb
                     echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode
+                    echo 0 > /sys/class/power_supply/battery/store_mode
                 ' 2>/dev/null
 
                 # 8. Restore Location / High-Accuracy GPS
                 cmd location set-location-enabled true 2>/dev/null
                 settings put secure location_mode 3 2>/dev/null
+                settings put secure location_providers_allowed "+gps,+network" 2>/dev/null
             " >/dev/null 2>&1
             local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
             local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
