@@ -74,19 +74,52 @@ function hook_stealth() {
             // [핵심 생존 방어] WebView Sandbox (libmonochrome) Seccomp-BPF 충돌 원천 차단
             // ExoPlayer가 TTS 엔진 혹은 알림음을 위해 MediaCodec을 초기화할 때, libstagefright가 
             // WebView 샌드박스의 검열을 받아 SIGBUS를 유발합니다. 이를 막기 위해 MediaCodec 객체 생성을 Java 단에서 차단합니다.
+            // 단, WebView/Chromium(libmonochrome) 자체의 비디오 디코더(c2.qti.avc 등) 호출은 정상 통과시켜야 SIGILL 자살 트랩을 방지합니다.
             try {
                 var MediaCodec = Java.use("android.media.MediaCodec");
                 var IOException = Java.use("java.io.IOException");
+                var Thread = Java.use("java.lang.Thread");
                 
+                function isChromiumCaller() {
+                    try {
+                        var stack = Thread.currentThread().getStackTrace();
+                        for (var i = 0; i < stack.length; i++) {
+                            var cls = stack[i].getClassName();
+                            if (cls && cls.indexOf("org.chromium") !== -1) {
+                                return true;
+                            }
+                        }
+                    } catch(e) {}
+                    return false;
+                }
+
                 MediaCodec.createByCodecName.implementation = function(name) {
+                    if (name && (name.indexOf("video") !== -1 || name.indexOf("avc") !== -1 || name.indexOf("hevc") !== -1 || name.indexOf("vp") !== -1)) {
+                        return this.createByCodecName(name);
+                    }
+                    if (isChromiumCaller()) {
+                        return this.createByCodecName(name);
+                    }
                     console.log("[🛡️] Blocked MediaCodec Initialization (createByCodecName): " + name);
                     throw IOException.$new("MediaCodec disabled to prevent Seccomp-BPF SIGBUS");
                 };
                 MediaCodec.createDecoderByType.implementation = function(type) {
+                    if (type && type.startsWith("video/")) {
+                        return this.createDecoderByType(type);
+                    }
+                    if (isChromiumCaller()) {
+                        return this.createDecoderByType(type);
+                    }
                     console.log("[🛡️] Blocked MediaCodec Initialization (createDecoderByType): " + type);
                     throw IOException.$new("MediaCodec disabled to prevent Seccomp-BPF SIGBUS");
                 };
                 MediaCodec.createEncoderByType.implementation = function(type) {
+                    if (type && type.startsWith("video/")) {
+                        return this.createEncoderByType(type);
+                    }
+                    if (isChromiumCaller()) {
+                        return this.createEncoderByType(type);
+                    }
                     console.log("[🛡️] Blocked MediaCodec Initialization (createEncoderByType): " + type);
                     throw IOException.$new("MediaCodec disabled to prevent Seccomp-BPF SIGBUS");
                 };
