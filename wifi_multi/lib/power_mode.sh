@@ -15,8 +15,9 @@ set_power_mode() {
         deep_sleep|sleep|charging|max_save)
             echo "[⚡] [$serial] Applying DEEP SLEEP (Max Power Saving & Fast-Charging)..."
             timeout 10 adb -s "$serial" shell "
-                # 1. Terminate heavy foreground/background navigation apps
+                # 1. Terminate heavy foreground/background navigation apps & GPS emulator
                 am force-stop com.nhn.android.nmap 2>/dev/null
+                am force-stop com.rosteam.gpsemulator 2>/dev/null
 
                 # 2. Hardware Fast Charging & High-Current USB Charging
                 settings put global protect_battery 0 2>/dev/null
@@ -89,6 +90,10 @@ set_power_mode() {
                     echo 1 > /sys/class/power_supply/battery/batt_high_current_usb
                     echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode
                 ' 2>/dev/null
+
+                # 8. Restore Location / High-Accuracy GPS
+                cmd location set-location-enabled true 2>/dev/null
+                settings put secure location_mode 3 2>/dev/null
             " >/dev/null 2>&1
             local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
             local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
