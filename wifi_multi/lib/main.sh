@@ -445,8 +445,11 @@ adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category
 
 PID=""
 for i in {1..10}; do
-    PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap | tr -d '\r\n')
-    [ -n "$PID" ] && break
+    RAW_PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap 2>/dev/null | tr -d '\r\n')
+    if [ -n "$RAW_PID" ]; then
+        PID=$(echo "$RAW_PID" | awk '{print $1}')
+        break
+    fi
     sleep 1
 done
 [ -z "$PID" ] && cleanup "App Launch Timeout"
