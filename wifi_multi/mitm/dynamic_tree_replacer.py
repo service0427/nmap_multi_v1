@@ -84,10 +84,26 @@ class IdentityLookup:
                 return new_v, True, val, new_v
 
             # B. Compound token substring (e.g. nlog_id: 'prefix.counter.token')
-            if self.token_pair and self.token_pair[0] in val:
+            # or nested identity in strings (e.g. @ulogId, breadcrumbs, URLs in logs)
+            modified = False
+            res = val
+            first_orig, first_spoof = None, None
+
+            if self.token_pair and self.token_pair[0] in res:
                 orig_t, spoof_t = self.token_pair
-                new_v = val.replace(orig_t, spoof_t)
-                return new_v, True, orig_t, spoof_t
+                res = res.replace(orig_t, spoof_t)
+                modified = True
+                first_orig, first_spoof = orig_t, spoof_t
+
+            for orig_k, spoof_k in self.exact_map.items():
+                if len(orig_k) >= 16 and orig_k in res:
+                    res = res.replace(orig_k, spoof_k)
+                    modified = True
+                    if not first_orig:
+                        first_orig, first_spoof = orig_k, spoof_k
+
+            if modified:
+                return res, True, first_orig, first_spoof
 
         elif isinstance(val, (bytes, bytearray)):
             b = bytes(val)
