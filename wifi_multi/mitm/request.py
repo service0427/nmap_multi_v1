@@ -10,10 +10,14 @@ from .whitelist import should_process
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
 
-RE_HEX_OR_UUID = re.compile(r'^[a-fA-F0-9]{16,64}$|^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$')
+RE_HEX_OR_UUID = re.compile(
+    r'^[a-fA-F0-9]{16,64}$|'  # Hex (NI 32-char, SSAID 16-char)
+    r'^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$|'  # UUID (ADID, IDFV)
+    r'^[a-zA-Z0-9]{16}$'  # Token (16-char alphanumeric base62)
+)
 
 def is_valid_identity(val):
-    """Check if value is a valid device identity (hex string 16-64 chars or standard UUID).
+    """Check if value is a valid device identity (hex string 16-64 chars, standard UUID, or 16-char token).
     Prevents caller strings, version strings, JSON dicts, or lists from corrupting IDENTITY_MAP."""
     if not val or not isinstance(val, (str, bytes, bytearray)):
         return False
@@ -24,7 +28,7 @@ def is_valid_identity(val):
         return False
     return bool(RE_HEX_OR_UUID.match(s))
 
-def register_identity(orig_val, spoof_val):
+def register_identity(orig_val, spoof_val, force=False):
     """Register identity mapping with case variations, hyphen variations, and raw byte representations."""
     if not orig_val or not spoof_val:
         return
@@ -34,7 +38,7 @@ def register_identity(orig_val, spoof_val):
     spoof_str = spoof_val.decode('utf-8', 'ignore').strip() if isinstance(spoof_val, (bytes, bytearray)) else str(spoof_val).strip()
     if len(orig_str) <= 3 or orig_str == spoof_str:
         return
-    if not is_valid_identity(orig_str):
+    if not force and not is_valid_identity(orig_str):
         return
 
     # 1. Exact string & case variations
@@ -70,7 +74,7 @@ pairs = [
 for orig_key, spoof_key in pairs:
     o, s = os.environ.get(orig_key), os.environ.get(spoof_key)
     if o and s:
-        register_identity(o, s)
+        register_identity(o, s, force=True)
 
 # [DEBUG] Check Identity Map
 print(f"[*] IDENTITY_MAP Loaded: {len(IDENTITY_MAP)} entries, {len(IDENTITY_MAP_BYTES)} byte entries", flush=True)
@@ -410,6 +414,17 @@ def handle_request(addon, flow: http.HTTPFlow):
                             elif target_val:
                                 # Ensure missing keys exist so monitor.sh verification passes
                                 body_json["usr"][k] = target_val
+
+                    # Dynamic token registration from evts nlog_id
+                    target_token = os.environ.get("NMAP_ID_TOKEN")
+                    if target_token and "evts" in body_json and isinstance(body_json["evts"], list):
+                        for e in body_json["evts"]:
+                            if isinstance(e, dict) and "nlog_id" in e and isinstance(e["nlog_id"], str):
+                                nid = e["nlog_id"]
+                                if "." in nid:
+                                    old_tok = nid.rsplit(".", 1)[-1]
+                                    if len(old_tok) == 16 and old_tok != target_token and is_valid_identity(old_tok):
+                                        register_identity(old_tok, target_token)
 
                     body_json = smart_cleanse(body_json)
                     wash_network_env(body_json)
