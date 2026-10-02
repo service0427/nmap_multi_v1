@@ -307,15 +307,18 @@ def handle_request(addon, flow: http.HTTPFlow):
                 if not target_val:
                     continue
                 pattern = rf'([?&]{re.escape(q_param)}=)([^&]+)'
-                m = re.search(pattern, flow.request.url)
-                if m:
+                while True:
+                    m = re.search(pattern, flow.request.url)
+                    if not m:
+                        break
                     old_q_val = m.group(2)
-                    if old_q_val != target_val:
-                        if is_valid_identity(old_q_val) and old_q_val not in IDENTITY_MAP:
-                            register_identity(old_q_val, target_val)
-                            print(f"[*] Dynamically registered {id_type.upper()} from query {q_param}: {old_q_val[:6]}... -> {target_val[:6]}...", flush=True)
-                        AUDIT_LOGGER.record(flow.request.url, r["name"], "query_param", q_param, old_q_val, target_val)
-                        flow.request.url = flow.request.url[:m.start(2)] + target_val + flow.request.url[m.end(2):]
+                    if old_q_val == target_val:
+                        break
+                    if is_valid_identity(old_q_val) and old_q_val not in IDENTITY_MAP:
+                        register_identity(old_q_val, target_val)
+                        print(f"[*] Dynamically registered {id_type.upper()} from query {q_param}: {old_q_val[:6]}... -> {target_val[:6]}...", flush=True)
+                    AUDIT_LOGGER.record(flow.request.url, r["name"], "query_param", q_param, old_q_val, target_val)
+                    flow.request.url = flow.request.url[:m.start(2)] + target_val + flow.request.url[m.end(2):]
 
         # C. For remaining non-protected headers, apply smart_cleanse
         for k in list(flow.request.headers.keys()):
@@ -325,6 +328,24 @@ def handle_request(addon, flow: http.HTTPFlow):
             new_val = smart_cleanse(old_val, flow.request.url)
             if old_val != new_val:
                 flow.request.headers[k] = new_val
+
+        # D. Cleanse remaining URL query parameters using IDENTITY_MAP for non-protected parameters
+        if "?" in flow.request.url:
+            base_part, query_part = flow.request.url.split("?", 1)
+            q_items = query_part.split("&")
+            modified_q = False
+            new_q_items = []
+            for item in q_items:
+                if "=" in item:
+                    qk, qv = item.split("=", 1)
+                    if qk.lower() not in all_protected_query:
+                        new_qv = smart_cleanse(qv, flow.request.url)
+                        if new_qv != qv:
+                            modified_q = True
+                            item = f"{qk}={new_qv}"
+                new_q_items.append(item)
+            if modified_q:
+                flow.request.url = f"{base_part}?{'&'.join(new_q_items)}"
     except Exception as e:
         print(f"[-] Error in header/URL washing: {e}", flush=True)
 

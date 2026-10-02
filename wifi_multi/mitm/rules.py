@@ -173,7 +173,26 @@ ENDPOINT_RULES = [
         }
     },
 
-    # 6. Fallback Common Headers & Cookies (applied across all matched Naver domains)
+    # 6. Clova Auth
+    {
+        "name": "clova_auth",
+        "url_pattern": re.compile(r"/auth\.(clova\.ai|naver\.com)|/(authorize|token)\b", re.IGNORECASE),
+        "query_params": {
+            "device_id": "ni"
+        }
+    },
+
+    # 7. GFP / Ad SDK
+    {
+        "name": "veta_gfp_ads",
+        "url_pattern": re.compile(r"/(gfp|adDebugger)/v1", re.IGNORECASE),
+        "query_params": {
+            "ai": "adid",
+            "iv": "idfv"
+        }
+    },
+
+    # 8. Fallback Common Headers, Query Params & Cookies (applied across all matched Naver domains)
     {
         "name": "common_headers_and_cookies",
         "url_pattern": re.compile(r".*", re.IGNORECASE),
@@ -183,6 +202,11 @@ ENDPOINT_RULES = [
             "x-adid": "adid",
             "da-dd": "adid",
             "da-dv": "idfv"
+        },
+        "query_params": {
+            "device_id": "ni",
+            "ai": "adid",
+            "iv": "idfv"
         },
         "cookie_keys": {
             "NAPP_DI": "ni"
