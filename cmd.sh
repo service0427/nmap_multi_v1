@@ -48,6 +48,10 @@ case "$1" in
         shift
         bash "$CMD_DIR/check_lte.sh" "$@"
         ;;
+    --lte-reset|--reset-lte)
+        shift
+        python3 "$CMD_DIR/reset_lte.py" "$@"
+        ;;
     --help|-h)
         echo -e "\n============================================================"
         echo -e " 📱 Nmap Multi Control CLI (cmd.sh)"
@@ -58,6 +62,11 @@ case "$1" in
         echo -e "                            - 커널 TCP 소켓 회수 튜닝 (FIN-WAIT-1/TIME-WAIT 정리)"
         echo -e "                            - 라우팅 테이블/규칙 점검 및 복구"
         echo -e "                            (옵션: ./cmd.sh --lte [lte11|11], --reboot [lte11], --check-only)"
+        echo -e "  --lte-reset [<인터페이스>|all] : LTE 모뎀 실시간 USB 포트 감지 및 unbind/bind/재부팅"
+        echo -e "                            - 실시간 USB 포트 매핑 확인: ./cmd.sh --lte-reset --list"
+        echo -e "                            - 단일 기기 하드웨어 리셋: ./cmd.sh --lte-reset 11"
+        echo -e "                            - 전체 기기 하드웨어 리셋: ./cmd.sh --lte-reset all"
+        echo -e "                            - 화웨이 Hilink API 재부팅: ./cmd.sh --lte-reset --mode api 11"
         echo -e "  --reset [<기기ID>]     : 벌점(Penalty) 리셋 및 작업 재개"
         echo -e "                            - 전체 리셋: ./cmd.sh --reset"
         echo -e "                            - 단일 리셋: ./cmd.sh --reset <기기ID>"

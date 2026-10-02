@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import re
 import subprocess
 import time
@@ -270,5 +271,159 @@ def main():
     else:
         print("[*] All interfaces are named correctly and routing is valid.")
 
+def get_realtime_usb_port(iface):
+    """
+    Dynamically discovers the physical USB device node (e.g. 3-4.3, 1-1.2)
+    by traversing up sysfs from /sys/class/net/{iface}/device.
+    Works dynamically across any server hardware or USB hub topology.
+    """
+    net_dev = f"/sys/class/net/{iface}/device"
+    if not os.path.exists(net_dev):
+        return None
+    try:
+        real_path = os.path.realpath(net_dev)
+        cur = real_path
+        while cur and cur != "/":
+            base = os.path.basename(cur)
+            if os.path.exists(f"/sys/bus/usb/devices/{base}/idVendor"):
+                return base
+            cur = os.path.dirname(cur)
+    except Exception:
+        pass
+    return None
+
+def list_lte_usb_ports():
+    """Prints detected LTE interfaces and dynamic USB port mapping."""
+    print("\n" + "="*65)
+    print(" 📡 LTE Modems & Real-Time Dynamic USB Port Mapping")
+    print("="*65)
+    print(f"{'INTERFACE':<12} | {'SUBNET':<8} | {'USB PORT':<12} | {'GATEWAY':<16}")
+    print("-" * 65)
+    
+    found = 0
+    for iface in sorted(os.listdir('/sys/class/net')):
+        if iface.startswith("lte") or iface.startswith("enx") or iface.startswith("usb"):
+            usb_p = get_realtime_usb_port(iface)
+            if usb_p:
+                gw = get_gateway_ip(iface) or "N/A"
+                subnet = gw.split(".")[2] if "." in gw else (iface.replace("lte", "") if iface.startswith("lte") else "N/A")
+                print(f"{iface:<12} | {subnet:<8} | {usb_p:<12} | {gw:<16}")
+                found += 1
+                
+    if found == 0:
+        print("[!] No LTE USB modems detected.")
+    print("="*65 + "\n")
+
+def reset_modem_usb(targets):
+    """
+    Performs real-time hardware USB unbind/bind power-cycle on target LTE modems (lte11~lte20).
+    """
+    unbind_file = "/sys/bus/usb/drivers/usb/unbind"
+    bind_file = "/sys/bus/usb/drivers/usb/bind"
+    
+    # 1. Discover all active LTE interfaces
+    discovered = []
+    for iface in sorted(os.listdir('/sys/class/net')):
+        if iface == PRIMARY_IFACE or iface in ["lo", "tailscale0"]:
+            continue
+        if iface.startswith("lte") or iface.startswith("enx") or iface.startswith("usb"):
+            usb_p = get_realtime_usb_port(iface)
+            if usb_p:
+                gw = get_gateway_ip(iface) or ""
+                subnet = gw.split(".")[2] if "." in gw else (iface.replace("lte", "") if iface.startswith("lte") else "")
+                discovered.append({
+                    "iface": iface,
+                    "subnet": subnet,
+                    "usb_port": usb_p
+                })
+                
+    if not discovered:
+        print("[!] No LTE USB modem devices discovered via sysfs.")
+        return False
+
+    # 2. Filter targets
+    to_reset = []
+    if not targets or "all" in targets:
+        to_reset = discovered
+    else:
+        norm_targets = set()
+        for t in targets:
+            norm_targets.add(t.lower())
+            if t.isdigit():
+                norm_targets.add(f"lte{t}")
+            elif t.lower().startswith("lte"):
+                norm_targets.add(t.lower().replace("lte", ""))
+                
+        for d in discovered:
+            if d["iface"].lower() in norm_targets or d["subnet"] in norm_targets:
+                to_reset.append(d)
+
+    if not to_reset:
+        print(f"[!] No matching LTE interfaces found for targets: {targets}")
+        list_lte_usb_ports()
+        return False
+
+    print("\n" + "="*65)
+    print(f" 🔄 Real-Time USB Hardware Unbind/Bind Reset (Targeting {len(to_reset)} modem(s))")
+    print("="*65)
+
+    for d in to_reset:
+        iface = d["iface"]
+        usb_p = d["usb_port"]
+        print(f"[*] Targeting {iface} (Subnet: {d['subnet'] or 'N/A'}) -> Real-Time USB Port: {usb_p}")
+        
+        # Unbind
+        print(f"    [-] Sending UNBIND to /sys/bus/usb/drivers/usb/unbind ({usb_p})...")
+        res_un = subprocess.run(["sudo", "tee", unbind_file], input=usb_p.encode(),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res_un.returncode != 0:
+            print(f"    [!] Unbind error: {res_un.stderr.decode().strip()}")
+        
+        time.sleep(3)
+        
+        # Bind
+        print(f"    [+] Sending BIND to /sys/bus/usb/drivers/usb/bind ({usb_p})...")
+        res_bi = subprocess.run(["sudo", "tee", bind_file], input=usb_p.encode(),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res_bi.returncode != 0:
+            print(f"    [!] Bind error: {res_bi.stderr.decode().strip()}")
+        else:
+            print(f"    [✔] Hardware USB power-cycle completed on port {usb_p}.")
+
+    print("\n[*] Waiting 6 seconds for USB devices to re-enumerate in kernel before repairing network...")
+    time.sleep(6)
+    return True
+
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    
+    if "--help" in args or "-h" in args:
+        print("\nUsage: fix_eth_number.sh [OPTIONS] [TARGETS...]")
+        print("Checks and repairs LTE network interface names (lte11~lte20) and policy routing.")
+        print("\nOptions:")
+        print("  (no arguments)       Run normal interface naming & routing inspection and repair")
+        print("  --list, -l           List detected LTE interfaces and dynamic USB ports")
+        print("  --reset, -r [TARGET] Real-time USB unbind/bind hardware reset, followed by route repair")
+        print("                       (TARGET: e.g. 11, lte12, '11 12', all)")
+        print("\nExamples:")
+        print("  sudo ./fix_eth_number.sh                 # Normal check & fix")
+        print("  sudo ./fix_eth_number.sh --list          # View real-time USB port mapping")
+        print("  sudo ./fix_eth_number.sh --reset 11      # Reset lte11 USB port & fix")
+        print("  sudo ./fix_eth_number.sh --reset all     # Reset all LTE modems & fix\n")
+        sys.exit(0)
+
+    if "--list" in args or "-l" in args:
+        list_lte_usb_ports()
+        sys.exit(0)
+
+    if "--reset" in args or "-r" in args or "--unbind" in args or "--unbind-bind" in args:
+        # Extract targets after --reset
+        reset_flags = {"--reset", "-r", "--unbind", "--unbind-bind"}
+        targets = [a for a in args if a not in reset_flags]
+        reset_modem_usb(targets)
+        # Proceed with normal repair loop
+        main()
+        sys.exit(0)
+
     main()
+
