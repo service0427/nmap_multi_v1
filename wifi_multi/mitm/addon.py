@@ -188,10 +188,13 @@ class ProxyV2ClassicLog:
             raw_body_dict = None
             method = flow.request.method
             try:
-                from mitm.request import smart_cleanse
-                flow.request.url = smart_cleanse(flow.request.url)
-                for k in list(flow.request.headers.keys()):
-                    flow.request.headers[k] = smart_cleanse(flow.request.headers[k])
+                from mitm.request import get_target_identities, SESSION_LEARNED_IDENTITIES
+                from mitm.dynamic_tree_replacer import IdentityLookup, dynamic_replace_headers, dynamic_walk_and_replace
+                target_ids = get_target_identities()
+                lookup = IdentityLookup(target_ids)
+                for orig_v, spoof_v in SESSION_LEARNED_IDENTITIES.items():
+                    lookup.register(orig_v, spoof_v)
+                dynamic_replace_headers(flow.request.headers, lookup, flow.request.url)
                 if flow.request.content:
                     raw = flow.request.content
                     is_gz = raw.startswith(b'\x1f\x8b')
@@ -204,14 +207,15 @@ class ProxyV2ClassicLog:
                         raw_body_dict = body_json
                         if isinstance(body_json, dict) and "message" in body_json:
                             err_msg_to_save = body_json["message"]
-                        body_json = smart_cleanse(body_json)
+                        dynamic_walk_and_replace(body_json, lookup)
                         work = json.dumps(body_json).encode('utf-8')
                         if is_gz:
                             import gzip
                             work = gzip.compress(work)
                         flow.request.content = work
                     except:
-                        flow.request.content = smart_cleanse(flow.request.content)
+                        cleansed_raw, _, _, _ = lookup.replace_value(flow.request.content)
+                        flow.request.content = cleansed_raw
             except Exception as e:
                 print(f" [!] Error cleansing errorLog request: {e}")
 

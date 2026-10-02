@@ -58,12 +58,12 @@ def main():
     # 2. Scan packets for counts
     actual_replacements = {}
     
-    # Target files to audit (ignore local log/debug files)
-    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log", "modifications.json"}
+    # Target files to audit (ignore local log/debug files and internally blocked mocks)
+    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log", "modifications.json", "filtered_urls.jsonl", "blocked_errors.json"}
     target_files = []
     for root, _, files in os.walk(log_dir):
         for f in files:
-            if f not in ignore_files and (f.endswith(".json") or f.endswith(".jsonl") or f.endswith(".log")):
+            if f not in ignore_files and "errorLog" not in f and (f.endswith(".json") or f.endswith(".jsonl") or f.endswith(".log")):
                 target_files.append(os.path.join(root, f))
                 
     # Read target content
