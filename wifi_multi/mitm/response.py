@@ -64,10 +64,16 @@ def handle_response(addon, flow: http.HTTPFlow):
         if not c: return ""
         ct_l = ct.lower()
         
+        work_str = None
+        try:
+            work_str = c.decode('utf-8')
+        except Exception:
+            pass
+
         # JSON (Check for nested base64 for logs)
-        if "json" in ct_l or "nlog" in p or "nlog.naver.com" in host.lower():
+        if "json" in ct_l or "nlog" in p or "nlog.naver.com" in host.lower() or (work_str and (work_str.strip().startswith('{') or work_str.strip().startswith('['))):
             try: 
-                bj = json.loads(c.decode('utf-8'))
+                bj = json.loads(work_str if work_str else c.decode('utf-8'))
                 
                 # drive_v3_driving 경로는 파일이 너무 크기 때문에 response nested base64 디코딩 생략
                 if is_response and ("driving" in p or "drive_v3_driving" in cp):
@@ -111,9 +117,15 @@ def handle_response(addon, flow: http.HTTPFlow):
     req_bytes = flow.request.content or b""
     is_req_gz = req_bytes.startswith(b'\x1f\x8b') or "gzip" in ce_req
 
+    parsed = None
+    if not tj_mod:
+        parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
+
+    is_parsed_json = (isinstance(parsed, (dict, list)) and "_raw" not in parsed)
+
     if is_req_gz:
         req_encoding = "gzip"
-    elif "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod):
+    elif "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod) or is_parsed_json:
         req_encoding = "json"
     elif "protobuf" in ct_req or "octet-stream" in ct_req or b"\x00" in req_bytes:
         req_encoding = "protobuf"
@@ -131,7 +143,6 @@ def handle_response(addon, flow: http.HTTPFlow):
             "_decoded": tj_mod
         }
     else:
-        parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
         if isinstance(parsed, dict) and ("_raw" in parsed or "_decoded" in parsed):
             req_body = parsed
             if "_encoding" not in req_body:

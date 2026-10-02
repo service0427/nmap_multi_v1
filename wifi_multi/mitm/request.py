@@ -244,11 +244,33 @@ def handle_request(addon, flow: http.HTTPFlow):
         
         try:
             ct = flow.request.headers.get("Content-Type", "").lower()
-            if "json" in ct:
-                orig_audit["_decoded"] = json.loads(work_raw.decode('utf-8', 'ignore'))
-            elif HAS_BLACKBOX:
-                dec, _ = blackboxprotobuf.decode_message(work_raw)
-                orig_audit["_decoded"] = to_jsonable(dec)
+            work_str = None
+            try:
+                work_str = work_raw.decode('utf-8')
+            except Exception:
+                pass
+
+            # 1. Try JSON if content-type has json or text begins with { or [
+            if "json" in ct or (work_str and (work_str.strip().startswith('{') or work_str.strip().startswith('['))):
+                try:
+                    orig_audit["_decoded"] = json.loads(work_str if work_str else work_raw.decode('utf-8', 'ignore'))
+                    if orig_audit["_encoding"] == "raw":
+                        orig_audit["_encoding"] = "json"
+                except Exception:
+                    pass
+
+            # 2. Try Protobuf if not already decoded and looks like protobuf/binary
+            if orig_audit["_decoded"] is None and HAS_BLACKBOX and ("protobuf" in ct or "octet-stream" in ct or b"\x00" in work_raw):
+                try:
+                    dec, _ = blackboxprotobuf.decode_message(work_raw)
+                    orig_audit["_decoded"] = to_jsonable(dec)
+                    orig_audit["_encoding"] = "protobuf"
+                except Exception:
+                    pass
+
+            # 3. Fallback to readable string if UTF-8
+            if orig_audit["_decoded"] is None and work_str:
+                orig_audit["_decoded"] = work_str
         except Exception:
             pass
         
