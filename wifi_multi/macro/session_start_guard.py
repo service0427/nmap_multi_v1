@@ -230,7 +230,7 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
         synth_fn = f"{next_idx:03d}_POST_nlogapp.json"
         synth_path = os.path.join(log_dir, synth_fn)
         
-        synth_raw = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        synth_raw = json.dumps(payload, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
         full_packet = {
             "index": next_idx,
             "timestamp": datetime.datetime.now().isoformat(),

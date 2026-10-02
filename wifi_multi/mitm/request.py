@@ -466,7 +466,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                     wash_network_env(body_json)
                     
                     flow.request.modified_decoded = body_json
-                    work = json.dumps(body_json, ensure_ascii=False).encode('utf-8')
+                    work = json.dumps(body_json, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
                     flow.request.content = bytes(gzip.compress(work) if is_gz else work)
                     json_handled = True
 
