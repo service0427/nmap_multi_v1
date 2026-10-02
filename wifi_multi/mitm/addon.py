@@ -67,6 +67,11 @@ class ProxyV2ClassicLog:
                     if "packets" not in current:
                         current["packets"] = []
                     current["packets"].append(data["packet"])
+                elif "blocked_error" in data:
+                    if "blocked_errors" not in current:
+                        current["blocked_errors"] = []
+                    current["blocked_errors"].append(data["blocked_error"])
+                    current["blocked_error_count"] = len(current["blocked_errors"])
                 else:
                     current.update(data)
                 
@@ -74,6 +79,90 @@ class ProxyV2ClassicLog:
                     json.dump(current, f, ensure_ascii=False, indent=2)
             except Exception as e:
                 print(f" [!] Error updating summary: {e}")
+
+    def _record_blocked_error(self, method, url, raw_body_dict, err_msg_str):
+        """Record blocked errorLog into session's blocked_errors.json, summary, and events.log."""
+        try:
+            now_dt = datetime.datetime.now()
+            ts_time = now_dt.strftime("%H:%M:%S.%f")[:-3]
+
+            code = "unknown"
+            name = "unknown"
+            desc = ""
+            ver = ""
+            parsed_detail = err_msg_str
+
+            if isinstance(raw_body_dict, dict):
+                msg_val = raw_body_dict.get("message")
+                if isinstance(msg_val, str):
+                    try:
+                        msg_json = json.loads(msg_val)
+                        ver = msg_json.get("version", "")
+                        err_obj = msg_json.get("error", {})
+                        code = err_obj.get("code", "unknown")
+                        name = err_obj.get("name", "unknown")
+                        desc = err_obj.get("message", "")
+                        parsed_detail = msg_json
+                    except Exception:
+                        desc = msg_val
+                elif isinstance(msg_val, dict):
+                    if "cipherText" in msg_val:
+                        code = "encrypted"
+                        name = "CIPHER_TEXT"
+                        desc = "Encrypted client error payload"
+                        parsed_detail = msg_val
+                    else:
+                        parsed_detail = msg_val
+            elif isinstance(err_msg_str, str):
+                desc = err_msg_str
+
+            entry = {
+                "timestamp": ts_time,
+                "method": method,
+                "url": url.split('?')[0] if '?' in url else url,
+                "action": "BLOCKED_MOCK_200",
+                "sent_to_naver": False,
+                "error_code": code,
+                "error_name": name,
+                "error_message": desc,
+                "version": ver,
+                "detail": parsed_detail
+            }
+
+            # 1. Append to blocked_errors.json in session directory
+            blocked_file = os.path.join(self.base_log_dir, "blocked_errors.json")
+            with self.lock:
+                current_blocked = []
+                if os.path.exists(blocked_file):
+                    try:
+                        with open(blocked_file, "r", encoding="utf-8") as bf:
+                            current_blocked = json.load(bf)
+                    except Exception:
+                        current_blocked = []
+                current_blocked.append(entry)
+                with open(blocked_file, "w", encoding="utf-8") as bf:
+                    json.dump(current_blocked, bf, ensure_ascii=False, indent=2)
+
+            # 2. Update session_summary.json
+            self.update_summary({
+                "blocked_error": {
+                    "time": ts_time,
+                    "method": method,
+                    "code": code,
+                    "name": name,
+                    "action": "BLOCKED_MOCK_200"
+                }
+            })
+
+            # 3. Append to events.log in session directory
+            events_log = os.path.join(self.base_log_dir, "events.log")
+            try:
+                with open(events_log, "a", encoding="utf-8") as ef:
+                    ef.write(f"[ERROR_BLOCKED] {method} {code} ({name}) - Mocked HTTP 200\n")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f" [!] Error recording blocked error: {e}", flush=True)
 
     def try_pbf_decode(self, raw_bytes):
         """Helper to decode protobuf for logging"""
@@ -96,6 +185,8 @@ class ProxyV2ClassicLog:
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)
         if os.environ.get("ERRORLOG_FILTER", "true").lower() == "true" and "client-logger/errorLog" in flow.request.url:
             err_msg_to_save = "Unknown Error"
+            raw_body_dict = None
+            method = flow.request.method
             try:
                 from mitm.request import smart_cleanse
                 flow.request.url = smart_cleanse(flow.request.url)
@@ -110,6 +201,7 @@ class ProxyV2ClassicLog:
                     try:
                         import json
                         body_json = json.loads(raw.decode('utf-8', 'ignore'))
+                        raw_body_dict = body_json
                         if isinstance(body_json, dict) and "message" in body_json:
                             err_msg_to_save = body_json["message"]
                         body_json = smart_cleanse(body_json)
@@ -123,13 +215,17 @@ class ProxyV2ClassicLog:
             except Exception as e:
                 print(f" [!] Error cleansing errorLog request: {e}")
 
-            # Write a local session marker file for monitor.sh to fail-fast immediately
-            try:
-                marker_path = os.path.join(self.base_log_dir, "errorLog_detected")
-                with open(marker_path, "w", encoding="utf-8") as f_marker:
-                    f_marker.write(err_msg_to_save)
-            except Exception as e:
-                print(f" [!] Error writing local errorLog marker: {e}")
+            # Record to session's blocked_errors.json, session_summary.json, and events.log
+            self._record_blocked_error(method, flow.request.url, raw_body_dict, err_msg_to_save)
+
+            # Write a local session marker file for monitor.sh to fail-fast immediately (do not overwrite with OPTIONS)
+            marker_path = os.path.join(self.base_log_dir, "errorLog_detected")
+            if method != "OPTIONS" or not os.path.exists(marker_path):
+                try:
+                    with open(marker_path, "w", encoding="utf-8") as f_marker:
+                        f_marker.write(str(err_msg_to_save))
+                except Exception as e:
+                    print(f" [!] Error writing local errorLog marker: {e}")
 
             origin = flow.request.headers.get("Origin", "*")
             headers = {
@@ -144,7 +240,7 @@ class ProxyV2ClassicLog:
                 b"",
                 headers
             )
-            print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id})!")
+            print(f" [🛡️ MITM BLOCK] Successfully blocked errorLog from reaching Naver (Device: {self.device_id}, Method: {method})!")
             self._write_stealth_log("errorLog Blocked", f"Intercepted, cleansed and blocked errorLog POST/OPTIONS request entirely. Msg: {err_msg_to_save}")
             return
 
