@@ -6,12 +6,12 @@ import base64
 import re
 from mitmproxy import http
 from .whitelist import should_process
-from .rules import AUDIT_LOGGER, find_matching_rules, is_valid_identity, get_target_identities
+from .rules import AUDIT_LOGGER, find_matching_rules, get_target_identities
 
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
 
-def register_identity(orig_val, spoof_val, force=False):
+def register_identity(orig_val, spoof_val):
     """Register identity mapping with case variations, hyphen variations, and raw byte representations."""
     if not orig_val or not spoof_val:
         return
@@ -20,8 +20,6 @@ def register_identity(orig_val, spoof_val, force=False):
     orig_str = orig_val.decode('utf-8', 'ignore').strip() if isinstance(orig_val, (bytes, bytearray)) else str(orig_val).strip()
     spoof_str = spoof_val.decode('utf-8', 'ignore').strip() if isinstance(spoof_val, (bytes, bytearray)) else str(spoof_val).strip()
     if len(orig_str) <= 3 or orig_str == spoof_str:
-        return
-    if not force and not is_valid_identity(orig_str):
         return
 
     # 1. Exact string & case variations
@@ -57,7 +55,7 @@ pairs = [
 for orig_key, spoof_key in pairs:
     o, s = os.environ.get(orig_key), os.environ.get(spoof_key)
     if o and s:
-        register_identity(o, s, force=True)
+        register_identity(o, s)
 
 # [DEBUG] Check Identity Map
 print(f"[*] IDENTITY_MAP Loaded: {len(IDENTITY_MAP)} entries, {len(IDENTITY_MAP_BYTES)} byte entries", flush=True)
@@ -274,9 +272,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                         if target_val:
                             val = flow.request.headers[real_h_key]
                             if val != target_val:
-                                if is_valid_identity(val) and val not in IDENTITY_MAP:
-                                    register_identity(val, target_val)
-                                    print(f"[*] Dynamically registered {id_type.upper()} from header {real_h_key}: {val[:6]}... -> {target_val[:6]}...", flush=True)
                                 AUDIT_LOGGER.record(flow.request.url, r["name"], "header", real_h_key, val, target_val)
                                 flow.request.headers[real_h_key] = target_val
 
@@ -291,8 +286,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                         if m:
                             old_c_val = m.group(1)
                             if old_c_val != target_val:
-                                if is_valid_identity(old_c_val) and old_c_val not in IDENTITY_MAP:
-                                    register_identity(old_c_val, target_val)
                                 AUDIT_LOGGER.record(flow.request.url, r["name"], "cookie", c_key, old_c_val, target_val)
                                 cookie_val = cookie_val.replace(f"{c_key}={old_c_val}", f"{c_key}={target_val}")
                                 flow.request.headers["cookie"] = cookie_val
@@ -314,9 +307,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                     old_q_val = m.group(2)
                     if old_q_val == target_val:
                         break
-                    if is_valid_identity(old_q_val) and old_q_val not in IDENTITY_MAP:
-                        register_identity(old_q_val, target_val)
-                        print(f"[*] Dynamically registered {id_type.upper()} from query {q_param}: {old_q_val[:6]}... -> {target_val[:6]}...", flush=True)
                     AUDIT_LOGGER.record(flow.request.url, r["name"], "query_param", q_param, old_q_val, target_val)
                     flow.request.url = flow.request.url[:m.start(2)] + target_val + flow.request.url[m.end(2):]
 
@@ -383,11 +373,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                                     f1 = dec["1"]["1"]
                                     if isinstance(f1, (bytes, bytearray, str)):
                                         f1_str = f1.decode('utf-8', 'ignore') if isinstance(f1, (bytes, bytearray)) else f1
-                                        if is_valid_identity(f1_str) and target_ni:
-                                            if f1_str != target_ni:
-                                                if f1_str not in IDENTITY_MAP:
-                                                    register_identity(f1_str, target_ni)
-                                                print(f"[*] Dynamically registered NI from Protobuf 1.1: {f1_str[:6]}... -> {target_ni[:6]}...", flush=True)
+                                        if target_ni and f1_str != target_ni:
                                             AUDIT_LOGGER.record(flow.request.url, "trafficjam_location", "protobuf", "1.1 (device_id)", f1_str, target_ni)
                                             dec["1"]["1"] = target_ni.encode('utf-8') if isinstance(f1, (bytes, bytearray)) else target_ni
 
@@ -396,11 +382,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                                     f3 = dec["1"]["3"]
                                     if isinstance(f3, (bytes, bytearray, str)):
                                         f3_str = f3.decode('utf-8', 'ignore') if isinstance(f3, (bytes, bytearray)) else f3
-                                        if is_valid_identity(f3_str) and target_ni:
-                                            if f3_str != target_ni:
-                                                if f3_str not in IDENTITY_MAP:
-                                                    register_identity(f3_str, target_ni)
-                                                print(f"[*] Dynamically registered NI from Protobuf 1.3: {f3_str[:6]}... -> {target_ni[:6]}...", flush=True)
+                                        if target_ni and f3_str != target_ni:
                                             AUDIT_LOGGER.record(flow.request.url, "receiver_log", "protobuf", "1.3 (device_id)", f3_str, target_ni)
                                             dec["1"]["3"] = target_ni.encode('utf-8') if isinstance(f3, (bytes, bytearray)) else target_ni
 
@@ -437,35 +419,33 @@ def handle_request(addon, flow: http.HTTPFlow):
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
                     rule_name = "nlogapp" if "nlog" in path_lower else "json_body"
                     
-                    # Dynamic identity registration from usr dict & missing-key enforcement
+                    # 1:1 identity replacement from usr dict & missing-key enforcement
                     if "usr" in body_json and isinstance(body_json["usr"], dict):
                         for k, target_val in [("adid", target_adid), ("ssaid", target_ssaid), ("idfv", target_idfv), ("ni", target_ni)]:
                             cur_val = body_json["usr"].get(k)
                             if cur_val and target_val:
                                 if cur_val != target_val:
-                                    if is_valid_identity(cur_val) and cur_val not in IDENTITY_MAP:
-                                        register_identity(cur_val, target_val)
-                                        print(f"[*] Dynamically registered identity: {k} {cur_val[:6]}... -> {target_val[:6]}...", flush=True)
                                     AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", cur_val, target_val)
                                 body_json["usr"][k] = target_val
                             elif target_val:
                                 AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", "<missing>", target_val)
                                 body_json["usr"][k] = target_val
 
-                    # Dynamic token registration from evts nlog_id and explicit token rewriting
+                    # Exact 1:1 token replacement in evts nlog_id
+                    orig_token = target_ids.get("orig_token")
                     if target_token and "evts" in body_json and isinstance(body_json["evts"], list):
                         for e in body_json["evts"]:
                             if isinstance(e, dict) and "nlog_id" in e and isinstance(e["nlog_id"], str):
                                 nid = e["nlog_id"]
-                                if "." in nid:
+                                if orig_token and orig_token in nid:
+                                    new_nid = nid.replace(orig_token, target_token)
+                                    AUDIT_LOGGER.record(flow.request.url, rule_name, "json_evt", "evts[].nlog_id", orig_token, target_token)
+                                    e["nlog_id"] = new_nid
+                                elif "." in nid:
                                     parts = nid.rsplit(".", 1)
-                                    old_tok = parts[-1]
-                                    if len(old_tok) == 16 and old_tok != target_token:
-                                        if is_valid_identity(old_tok) and old_tok not in IDENTITY_MAP:
-                                            register_identity(old_tok, target_token)
-                                            print(f"[*] Dynamically registered token: {old_tok[:6]}... -> {target_token[:6]}...", flush=True)
+                                    if len(parts[-1]) >= 8 and parts[-1] != target_token:
                                         new_nid = f"{parts[0]}.{target_token}"
-                                        AUDIT_LOGGER.record(flow.request.url, rule_name, "json_evt", "evts[].nlog_id", old_tok, target_token)
+                                        AUDIT_LOGGER.record(flow.request.url, rule_name, "json_evt", "evts[].nlog_id", parts[-1], target_token)
                                         e["nlog_id"] = new_nid
 
                     body_json = smart_cleanse(body_json, flow.request.url)

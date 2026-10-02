@@ -11,25 +11,6 @@ import json
 import datetime
 import threading
 
-# Identity validation regex
-# Accepts 16-64 char hex (NI, SSAID), standard UUID (ADID, IDFV), or 16-char alphanumeric base62 (TOKEN)
-RE_VALID_IDENTITY = re.compile(
-    r'^[a-fA-F0-9]{16,64}$|'
-    r'^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$|'
-    r'^[a-zA-Z0-9]{16}$'
-)
-
-def is_valid_identity(val):
-    """Checks if a string is a valid device identity credential.
-    Strictly filters out caller strings, versions, system models, and JSON/array syntax."""
-    if not val or not isinstance(val, (str, bytes, bytearray)):
-        return False
-    s = val.decode('utf-8', 'ignore').strip() if isinstance(val, (bytes, bytearray)) else str(val).strip()
-    if len(s) < 16 or len(s) > 64:
-        return False
-    if s.startswith(('{', '[', '"', "'", 'mapmobileapps_', 'android_', 'http', 'v1-', 'SM-')):
-        return False
-    return bool(RE_VALID_IDENTITY.match(s))
 
 class ModificationAuditLogger:
     """Thread-safe logger recording all packet modifications per session into modifications.json."""
@@ -86,13 +67,18 @@ class ModificationAuditLogger:
 AUDIT_LOGGER = ModificationAuditLogger()
 
 def get_target_identities():
-    """Returns the target identity credentials configured for the current session."""
+    """Returns the target and original identity credentials configured for the current session."""
     return {
         "ni": os.environ.get("NMAP_ID_NI"),
         "adid": os.environ.get("NMAP_ID_ADID"),
         "idfv": os.environ.get("NMAP_ID_IDFV"),
         "ssaid": os.environ.get("NMAP_ID_SSAID"),
-        "token": os.environ.get("NMAP_ID_TOKEN")
+        "token": os.environ.get("NMAP_ID_TOKEN"),
+        "orig_ni": os.environ.get("NMAP_ORIG_NI"),
+        "orig_adid": os.environ.get("NMAP_ORIG_ADID"),
+        "orig_idfv": os.environ.get("NMAP_ORIG_IDFV"),
+        "orig_ssaid": os.environ.get("NMAP_ORIG_SSAID"),
+        "orig_token": os.environ.get("NMAP_ORIG_TOKEN")
     }
 
 # Explicit URL-to-rule mapping dictionary
