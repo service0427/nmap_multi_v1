@@ -433,16 +433,13 @@ def handle_request(addon, flow: http.HTTPFlow):
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
                     rule_name = "nlogapp" if "nlog" in path_lower else "json_body"
                     
-                    # 1:1 identity replacement from usr dict & missing-key enforcement
+                    # 1:1 identity replacement from usr dict (pure substitution: ONLY replace existing keys)
                     if "usr" in body_json and isinstance(body_json["usr"], dict):
                         for k, target_val in [("adid", target_adid), ("ssaid", target_ssaid), ("idfv", target_idfv), ("ni", target_ni)]:
                             cur_val = body_json["usr"].get(k)
                             if cur_val and target_val:
                                 if cur_val != target_val:
                                     AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", cur_val, target_val)
-                                body_json["usr"][k] = target_val
-                            elif target_val:
-                                AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", "<missing>", target_val)
                                 body_json["usr"][k] = target_val
 
                     # Exact 1:1 token replacement in evts nlog_id

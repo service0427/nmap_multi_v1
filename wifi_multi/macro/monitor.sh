@@ -727,11 +727,11 @@ while true; do
                         LOG_FULL_TOKEN=$(jq -r '([( .request.body.evts[]?.nlog_id, .request.body._decoded.evts[]?.nlog_id ) | select(. != null and . != "")] | first // empty)' "$LATEST_NLOG" 2>/dev/null)
                         LOG_TOKEN=$(echo "$LOG_FULL_TOKEN" | awk -F'.' '{print $NF}')
                         
-                        [ "$LOG_ADID" != "$NMAP_ID_ADID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="ADID mismatch: Req($NMAP_ID_ADID) vs Log($LOG_ADID)"
-                        [ "$LOG_SSAID" != "$NMAP_ID_SSAID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="SSAID mismatch: Req($NMAP_ID_SSAID) vs Log($LOG_SSAID)"
-                        [ "$LOG_IDFV" != "$NMAP_ID_IDFV" ] && IDENTITY_VALID=false && IDENTITY_ERROR="IDFV mismatch: Req($NMAP_ID_IDFV) vs Log($LOG_IDFV)"
-                        [ "$LOG_NI" != "$NMAP_ID_NI" ] && IDENTITY_VALID=false && IDENTITY_ERROR="NI mismatch: Req($NMAP_ID_NI) vs Log($LOG_NI)"
-                        [ "$LOG_TOKEN" != "$NMAP_ID_TOKEN" ] && IDENTITY_VALID=false && IDENTITY_ERROR="TOKEN mismatch: Req($NMAP_ID_TOKEN) vs Log($LOG_TOKEN)"
+                        [ -n "$LOG_ADID" ] && [ "$LOG_ADID" != "$NMAP_ID_ADID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="ADID mismatch: Req($NMAP_ID_ADID) vs Log($LOG_ADID)"
+                        [ -n "$LOG_SSAID" ] && [ "$LOG_SSAID" != "$NMAP_ID_SSAID" ] && IDENTITY_VALID=false && IDENTITY_ERROR="SSAID mismatch: Req($NMAP_ID_SSAID) vs Log($LOG_SSAID)"
+                        [ -n "$LOG_IDFV" ] && [ "$LOG_IDFV" != "$NMAP_ID_IDFV" ] && IDENTITY_VALID=false && IDENTITY_ERROR="IDFV mismatch: Req($NMAP_ID_IDFV) vs Log($LOG_IDFV)"
+                        [ -n "$LOG_NI" ] && [ "$LOG_NI" != "$NMAP_ID_NI" ] && IDENTITY_VALID=false && IDENTITY_ERROR="NI mismatch: Req($NMAP_ID_NI) vs Log($LOG_NI)"
+                        [ -n "$LOG_TOKEN" ] && [ "$LOG_TOKEN" != "$NMAP_ID_TOKEN" ] && IDENTITY_VALID=false && IDENTITY_ERROR="TOKEN mismatch: Req($NMAP_ID_TOKEN) vs Log($LOG_TOKEN)"
                     fi
 
                     if [ "$IDENTITY_VALID" = true ]; then
