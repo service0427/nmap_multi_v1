@@ -10,13 +10,31 @@ from .whitelist import should_process
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
 
+RE_HEX_OR_UUID = re.compile(r'^[a-fA-F0-9]{16,64}$|^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$')
+
+def is_valid_identity(val):
+    """Check if value is a valid device identity (hex string 16-64 chars or standard UUID).
+    Prevents caller strings, version strings, JSON dicts, or lists from corrupting IDENTITY_MAP."""
+    if not val or not isinstance(val, (str, bytes, bytearray)):
+        return False
+    s = val.decode('utf-8', 'ignore').strip() if isinstance(val, (bytes, bytearray)) else str(val).strip()
+    if len(s) < 16 or len(s) > 64:
+        return False
+    if s.startswith(('{', '[', '"', "'", 'mapmobileapps_', 'android_', 'http', 'v1-')):
+        return False
+    return bool(RE_HEX_OR_UUID.match(s))
+
 def register_identity(orig_val, spoof_val):
     """Register identity mapping with case variations, hyphen variations, and raw byte representations."""
     if not orig_val or not spoof_val:
         return
-    orig_str = str(orig_val).strip()
-    spoof_str = str(spoof_val).strip()
+    if not isinstance(orig_val, (str, bytes, bytearray)) or not isinstance(spoof_val, (str, bytes, bytearray)):
+        return
+    orig_str = orig_val.decode('utf-8', 'ignore').strip() if isinstance(orig_val, (bytes, bytearray)) else str(orig_val).strip()
+    spoof_str = spoof_val.decode('utf-8', 'ignore').strip() if isinstance(spoof_val, (bytes, bytearray)) else str(spoof_val).strip()
     if len(orig_str) <= 3 or orig_str == spoof_str:
+        return
+    if not is_valid_identity(orig_str):
         return
 
     # 1. Exact string & case variations
@@ -247,21 +265,21 @@ def handle_request(addon, flow: http.HTTPFlow):
             val = flow.request.headers[k]
             
             if kl in ["uuid", "device-id"]:
-                if target_ni and len(val) >= 16:
+                if target_ni and is_valid_identity(val):
                     if val != target_ni and val not in IDENTITY_MAP:
                         register_identity(val, target_ni)
                         print(f"[*] Dynamically registered NI from header {k}: {val[:6]}... -> {target_ni[:6]}...", flush=True)
                     flow.request.headers[k] = target_ni
                     
             elif kl in ["x-adid", "da-dd"]:
-                if target_adid and len(val) >= 16:
+                if target_adid and is_valid_identity(val):
                     if val != target_adid and val not in IDENTITY_MAP:
                         register_identity(val, target_adid)
                         print(f"[*] Dynamically registered ADID from header {k}: {val[:6]}... -> {target_adid[:6]}...", flush=True)
                     flow.request.headers[k] = target_adid
                     
             elif kl in ["da-dv"]:
-                if target_idfv and len(val) >= 16:
+                if target_idfv and is_valid_identity(val):
                     if val != target_idfv and val not in IDENTITY_MAP:
                         register_identity(val, target_idfv)
                         print(f"[*] Dynamically registered IDFV from header {k}: {val[:6]}... -> {target_idfv[:6]}...", flush=True)
@@ -272,7 +290,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                     m = re.search(r'NAPP_DI=([a-fA-F0-9]{16,32})', val)
                     if m:
                         old_napp = m.group(1)
-                        if old_napp != target_ni and old_napp not in IDENTITY_MAP:
+                        if old_napp != target_ni and old_napp not in IDENTITY_MAP and is_valid_identity(old_napp):
                             register_identity(old_napp, target_ni)
                     flow.request.headers[k] = re.sub(r'NAPP_DI=[a-fA-F0-9]{16,32}', f'NAPP_DI={target_ni}', val)
 
@@ -329,27 +347,32 @@ def handle_request(addon, flow: http.HTTPFlow):
                     try:
                         dec, mt = blackboxprotobuf.decode_message(raw)
                         if dec and isinstance(dec, dict):
-                            # Active NI replacement in known Protobuf fields & dynamic learning
-                            if "1" in dec and isinstance(dec["1"], dict):
-                                # Field 1.1: trafficjam location
-                                if "1" in dec["1"]:
-                                    f1 = dec["1"]["1"]
-                                    f1_str = f1.decode('utf-8', 'ignore') if isinstance(f1, (bytes, bytearray)) else str(f1)
-                                    if len(f1_str) >= 16 and target_ni:
-                                        if f1_str != target_ni:
-                                            register_identity(f1_str, target_ni)
-                                            print(f"[*] Dynamically registered NI from Protobuf 1.1: {f1_str[:6]}... -> {target_ni[:6]}...", flush=True)
-                                        dec["1"]["1"] = target_ni.encode('utf-8') if isinstance(f1, (bytes, bytearray)) else target_ni
+                            is_trafficjam = ("trafficjam" in path_lower or "location" in path_lower)
+                            is_receiver = ("receiver" in path_lower or "log-receiver" in host.lower())
 
-                                # Field 1.3: receiver log / trafficjam log
-                                if "3" in dec["1"]:
+                            # Active NI replacement in known Protobuf fields & dynamic learning
+                            if (is_trafficjam or is_receiver) and "1" in dec and isinstance(dec["1"], dict):
+                                # 1. Trafficjam location: Field 1.1 is NI
+                                if is_trafficjam and "1" in dec["1"]:
+                                    f1 = dec["1"]["1"]
+                                    if isinstance(f1, (bytes, bytearray, str)):
+                                        f1_str = f1.decode('utf-8', 'ignore') if isinstance(f1, (bytes, bytearray)) else f1
+                                        if is_valid_identity(f1_str) and target_ni:
+                                            if f1_str != target_ni:
+                                                register_identity(f1_str, target_ni)
+                                                print(f"[*] Dynamically registered NI from Protobuf 1.1: {f1_str[:6]}... -> {target_ni[:6]}...", flush=True)
+                                            dec["1"]["1"] = target_ni.encode('utf-8') if isinstance(f1, (bytes, bytearray)) else target_ni
+
+                                # 2. Receiver log: Field 1.1 is caller (PRESERVED), Field 1.3 is NI
+                                if is_receiver and "3" in dec["1"]:
                                     f3 = dec["1"]["3"]
-                                    f3_str = f3.decode('utf-8', 'ignore') if isinstance(f3, (bytes, bytearray)) else str(f3)
-                                    if len(f3_str) >= 16 and target_ni:
-                                        if f3_str != target_ni:
-                                            register_identity(f3_str, target_ni)
-                                            print(f"[*] Dynamically registered NI from Protobuf 1.3: {f3_str[:6]}... -> {target_ni[:6]}...", flush=True)
-                                        dec["1"]["3"] = target_ni.encode('utf-8') if isinstance(f3, (bytes, bytearray)) else target_ni
+                                    if isinstance(f3, (bytes, bytearray, str)):
+                                        f3_str = f3.decode('utf-8', 'ignore') if isinstance(f3, (bytes, bytearray)) else f3
+                                        if is_valid_identity(f3_str) and target_ni:
+                                            if f3_str != target_ni:
+                                                register_identity(f3_str, target_ni)
+                                                print(f"[*] Dynamically registered NI from Protobuf 1.3: {f3_str[:6]}... -> {target_ni[:6]}...", flush=True)
+                                            dec["1"]["3"] = target_ni.encode('utf-8') if isinstance(f3, (bytes, bytearray)) else target_ni
 
                             # Location jittering
                             if "trafficjam" in path_lower or "location" in path_lower:
@@ -379,7 +402,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                     if "usr" in body_json and isinstance(body_json["usr"], dict):
                         for k, target_val in [("adid", target_adid), ("ssaid", target_ssaid), ("idfv", target_idfv), ("ni", target_ni)]:
                             cur_val = body_json["usr"].get(k)
-                            if cur_val and target_val and len(cur_val) > 3:
+                            if cur_val and target_val and is_valid_identity(cur_val):
                                 if cur_val != target_val:
                                     register_identity(cur_val, target_val)
                                     print(f"[*] Dynamically registered identity: {k} {cur_val[:6]}... -> {target_val[:6]}...", flush=True)
