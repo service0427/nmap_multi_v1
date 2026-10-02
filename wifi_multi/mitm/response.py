@@ -125,18 +125,11 @@ def handle_response(addon, flow: http.HTTPFlow):
     req_raw_b64 = ("base64:" + base64.b64encode(req_bytes).decode('ascii')) if req_bytes else ""
 
     if tj_mod:
-        if isinstance(tj_mod, dict):
-            req_body = {
-                "_encoding": req_encoding,
-                "_raw": req_raw_b64,
-                **tj_mod
-            }
-        else:
-            req_body = {
-                "_encoding": req_encoding,
-                "_raw": req_raw_b64,
-                "data": tj_mod
-            }
+        req_body = {
+            "_encoding": req_encoding,
+            "_raw": req_raw_b64,
+            "_decoded": tj_mod
+        }
     else:
         parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
         if isinstance(parsed, dict) and ("_raw" in parsed or "_decoded" in parsed):
@@ -145,17 +138,11 @@ def handle_response(addon, flow: http.HTTPFlow):
                 req_body["_encoding"] = req_encoding
             if "_raw" not in req_body and req_raw_b64:
                 req_body["_raw"] = req_raw_b64
-        elif isinstance(parsed, dict):
-            req_body = {
-                "_encoding": req_encoding,
-                "_raw": req_raw_b64,
-                **parsed
-            }
         elif parsed:
             req_body = {
                 "_encoding": req_encoding,
                 "_raw": req_raw_b64,
-                "data": parsed
+                "_decoded": parsed
             }
         else:
             req_body = ""

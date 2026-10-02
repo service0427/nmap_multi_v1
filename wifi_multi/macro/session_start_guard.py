@@ -241,7 +241,7 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
                 "body": {
                     "_encoding": "json",
                     "_raw": "base64:" + base64.b64encode(synth_raw).decode('ascii'),
-                    **payload
+                    "_decoded": payload
                 },
                 "original_body": {
                     "_encoding": "json",

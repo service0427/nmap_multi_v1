@@ -179,6 +179,8 @@ def main():
                     data = json.load(f)
                     if data.get("url") == "https://ncpt.naver.com/client-logger/errorLog":
                         body = data.get("request", {}).get("body", {})
+                        if isinstance(body, dict) and "_decoded" in body and isinstance(body["_decoded"], dict):
+                            body = body["_decoded"]
                         if isinstance(body, dict):
                             msg = body.get("message")
                             if msg:
