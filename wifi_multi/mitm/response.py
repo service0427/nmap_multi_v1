@@ -129,14 +129,13 @@ def handle_response(addon, flow: http.HTTPFlow):
             req_body = {
                 "_encoding": req_encoding,
                 "_raw": req_raw_b64,
-                "_decoded": tj_mod,
                 **tj_mod
             }
         else:
             req_body = {
                 "_encoding": req_encoding,
                 "_raw": req_raw_b64,
-                "_decoded": tj_mod
+                "data": tj_mod
             }
     else:
         parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
@@ -150,14 +149,13 @@ def handle_response(addon, flow: http.HTTPFlow):
             req_body = {
                 "_encoding": req_encoding,
                 "_raw": req_raw_b64,
-                "_decoded": parsed,
                 **parsed
             }
         elif parsed:
             req_body = {
                 "_encoding": req_encoding,
                 "_raw": req_raw_b64,
-                "_decoded": parsed
+                "data": parsed
             }
         else:
             req_body = ""
