@@ -2,7 +2,15 @@ import os
 import json
 import datetime
 
-NOISE_HOSTS = ["tivan.naver.com", "map.pstatic.net"]
+NOISE_HOSTS = [
+    "tivan.naver.com", 
+    "map.pstatic.net",
+    "googleapis.com",
+    "google.com",
+    "gstatic.com",
+    "gvt1.com",
+    "gvt2.com"
+]
 NOISE_EXTS = [".mvt", ".png", ".jpg", ".jpeg", ".woff", ".ttf", ".svg", ".js", ".css", ".sdf"]
 
 def log_filtered_url(host: str, path: str, reason: str):
