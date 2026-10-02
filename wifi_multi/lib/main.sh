@@ -174,11 +174,11 @@ exec > >(tee -a "$EXEC_LOG") 2>&1
 echo "$NMAP_API_RESPONSE" | jq . > "$CAPTURE_LOG_DIR/api_response.json"
 
 # --- [IDFV LOCAL PRIORITY & FAILSAFE] ---
-# Ensure local physical IDFV is always prioritized over any stale DB/API value
-LOCAL_IDFV=$(timeout 3 adb -s "$DEV_ID" shell "su -c 'cat /data/data/com.google.android.gms/files/appset/shared/pvids.pb'" 2>/dev/null | grep -a -A 2 "com.nhn.android.nmap" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | head -n 1)
-if [ -n "$LOCAL_IDFV" ]; then
-    if [ -z "$NMAP_ORIG_IDFV" ] || [ "$NMAP_ORIG_IDFV" != "$LOCAL_IDFV" ]; then
-        echo " [$DEV_ID] [🔄 IDFV SYNC] Local IDFV ($LOCAL_IDFV) differs from API/Env ($NMAP_ORIG_IDFV). Prioritizing local & updating server DB..."
+# loop.sh verifies and caches IDFV on startup. Query ADB only if NMAP_ORIG_IDFV is missing
+if [ -z "$NMAP_ORIG_IDFV" ]; then
+    LOCAL_IDFV=$(timeout 3 adb -s "$DEV_ID" shell "su -c 'cat /data/data/com.google.android.gms/files/appset/shared/pvids.pb'" 2>/dev/null | grep -a -A 2 "com.nhn.android.nmap" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | head -n 1)
+    if [ -n "$LOCAL_IDFV" ]; then
+        echo " [$DEV_ID] [🔄 IDFV FALLBACK] Extracted missing IDFV from local ($LOCAL_IDFV) & updating DB..."
         curl -s "http://${API_SERVER}/api/v1/update_idfv?device_id=$DEV_ID&idfv=$LOCAL_IDFV" >/dev/null 2>&1
         NMAP_ORIG_IDFV="$LOCAL_IDFV"
         if [ -f "$CAPTURE_LOG_DIR/api_response.json" ]; then
