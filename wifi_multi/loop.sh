@@ -12,6 +12,8 @@ declare -A SSID_CACHE
 declare -A DEVICE_MODEL_CACHE
 declare -A SUBNET_CACHE
 declare -A DEV_EXCLUDE_UNTIL
+declare -A DEVICE_IDFV_CACHE
+declare -A DEVICE_IDFV_SYNCED
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -59,6 +61,38 @@ get_device_wifi_subnet() {
     fi
     if [ -n "$IP" ]; then
         echo "$IP" | cut -d. -f3
+    fi
+}
+
+get_device_idfv() {
+    local SERIAL=$1
+    local IDFV=$(timeout 3 adb -s "$SERIAL" shell "su -c 'cat /data/data/com.google.android.gms/files/appset/shared/pvids.pb'" 2>/dev/null | grep -a -A 2 "com.nhn.android.nmap" | grep -oE '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | head -n 1)
+    echo "$IDFV"
+}
+
+sync_device_idfv() {
+    local SERIAL=$1
+    local LOCAL_IDFV=$(get_device_idfv "$SERIAL")
+    if [ -z "$LOCAL_IDFV" ]; then
+        return 1
+    fi
+    DEVICE_IDFV_CACHE["$SERIAL"]="$LOCAL_IDFV"
+
+    local SYNC_RES=$(curl -s "http://$API_SERVER/api/v1/update_idfv?device_id=$SERIAL&idfv=$LOCAL_IDFV")
+    local OLD_IDFV=$(echo "$SYNC_RES" | jq -r '.old_idfv // empty' 2>/dev/null)
+    local NEW_IDFV=$(echo "$SYNC_RES" | jq -r '.new_idfv // empty' 2>/dev/null)
+
+    if [ -n "$OLD_IDFV" ] && [ -n "$NEW_IDFV" ]; then
+        if [ "$OLD_IDFV" != "$NEW_IDFV" ]; then
+            echo "[🔄 IDFV SYNC] [$SERIAL] Local IDFV ($LOCAL_IDFV) != DB ($OLD_IDFV). Updated server DB successfully."
+        else
+            echo "[✅ IDFV SYNC] [$SERIAL] Local IDFV ($LOCAL_IDFV) matches server DB."
+        fi
+        DEVICE_IDFV_SYNCED["$SERIAL"]=1
+        return 0
+    else
+        echo "[⚠️ IDFV SYNC] [$SERIAL] IDFV sync response error: $SYNC_RES"
+        return 2
     fi
 }
 
@@ -230,6 +264,11 @@ while true; do
             fi
         fi
 
+        # 1-1. Startup IDFV Sync Check (Runs once per device at startup)
+        if [ -z "${DEVICE_IDFV_SYNCED[$DEV_ID]}" ]; then
+            sync_device_idfv "$DEV_ID"
+        fi
+
         # 2. Get Wi-Fi IP Subnet with caching to prevent excessive adb queries
         SUBNET_IDX="${SUBNET_CACHE[$DEV_ID]}"
         if [ -z "$SUBNET_IDX" ]; then
@@ -343,6 +382,26 @@ while true; do
             mkdir -p "logs/${DEV_ID}/tmp"
             echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\", \"task_id\": $TASK_ID, \"subnet\": $MODEM_IDX}" > "$TASK_JSON"
 
+            NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid')
+            NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid')
+            NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv')
+            NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni')
+            NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token')
+
+            # [CRITICAL] Prioritize local device IDFV over API response & auto-sync if mismatch detected
+            LOCAL_IDFV="${DEVICE_IDFV_CACHE[$DEV_ID]}"
+            if [ -z "$LOCAL_IDFV" ]; then
+                LOCAL_IDFV=$(get_device_idfv "$DEV_ID")
+            fi
+            if [ -n "$LOCAL_IDFV" ]; then
+                if [ -n "$NMAP_ORIG_IDFV" ] && [ "$NMAP_ORIG_IDFV" != "$LOCAL_IDFV" ]; then
+                    echo "[🔄 IDFV MISMATCH] [$DEV_ID] API IDFV ($NMAP_ORIG_IDFV) != Local IDFV ($LOCAL_IDFV). Prioritizing local IDFV & syncing DB..."
+                    curl -s "http://$API_SERVER/api/v1/update_idfv?device_id=$DEV_ID&idfv=$LOCAL_IDFV" >/dev/null 2>&1
+                fi
+                NMAP_ORIG_IDFV="$LOCAL_IDFV"
+                RESPONSE=$(echo "$RESPONSE" | jq --arg idfv "$LOCAL_IDFV" '.identity.original.idfv = $idfv')
+            fi
+
             NMAP_DATE_STR="$DATE_STR" \
             NMAP_TIME_STR="$TIME_STR" \
             NMAP_BIND_IP="$BIND_IP" \
@@ -359,11 +418,11 @@ while true; do
             NMAP_START_SPEED=$(echo "$RESPONSE" | jq -r '.start_pos.speed_kmh') \
             NMAP_ARRIVAL_TIME=$(echo "$RESPONSE" | jq -r '.arrival_time') \
             NMAP_FRIDA_PORT="$FRIDA_PORT" \
-            NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid') \
-            NMAP_ORIG_ADID=$(echo "$RESPONSE" | jq -r '.identity.original.adid') \
-            NMAP_ORIG_IDFV=$(echo "$RESPONSE" | jq -r '.identity.original.idfv') \
-            NMAP_ORIG_NI=$(echo "$RESPONSE" | jq -r '.identity.original.ni') \
-            NMAP_ORIG_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.original.token') \
+            NMAP_ORIG_SSAID="$NMAP_ORIG_SSAID" \
+            NMAP_ORIG_ADID="$NMAP_ORIG_ADID" \
+            NMAP_ORIG_IDFV="$NMAP_ORIG_IDFV" \
+            NMAP_ORIG_NI="$NMAP_ORIG_NI" \
+            NMAP_ORIG_TOKEN="$NMAP_ORIG_TOKEN" \
             NMAP_ID_ADID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.adid') \
             NMAP_ID_SSAID=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ssaid') \
             NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
