@@ -57,6 +57,20 @@ class IdentityLookup:
                 except Exception:
                     pass
 
+            # 3. Handle 31-char hex NI (where leading zero was stripped by DB/integer conversion)
+            if len(o_str) == 31 and len(s_str) in [31, 32] and all(c in "0123456789abcdefABCDEF" for c in o_str):
+                o_32 = o_str.zfill(32)
+                s_32 = s_str.zfill(32)
+                if o_32.lower() != o_32:
+                    self.exact_map[o_32.lower()] = s_32.lower()
+                if o_32.upper() != o_32:
+                    self.exact_map[o_32.upper()] = s_32.upper()
+                self.exact_map[o_32] = s_32
+                try:
+                    self.byte_map[bytes.fromhex(o_32)] = bytes.fromhex(s_32)
+                except Exception:
+                    pass
+
     def replace_value(self, val):
         """Replaces a primitive string or bytes value. Returns (new_val, replaced_bool, orig_match, spoof_match)."""
         if isinstance(val, str):
