@@ -342,7 +342,11 @@ def handle_request(addon, flow: http.HTTPFlow):
                     AUDIT_LOGGER.record(flow.request.url, r["name"], "query_param", q_param, old_q_val, target_val)
                     flow.request.url = flow.request.url[:m.start(2)] + target_val + flow.request.url[m.end(2):]
 
-        # C. For remaining non-protected headers, apply smart_cleanse
+        # C. Universal Dynamic Header & Query Replacement (1:1 Value Match)
+        dynamic_replace_headers(flow.request.headers, dynamic_lookup, flow.request.url, AUDIT_LOGGER, all_protected_headers)
+        flow.request.url = dynamic_replace_url_query(flow.request.url, dynamic_lookup, AUDIT_LOGGER, all_protected_query)
+
+        # D. For remaining non-protected headers, apply smart_cleanse (fallback)
         for k in list(flow.request.headers.keys()):
             if k.lower() in all_protected_headers or k.lower() in ["authorization", "host", "content-length", "content-type", "accept-encoding", "cookie"]:
                 continue
@@ -351,7 +355,7 @@ def handle_request(addon, flow: http.HTTPFlow):
             if old_val != new_val:
                 flow.request.headers[k] = new_val
 
-        # D. Cleanse remaining URL query parameters using IDENTITY_MAP for non-protected parameters
+        # E. Cleanse remaining URL query parameters using IDENTITY_MAP for non-protected parameters (fallback)
         if "?" in flow.request.url:
             base_part, query_part = flow.request.url.split("?", 1)
             q_items = query_part.split("&")
@@ -368,10 +372,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                 new_q_items.append(item)
             if modified_q:
                 flow.request.url = f"{base_part}?{'&'.join(new_q_items)}"
-
-        # E. Universal Dynamic Header & Query Replacement (1:1 Value Match)
-        dynamic_replace_headers(flow.request.headers, dynamic_lookup, flow.request.url, AUDIT_LOGGER, all_protected_headers)
-        flow.request.url = dynamic_replace_url_query(flow.request.url, dynamic_lookup, AUDIT_LOGGER, all_protected_query)
     except Exception as e:
         print(f"[-] Error in header/URL washing: {e}", flush=True)
 
@@ -431,9 +431,11 @@ def handle_request(addon, flow: http.HTTPFlow):
                             if is_receiver and "1" in dec and isinstance(dec["1"], dict) and "1" in dec["1"]:
                                 caller_backup = dec["1"]["1"]
 
-                            # Recursive wash & network emulation
-                            dec = smart_cleanse(dec, flow.request.url)
+                            # 1. Universal Dynamic Tree-Walker 1:1 value replacement
                             dynamic_walk_and_replace(dec, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
+
+                            # 2. Recursive wash & network emulation (fallback)
+                            dec = smart_cleanse(dec, flow.request.url)
                             if caller_backup is not None and is_receiver and "1" in dec and isinstance(dec["1"], dict):
                                 dec["1"]["1"] = caller_backup
 
@@ -456,7 +458,10 @@ def handle_request(addon, flow: http.HTTPFlow):
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
                     rule_name = "nlogapp" if "nlog" in path_lower else "json_body"
                     
-                    # 1:1 identity replacement from usr dict (pure substitution: ONLY replace existing keys)
+                    # 1. Universal Dynamic Tree-Walker 1:1 value replacement
+                    dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
+
+                    # 2. 1:1 identity replacement from usr dict (fallback baseline)
                     if "usr" in body_json and isinstance(body_json["usr"], dict):
                         for k, target_val in [("adid", target_adid), ("ssaid", target_ssaid), ("idfv", target_idfv), ("ni", target_ni)]:
                             cur_val = body_json["usr"].get(k)
@@ -465,7 +470,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                                     AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", cur_val, target_val)
                                 body_json["usr"][k] = target_val
 
-                    # Exact 1:1 token replacement in evts nlog_id
+                    # 3. Exact 1:1 token replacement in evts nlog_id (fallback baseline)
                     orig_token = target_ids.get("orig_token")
                     if target_token and "evts" in body_json and isinstance(body_json["evts"], list):
                         for e in body_json["evts"]:
@@ -483,7 +488,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                                         e["nlog_id"] = new_nid
 
                     body_json = smart_cleanse(body_json, flow.request.url)
-                    dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
                     wash_network_env(body_json)
                     
                     flow.request.modified_decoded = body_json
