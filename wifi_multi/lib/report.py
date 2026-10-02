@@ -30,7 +30,7 @@ def main():
     actual_replacements = {}
     
     # Target files to audit (ignore local log/debug files)
-    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log"}
+    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log", "modifications.json"}
     target_files = []
     for root, _, files in os.walk(log_dir):
         for f in files:
