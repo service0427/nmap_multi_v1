@@ -61,54 +61,32 @@ SESSION_INSTALL_OFFSET_SEC = random.randint(86400, 604800)
 # [V2.1.7] App initialization timestamp offset (Install + 60~600s jitter)
 SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) - random.randint(60000, 600000)
 
-def smart_cleanse(obj, url=""):
-    """Recursive identity washing using simple string/byte replacement.
-    [V2.0.9] Improved to prevent data structure corruption by checking ID length.
-    [V2.1.8] Auto-synthesizes realistic time values if pm clear resets them to 0."""
+def synthesize_session_timestamps(obj):
+    """Auto-synthesizes realistic time values if pm clear resets them to 0."""
     import time
     current_ms = int(time.time() * 1000)
     
     if isinstance(obj, dict):
-        # pm clear로 0 또는 비정상 범위의 작은 값이 유입된 경우 10~30일 전 타임스탬프로 위조 복원
         def get_safe_init_ts(val):
-            if val < 100000000000: # 13자리 밀리초가 아닌 비정상 범위(0 등)
-                import random
+            if val < 100000000000:
                 return current_ms - random.randint(864000000, 2592000000)
             return val
 
         def get_safe_install_ts(val):
-            if val < 100000000: # 10자리 초 단위가 아닌 비정상 범위(0 등)
-                import random
+            if val < 100000000:
                 return int(time.time()) - random.randint(86400, 2592000)
             return val
 
         return {k: (v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
                    (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
                    (get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
-                   (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else smart_cleanse(v, url))))) 
+                   (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else synthesize_session_timestamps(v))))) 
                 for k, v in obj.items()}
-    elif isinstance(obj, list): return [smart_cleanse(i, url) for i in obj]
-    elif isinstance(obj, str):
-        for real, fake in IDENTITY_MAP.items():
-            if len(real) > 5 and real in obj:
-                obj = obj.replace(real, fake)
-                AUDIT_LOGGER.record(url or "payload", "smart_cleanse", "string_replace", "payload_string", real, fake)
-                print(f"[🛡️ CLEANSE] Replaced {real[:4]}... with {fake[:4]}...", flush=True)
-        return obj
-    elif isinstance(obj, (bytes, bytearray)):
-        b = bytes(obj)
-        for real_b, fake_b in IDENTITY_MAP_BYTES.items():
-            if real_b in b:
-                b = b.replace(real_b, fake_b)
-                AUDIT_LOGGER.record(url or "payload", "smart_cleanse", "bytes_replace", "payload_bytes", real_b.hex()[:8], fake_b.hex()[:8])
-        for real, fake in IDENTITY_MAP.items():
-            if len(real) > 5:
-                real_b, fake_b = real.encode('utf-8'), fake.encode('utf-8')
-                if real_b in b:
-                    b = b.replace(real_b, fake_b)
-                    AUDIT_LOGGER.record(url or "payload", "smart_cleanse", "string_in_bytes", "payload_bytes", real, fake)
-        return b if isinstance(obj, bytes) else bytearray(b)
+    elif isinstance(obj, list):
+        return [synthesize_session_timestamps(i) for i in obj]
     return obj
+
+smart_cleanse = synthesize_session_timestamps
 
 def to_jsonable(d):
     """Deep convert to JSON-safe structure. [V2.0.9]"""
@@ -269,113 +247,22 @@ def handle_request(addon, flow: http.HTTPFlow):
         
         flow.request.trafficjam_original = orig_audit
 
-    # Target identity credentials
+    # 1. Target identity credentials & Dynamic Lookup
     target_ids = get_target_identities()
-    target_ni = target_ids.get("ni")
-    target_adid = target_ids.get("adid")
-    target_idfv = target_ids.get("idfv")
-    target_ssaid = target_ids.get("ssaid")
-    target_token = target_ids.get("token")
-
-    # Dynamic 1:1 Identity Lookup Table
     dynamic_lookup = IdentityLookup(target_ids)
 
-    # Match declarative rules for this URL endpoint
-    matching_rules = find_matching_rules(path)
-    all_protected_query = set()
-    all_protected_headers = set()
-    for r in matching_rules:
-        if "protected_query" in r:
-            all_protected_query.update(r["protected_query"])
-        if "protected_headers" in r:
-            all_protected_headers.update(r["protected_headers"])
+    # Protected query params and headers that must never be altered
+    all_protected_query = {"caller", "x-hmac-md", "timestamp"}
+    all_protected_headers = {"caller", "x-hmac-md"}
 
-    # 2. Declarative Header & Query Parameter Hardening with Audit Logging
+    # 2. Universal Dynamic Header & Query Parameter Replacement (Single Module)
     try:
-        # A. Apply header rules from matching rules
-        for r in matching_rules:
-            header_rules = r.get("headers", {})
-            for h_rule_key, id_type in header_rules.items():
-                for real_h_key in list(flow.request.headers.keys()):
-                    if real_h_key.lower() == h_rule_key.lower():
-                        if real_h_key.lower() in all_protected_headers:
-                            continue
-                        target_val = target_ids.get(id_type)
-                        if target_val:
-                            val = flow.request.headers[real_h_key]
-                            if val != target_val:
-                                AUDIT_LOGGER.record(flow.request.url, r["name"], "header", real_h_key, val, target_val)
-                                flow.request.headers[real_h_key] = target_val
-
-            # Cookie rules
-            cookie_rules = r.get("cookie_keys", {})
-            if "cookie" in flow.request.headers:
-                cookie_val = flow.request.headers["cookie"]
-                for c_key, id_type in cookie_rules.items():
-                    target_val = target_ids.get(id_type)
-                    if target_val and f"{c_key}=" in cookie_val:
-                        m = re.search(rf'{re.escape(c_key)}=([a-fA-F0-9]{{16,64}})', cookie_val)
-                        if m:
-                            old_c_val = m.group(1)
-                            if old_c_val != target_val:
-                                AUDIT_LOGGER.record(flow.request.url, r["name"], "cookie", c_key, old_c_val, target_val)
-                                cookie_val = cookie_val.replace(f"{c_key}={old_c_val}", f"{c_key}={target_val}")
-                                flow.request.headers["cookie"] = cookie_val
-
-        # B. Apply URL query parameter rules (strictly respecting protected_query)
-        for r in matching_rules:
-            query_rules = r.get("query_params", {})
-            for q_param, id_type in query_rules.items():
-                if q_param.lower() in all_protected_query:
-                    continue
-                target_val = target_ids.get(id_type)
-                if not target_val:
-                    continue
-                pattern = rf'([?&]{re.escape(q_param)}=)([^&]+)'
-                while True:
-                    m = re.search(pattern, flow.request.url)
-                    if not m:
-                        break
-                    old_q_val = m.group(2)
-                    if old_q_val == target_val:
-                        break
-                    AUDIT_LOGGER.record(flow.request.url, r["name"], "query_param", q_param, old_q_val, target_val)
-                    flow.request.url = flow.request.url[:m.start(2)] + target_val + flow.request.url[m.end(2):]
-
-        # C. Universal Dynamic Header & Query Replacement (1:1 Value Match)
         dynamic_replace_headers(flow.request.headers, dynamic_lookup, flow.request.url, AUDIT_LOGGER, all_protected_headers)
         flow.request.url = dynamic_replace_url_query(flow.request.url, dynamic_lookup, AUDIT_LOGGER, all_protected_query)
-
-        # D. For remaining non-protected headers, apply smart_cleanse (fallback)
-        for k in list(flow.request.headers.keys()):
-            if k.lower() in all_protected_headers or k.lower() in ["authorization", "host", "content-length", "content-type", "accept-encoding", "cookie"]:
-                continue
-            old_val = flow.request.headers[k]
-            new_val = smart_cleanse(old_val, flow.request.url)
-            if old_val != new_val:
-                flow.request.headers[k] = new_val
-
-        # E. Cleanse remaining URL query parameters using IDENTITY_MAP for non-protected parameters (fallback)
-        if "?" in flow.request.url:
-            base_part, query_part = flow.request.url.split("?", 1)
-            q_items = query_part.split("&")
-            modified_q = False
-            new_q_items = []
-            for item in q_items:
-                if "=" in item:
-                    qk, qv = item.split("=", 1)
-                    if qk.lower() not in all_protected_query:
-                        new_qv = smart_cleanse(qv, flow.request.url)
-                        if new_qv != qv:
-                            modified_q = True
-                            item = f"{qk}={new_qv}"
-                new_q_items.append(item)
-            if modified_q:
-                flow.request.url = f"{base_part}?{'&'.join(new_q_items)}"
     except Exception as e:
         print(f"[-] Error in header/URL washing: {e}", flush=True)
 
-    # 3. Universal Body Washing (Gzip Decompress -> Parse/Decode -> Active Overwrite & Wash -> Encode -> Re-compress)
+    # 3. Universal Body Washing (Gzip Decompress -> Parse/Decode -> Dynamic Walk -> Encode -> Re-compress)
     if flow.request.content:
         raw = flow.request.content
         is_gz = raw.startswith(b'\x1f\x8b')
@@ -399,45 +286,12 @@ def handle_request(addon, flow: http.HTTPFlow):
                     try:
                         dec, mt = blackboxprotobuf.decode_message(raw)
                         if dec and isinstance(dec, dict):
-                            is_trafficjam = ("trafficjam" in path_lower or "location" in path_lower)
-                            is_receiver = ("receiver" in path_lower or "log-receiver" in host.lower())
-
-                            # Active NI replacement in known Protobuf fields & dynamic learning
-                            if (is_trafficjam or is_receiver) and "1" in dec and isinstance(dec["1"], dict):
-                                # 1. Trafficjam location: Field 1.1 is NI
-                                if is_trafficjam and "1" in dec["1"]:
-                                    f1 = dec["1"]["1"]
-                                    if isinstance(f1, (bytes, bytearray, str)):
-                                        f1_str = f1.decode('utf-8', 'ignore') if isinstance(f1, (bytes, bytearray)) else f1
-                                        if target_ni and f1_str != target_ni:
-                                            AUDIT_LOGGER.record(flow.request.url, "trafficjam_location", "protobuf", "1.1 (device_id)", f1_str, target_ni)
-                                            dec["1"]["1"] = target_ni.encode('utf-8') if isinstance(f1, (bytes, bytearray)) else target_ni
-
-                                # 2. Receiver log: Field 1.1 is caller (PRESERVED), Field 1.3 is NI
-                                if is_receiver and "3" in dec["1"]:
-                                    f3 = dec["1"]["3"]
-                                    if isinstance(f3, (bytes, bytearray, str)):
-                                        f3_str = f3.decode('utf-8', 'ignore') if isinstance(f3, (bytes, bytearray)) else f3
-                                        if target_ni and f3_str != target_ni:
-                                            AUDIT_LOGGER.record(flow.request.url, "receiver_log", "protobuf", "1.3 (device_id)", f3_str, target_ni)
-                                            dec["1"]["3"] = target_ni.encode('utf-8') if isinstance(f3, (bytes, bytearray)) else target_ni
-
-                            # Location jittering
+                            # Location jittering (WiFi blanking & speed/bearing jitter)
                             if "trafficjam" in path_lower or "location" in path_lower:
                                 jitter_location_dict(dec)
 
-                            # Receiver log caller backup to prevent any corruption
-                            caller_backup = None
-                            if is_receiver and "1" in dec and isinstance(dec["1"], dict) and "1" in dec["1"]:
-                                caller_backup = dec["1"]["1"]
-
-                            # 1. Universal Dynamic Tree-Walker 1:1 value replacement
+                            # Dynamic 1:1 tree replacement across entire Protobuf message
                             dynamic_walk_and_replace(dec, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
-
-                            # 2. Recursive wash & network emulation (fallback)
-                            dec = smart_cleanse(dec, flow.request.url)
-                            if caller_backup is not None and is_receiver and "1" in dec and isinstance(dec["1"], dict):
-                                dec["1"]["1"] = caller_backup
 
                             wash_network_env(dec)
 
@@ -456,38 +310,11 @@ def handle_request(addon, flow: http.HTTPFlow):
                 json_handled = False
                 try:
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
-                    rule_name = "nlogapp" if "nlog" in path_lower else "json_body"
-                    
-                    # 1. Universal Dynamic Tree-Walker 1:1 value replacement
+                    body_json = synthesize_session_timestamps(body_json)
+
+                    # Dynamic 1:1 tree replacement across entire JSON tree
                     dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
 
-                    # 2. 1:1 identity replacement from usr dict (fallback baseline)
-                    if "usr" in body_json and isinstance(body_json["usr"], dict):
-                        for k, target_val in [("adid", target_adid), ("ssaid", target_ssaid), ("idfv", target_idfv), ("ni", target_ni)]:
-                            cur_val = body_json["usr"].get(k)
-                            if cur_val and target_val:
-                                if cur_val != target_val:
-                                    AUDIT_LOGGER.record(flow.request.url, rule_name, "json_usr", f"usr.{k}", cur_val, target_val)
-                                body_json["usr"][k] = target_val
-
-                    # 3. Exact 1:1 token replacement in evts nlog_id (fallback baseline)
-                    orig_token = target_ids.get("orig_token")
-                    if target_token and "evts" in body_json and isinstance(body_json["evts"], list):
-                        for e in body_json["evts"]:
-                            if isinstance(e, dict) and "nlog_id" in e and isinstance(e["nlog_id"], str):
-                                nid = e["nlog_id"]
-                                if orig_token and orig_token in nid:
-                                    new_nid = nid.replace(orig_token, target_token)
-                                    AUDIT_LOGGER.record(flow.request.url, rule_name, "json_evt", "evts[].nlog_id", orig_token, target_token)
-                                    e["nlog_id"] = new_nid
-                                elif "." in nid:
-                                    parts = nid.rsplit(".", 1)
-                                    if len(parts[-1]) >= 8 and parts[-1] != target_token:
-                                        new_nid = f"{parts[0]}.{target_token}"
-                                        AUDIT_LOGGER.record(flow.request.url, rule_name, "json_evt", "evts[].nlog_id", parts[-1], target_token)
-                                        e["nlog_id"] = new_nid
-
-                    body_json = smart_cleanse(body_json, flow.request.url)
                     wash_network_env(body_json)
                     
                     flow.request.modified_decoded = body_json
@@ -510,12 +337,11 @@ def handle_request(addon, flow: http.HTTPFlow):
                 if json_handled:
                     return
 
-            # C. Non-target / Fallback Payload Washing (Decompressed first!)
+            # C. Non-target / Fallback Payload Washing
             try:
-                cleansed_raw = smart_cleanse(raw, flow.request.url)
-                cleansed_raw, _, _, _ = dynamic_lookup.replace_value(cleansed_raw)
+                cleansed_raw, _, _, _ = dynamic_lookup.replace_value(raw)
                 flow.request.content = bytes(gzip.compress(cleansed_raw) if is_gz else cleansed_raw)
             except Exception:
-                flow.request.content = smart_cleanse(flow.request.content, flow.request.url)
+                pass
         except Exception as err:
             print(f"[-] Error in body washing: {err}", flush=True)
