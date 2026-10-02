@@ -7,12 +7,13 @@ import re
 from mitmproxy import http
 from .whitelist import should_process
 from .rules import AUDIT_LOGGER, find_matching_rules, get_target_identities
+from .dynamic_tree_replacer import IdentityLookup, dynamic_walk_and_replace, dynamic_replace_headers, dynamic_replace_url_query
 
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
 
 def register_identity(orig_val, spoof_val):
-    """Register identity mapping with case variations, hyphen variations, and raw byte representations."""
+    """Register identity mapping with case variations and raw byte representations (No hyphen stripping)."""
     if not orig_val or not spoof_val:
         return
     if not isinstance(orig_val, (str, bytes, bytearray)) or not isinstance(spoof_val, (str, bytes, bytearray)):
@@ -27,15 +28,7 @@ def register_identity(orig_val, spoof_val):
     IDENTITY_MAP[orig_str.lower()] = spoof_str.lower()
     IDENTITY_MAP[orig_str.upper()] = spoof_str.upper()
 
-    # 2. Hyphen variations (for UUIDs like ADID, IDFV)
-    if "-" in orig_str or "-" in spoof_str:
-        orig_clean = orig_str.replace("-", "")
-        spoof_clean = spoof_str.replace("-", "")
-        IDENTITY_MAP[orig_clean] = spoof_clean
-        IDENTITY_MAP[orig_clean.lower()] = spoof_clean.lower()
-        IDENTITY_MAP[orig_clean.upper()] = spoof_clean.upper()
-
-    # 3. Raw hex bytes (for 32-char hex like NI or 16-char hex like SSAID)
+    # 2. Raw hex bytes (for 32-char hex like NI or 16-char hex like SSAID)
     if len(orig_str) in [16, 32] and all(c in "0123456789abcdefABCDEF" for c in orig_str):
         try:
             b_orig = bytes.fromhex(orig_str)
@@ -284,6 +277,9 @@ def handle_request(addon, flow: http.HTTPFlow):
     target_ssaid = target_ids.get("ssaid")
     target_token = target_ids.get("token")
 
+    # Dynamic 1:1 Identity Lookup Table
+    dynamic_lookup = IdentityLookup(target_ids)
+
     # Match declarative rules for this URL endpoint
     matching_rules = find_matching_rules(path)
     all_protected_query = set()
@@ -372,6 +368,10 @@ def handle_request(addon, flow: http.HTTPFlow):
                 new_q_items.append(item)
             if modified_q:
                 flow.request.url = f"{base_part}?{'&'.join(new_q_items)}"
+
+        # E. Universal Dynamic Header & Query Replacement (1:1 Value Match)
+        dynamic_replace_headers(flow.request.headers, dynamic_lookup, flow.request.url, AUDIT_LOGGER, all_protected_headers)
+        flow.request.url = dynamic_replace_url_query(flow.request.url, dynamic_lookup, AUDIT_LOGGER, all_protected_query)
     except Exception as e:
         print(f"[-] Error in header/URL washing: {e}", flush=True)
 
@@ -433,6 +433,7 @@ def handle_request(addon, flow: http.HTTPFlow):
 
                             # Recursive wash & network emulation
                             dec = smart_cleanse(dec, flow.request.url)
+                            dynamic_walk_and_replace(dec, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
                             if caller_backup is not None and is_receiver and "1" in dec and isinstance(dec["1"], dict):
                                 dec["1"]["1"] = caller_backup
 
@@ -482,6 +483,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                                         e["nlog_id"] = new_nid
 
                     body_json = smart_cleanse(body_json, flow.request.url)
+                    dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
                     wash_network_env(body_json)
                     
                     flow.request.modified_decoded = body_json
@@ -507,6 +509,7 @@ def handle_request(addon, flow: http.HTTPFlow):
             # C. Non-target / Fallback Payload Washing (Decompressed first!)
             try:
                 cleansed_raw = smart_cleanse(raw, flow.request.url)
+                cleansed_raw, _, _, _ = dynamic_lookup.replace_value(cleansed_raw)
                 flow.request.content = bytes(gzip.compress(cleansed_raw) if is_gz else cleansed_raw)
             except Exception:
                 flow.request.content = smart_cleanse(flow.request.content, flow.request.url)
