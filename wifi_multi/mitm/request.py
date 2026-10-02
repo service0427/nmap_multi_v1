@@ -223,7 +223,21 @@ def handle_request(addon, flow: http.HTTPFlow):
         except Exception:
             work_raw = raw
         
+        orig_ct = flow.request.headers.get("Content-Type", "").lower()
+        orig_ce = flow.request.headers.get("Content-Encoding", "").lower()
+        if is_gz or "gzip" in orig_ce:
+            orig_encoding = "gzip"
+        elif "json" in orig_ct:
+            orig_encoding = "json"
+        elif "protobuf" in orig_ct or "octet-stream" in orig_ct or b"\x00" in raw:
+            orig_encoding = "protobuf"
+        elif "urlencoded" in orig_ct:
+            orig_encoding = "form-urlencoded"
+        else:
+            orig_encoding = "raw"
+
         orig_audit = {
+            "_encoding": orig_encoding,
             "_raw": "base64:" + base64.b64encode(work_raw).decode('ascii'),
             "_decoded": None
         }

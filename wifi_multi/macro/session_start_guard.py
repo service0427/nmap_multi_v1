@@ -52,8 +52,10 @@ def check_existing_session_start(log_dir):
     for f in nlog_files:
         try:
             with open(f, "r", errors="ignore") as fp:
-                d = json.load(fp)
-                evts = d.get("request", {}).get("body", {}).get("evts", [])
+                b = d.get("request", {}).get("body", {})
+                if isinstance(b, dict) and "_decoded" in b and isinstance(b["_decoded"], dict):
+                    b = b["_decoded"]
+                evts = b.get("evts", []) if isinstance(b, dict) else []
                 for e in evts:
                     if e.get("type") == "session_start" and e.get("screen_name") == "MainActivity":
                         has_json = True
@@ -204,7 +206,10 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
         try:
             with open(nf) as jfp:
                 jd = json.load(jfp)
-                for e in jd.get("request", {}).get("body", {}).get("evts", []):
+                b = jd.get("request", {}).get("body", {})
+                if isinstance(b, dict) and "_decoded" in b and isinstance(b["_decoded"], dict):
+                    b = b["_decoded"]
+                for e in (b.get("evts", []) if isinstance(b, dict) else []):
                     if e.get("type") == "session_start" and e.get("screen_name") == "MainActivity":
                         has_valid_json = True
                         break
@@ -225,6 +230,7 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
         synth_fn = f"{next_idx:03d}_POST_nlogapp.json"
         synth_path = os.path.join(log_dir, synth_fn)
         
+        synth_raw = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         full_packet = {
             "index": next_idx,
             "timestamp": datetime.datetime.now().isoformat(),
@@ -232,8 +238,17 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
             "request": {
                 "method": "POST",
                 "headers": headers,
-                "body": payload,
-                "original_body": {}
+                "body": {
+                    "_encoding": "json",
+                    "_raw": "base64:" + base64.b64encode(synth_raw).decode('ascii'),
+                    "_decoded": payload,
+                    **payload
+                },
+                "original_body": {
+                    "_encoding": "json",
+                    "_raw": "",
+                    "_decoded": {}
+                }
             },
             "response": {
                 "status_code": 204,

@@ -104,20 +104,64 @@ def handle_response(addon, flow: http.HTTPFlow):
         try: return c.decode('utf-8', 'ignore')
         except: return "base64:" + base64.b64encode(c).decode('ascii')
 
-    # [V2.0.5] include trafficjam / receiver original body if captured in request phase
+    # [V2.0.6] Include modified body, its encoding format, and raw base64 sent to upstream server
     tj_mod = getattr(flow.request, "modified_decoded", None)
     ct_req = flow.request.headers.get("Content-Type", "").lower()
+    ce_req = flow.request.headers.get("Content-Encoding", "").lower()
+    req_bytes = flow.request.content or b""
+    is_req_gz = req_bytes.startswith(b'\x1f\x8b') or "gzip" in ce_req
+
+    if is_req_gz:
+        req_encoding = "gzip"
+    elif "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod):
+        req_encoding = "json"
+    elif "protobuf" in ct_req or "octet-stream" in ct_req or b"\x00" in req_bytes:
+        req_encoding = "protobuf"
+    elif "urlencoded" in ct_req:
+        req_encoding = "form-urlencoded"
+    else:
+        req_encoding = "raw"
+
+    req_raw_b64 = ("base64:" + base64.b64encode(req_bytes).decode('ascii')) if req_bytes else ""
+
     if tj_mod:
-        if "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod):
-            req_body = tj_mod
+        if isinstance(tj_mod, dict):
+            req_body = {
+                "_encoding": req_encoding,
+                "_raw": req_raw_b64,
+                "_decoded": tj_mod,
+                **tj_mod
+            }
         else:
             req_body = {
-                "_raw": "base64:" + base64.b64encode(flow.request.content).decode('ascii'),
+                "_encoding": req_encoding,
+                "_raw": req_raw_b64,
                 "_decoded": tj_mod
             }
     else:
-        req_body = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
-        
+        parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
+        if isinstance(parsed, dict) and ("_raw" in parsed or "_decoded" in parsed):
+            req_body = parsed
+            if "_encoding" not in req_body:
+                req_body["_encoding"] = req_encoding
+            if "_raw" not in req_body and req_raw_b64:
+                req_body["_raw"] = req_raw_b64
+        elif isinstance(parsed, dict):
+            req_body = {
+                "_encoding": req_encoding,
+                "_raw": req_raw_b64,
+                "_decoded": parsed,
+                **parsed
+            }
+        elif parsed:
+            req_body = {
+                "_encoding": req_encoding,
+                "_raw": req_raw_b64,
+                "_decoded": parsed
+            }
+        else:
+            req_body = ""
+
     tj_orig = getattr(flow.request, "trafficjam_original", {})
 
     full_packet = {
