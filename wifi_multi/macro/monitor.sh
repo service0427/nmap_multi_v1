@@ -679,8 +679,8 @@ while true; do
                     for poll_attempt in {1..5}; do
                         # Check receiver_log first (Naver Map 6.10.x+)
                         for f in $(ls -1v "$ABS_LOG_DIR"/*_POST_receiver_log.json 2>/dev/null); do
-                            DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
-                            TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
+                            DIST_VAL=$(jq -r '(.request.body._decoded."1"."12" // .request.body."1"."12" // 0)' "$f" 2>/dev/null)
+                            TIME_VAL=$(jq -r '(.request.body._decoded."1"."13" // .request.body."1"."13" // 0)' "$f" 2>/dev/null)
                             STATUS_VAL=$(jq -r '.response.status_code // 0' "$f" 2>/dev/null)
                             if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ] && [ "$STATUS_VAL" == "200" ]; then
                                 ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
@@ -692,8 +692,8 @@ while true; do
 
                         # Check fallback legacy logs (trafficjam_log / POST_log)
                         for f in $(ls -1v "$ABS_LOG_DIR"/*_trafficjam_log.json "$ABS_LOG_DIR"/*_POST_log.json 2>/dev/null); do
-                            DIST_VAL=$(jq -r '.request.body._decoded."1"."12" // 0' "$f" 2>/dev/null)
-                            TIME_VAL=$(jq -r '.request.body._decoded."1"."13" // 0' "$f" 2>/dev/null)
+                            DIST_VAL=$(jq -r '(.request.body._decoded."1"."12" // .request.body."1"."12" // 0)' "$f" 2>/dev/null)
+                            TIME_VAL=$(jq -r '(.request.body._decoded."1"."13" // .request.body."1"."13" // 0)' "$f" 2>/dev/null)
                             STATUS_VAL=$(jq -r '.response.status_code // 0' "$f" 2>/dev/null)
                             if [ "$DIST_VAL" != "0" ] && [ "$TIME_VAL" != "0" ] && [ "$STATUS_VAL" == "200" ]; then
                                 ACTUAL_DIST=$DIST_VAL; ACTUAL_TIME=$TIME_VAL
