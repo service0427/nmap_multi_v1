@@ -34,42 +34,46 @@ class IdentityLookup:
         ]
 
         for o, s in pairs:
-            if not o or not s or o == s:
-                continue
-            o_str = o.decode('utf-8', 'ignore').strip() if isinstance(o, (bytes, bytearray)) else str(o).strip()
-            s_str = s.decode('utf-8', 'ignore').strip() if isinstance(s, (bytes, bytearray)) else str(s).strip()
-            if len(o_str) <= 3:
-                continue
+            self.register(o, s)
 
-            # 1. Exact string & case variations (NO hyphen stripping!)
-            if o_str.lower() != o_str:
-                self.exact_map[o_str.lower()] = s_str.lower()
-            if o_str.upper() != o_str:
-                self.exact_map[o_str.upper()] = s_str.upper()
-            self.exact_map[o_str] = s_str
+    def register(self, o, s):
+        """Registers a dynamic identity pair into the lookup tables (case variations + hex bytes)."""
+        if not o or not s or o == s:
+            return
+        o_str = o.decode('utf-8', 'ignore').strip() if isinstance(o, (bytes, bytearray)) else str(o).strip()
+        s_str = s.decode('utf-8', 'ignore').strip() if isinstance(s, (bytes, bytearray)) else str(s).strip()
+        if len(o_str) <= 3:
+            return
 
-            # 2. Raw hex bytes for SSAID (16 hex -> 8 bytes) and NI (32 hex -> 16 bytes)
-            if len(o_str) in [16, 32] and all(c in "0123456789abcdefABCDEF" for c in o_str):
-                try:
-                    b_o = bytes.fromhex(o_str)
-                    b_s = bytes.fromhex(s_str)
-                    self.byte_map[b_o] = b_s
-                except Exception:
-                    pass
+        # 1. Exact string & case variations (NO hyphen stripping!)
+        if o_str.lower() != o_str:
+            self.exact_map[o_str.lower()] = s_str.lower()
+        if o_str.upper() != o_str:
+            self.exact_map[o_str.upper()] = s_str.upper()
+        self.exact_map[o_str] = s_str
 
-            # 3. Handle 31-char hex NI (where leading zero was stripped by DB/integer conversion)
-            if len(o_str) == 31 and len(s_str) in [31, 32] and all(c in "0123456789abcdefABCDEF" for c in o_str):
-                o_32 = o_str.zfill(32)
-                s_32 = s_str.zfill(32)
-                if o_32.lower() != o_32:
-                    self.exact_map[o_32.lower()] = s_32.lower()
-                if o_32.upper() != o_32:
-                    self.exact_map[o_32.upper()] = s_32.upper()
-                self.exact_map[o_32] = s_32
-                try:
-                    self.byte_map[bytes.fromhex(o_32)] = bytes.fromhex(s_32)
-                except Exception:
-                    pass
+        # 2. Raw hex bytes for SSAID (16 hex -> 8 bytes) and NI (32 hex -> 16 bytes)
+        if len(o_str) in [16, 32] and all(c in "0123456789abcdefABCDEF" for c in o_str):
+            try:
+                b_o = bytes.fromhex(o_str)
+                b_s = bytes.fromhex(s_str)
+                self.byte_map[b_o] = b_s
+            except Exception:
+                pass
+
+        # 3. Handle 31-char hex NI (where leading zero was stripped by DB/integer conversion)
+        if len(o_str) == 31 and len(s_str) in [31, 32] and all(c in "0123456789abcdefABCDEF" for c in o_str):
+            o_32 = o_str.zfill(32)
+            s_32 = s_str.zfill(32)
+            if o_32.lower() != o_32:
+                self.exact_map[o_32.lower()] = s_32.lower()
+            if o_32.upper() != o_32:
+                self.exact_map[o_32.upper()] = s_32.upper()
+            self.exact_map[o_32] = s_32
+            try:
+                self.byte_map[bytes.fromhex(o_32)] = bytes.fromhex(s_32)
+            except Exception:
+                pass
 
     def replace_value(self, val):
         """Replaces a primitive string or bytes value. Returns (new_val, replaced_bool, orig_match, spoof_match)."""

@@ -11,6 +11,7 @@ from .dynamic_tree_replacer import IdentityLookup, dynamic_walk_and_replace, dyn
 
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
+SESSION_LEARNED_IDENTITIES = {}
 
 def register_identity(orig_val, spoof_val):
     """Register identity mapping with case variations and raw byte representations (No hyphen stripping)."""
@@ -36,6 +37,58 @@ def register_identity(orig_val, spoof_val):
             IDENTITY_MAP_BYTES[b_orig] = b_spoof
         except Exception:
             pass
+
+def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, target_ids: dict, logger=None):
+    """Dynamically auto-learns client original identities when server api_response credentials are stale or mismatched."""
+    if not flow or not lookup or not target_ids:
+        return
+
+    # 1. Direct header identity carriers
+    h = flow.request.headers
+    target_idfv = target_ids.get("idfv")
+    if target_idfv and "da-dv" in h:
+        val = h.get("da-dv")
+        if val and val != target_idfv and len(val) > 3:
+            lookup.register(val, target_idfv)
+            SESSION_LEARNED_IDENTITIES[val] = target_idfv
+            register_identity(val, target_idfv)
+            h["da-dv"] = target_idfv
+            if logger:
+                logger.record(flow.request.url, "autodiscover", "header", "da-dv", val, target_idfv)
+
+    target_adid = target_ids.get("adid")
+    if target_adid:
+        for hk in ["da-dd", "x-adid"]:
+            if hk in h:
+                val = h.get(hk)
+                if val and val != target_adid and len(val) > 3:
+                    lookup.register(val, target_adid)
+                    SESSION_LEARNED_IDENTITIES[val] = target_adid
+                    register_identity(val, target_adid)
+                    h[hk] = target_adid
+                    if logger:
+                        logger.record(flow.request.url, "autodiscover", "header", hk, val, target_adid)
+
+    # 2. Direct query parameter identity carriers
+    if target_idfv and "iv" in flow.request.query:
+        val = flow.request.query.get("iv")
+        if val and val != target_idfv and len(val) > 3:
+            lookup.register(val, target_idfv)
+            SESSION_LEARNED_IDENTITIES[val] = target_idfv
+            register_identity(val, target_idfv)
+            flow.request.query["iv"] = target_idfv
+            if logger:
+                logger.record(flow.request.url, "autodiscover", "query", "iv", val, target_idfv)
+
+    if target_adid and "ai" in flow.request.query:
+        val = flow.request.query.get("ai")
+        if val and val != target_adid and len(val) > 3:
+            lookup.register(val, target_adid)
+            SESSION_LEARNED_IDENTITIES[val] = target_adid
+            register_identity(val, target_adid)
+            flow.request.query["ai"] = target_adid
+            if logger:
+                logger.record(flow.request.url, "autodiscover", "query", "ai", val, target_adid)
 
 # Initialize from environment variables
 pairs = [
@@ -250,6 +303,11 @@ def handle_request(addon, flow: http.HTTPFlow):
     # 1. Target identity credentials & Dynamic Lookup
     target_ids = get_target_identities()
     dynamic_lookup = IdentityLookup(target_ids)
+    for orig_v, spoof_v in SESSION_LEARNED_IDENTITIES.items():
+        dynamic_lookup.register(orig_v, spoof_v)
+
+    # Auto-learn and align direct identity transport carriers (da-dv, da-dd, iv, ai)
+    dynamic_auto_learn_identities(flow, dynamic_lookup, target_ids, AUDIT_LOGGER)
 
     # Protected query params and headers that must never be altered
     all_protected_query = {"caller", "x-hmac-md", "timestamp"}
@@ -311,6 +369,18 @@ def handle_request(addon, flow: http.HTTPFlow):
                 try:
                     body_json = json.loads(raw.decode('utf-8', 'ignore'))
                     body_json = synthesize_session_timestamps(body_json)
+
+                    # Auto-learn from JSON usr dictionary (nlogapp, etc.)
+                    usr = body_json.get("usr")
+                    if isinstance(usr, dict):
+                        for k, target_k in [("idfv", "idfv"), ("adid", "adid"), ("ssaid", "ssaid"), ("ni", "ni")]:
+                            cur_val = usr.get(k)
+                            target_val = target_ids.get(target_k)
+                            if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
+                                if cur_val not in dynamic_lookup.exact_map:
+                                    dynamic_lookup.register(cur_val, target_val)
+                                    SESSION_LEARNED_IDENTITIES[cur_val] = target_val
+                                    register_identity(cur_val, target_val)
 
                     # Dynamic 1:1 tree replacement across entire JSON tree
                     dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)

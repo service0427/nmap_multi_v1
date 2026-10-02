@@ -28,12 +28,21 @@
 * **대응**:
   * 하이픈 제거 형태가 필요한 특수 엔드포인트가 발견될 경우에만 `api_response.json`에서 명시적으로 할당하여 제어한다.
 
+### ④ 클라이언트 실시간 식별자 자동 발견 및 등록 (Runtime Identity Auto-Discovery)
+* **원칙**: 서버 `api_response.json`의 원본 식별자(특히 기기에서 동적 생성되는 `original.idfv`)가 서버 DB와 기기 간 불일치할 경우, 패킷 전송 시점의 실제 기기 식별자를 동적으로 감지하여 1:1 동적 치환 테이블에 즉시 등록한다.
+* **사유**:
+  * 안드로이드 기기의 네이버 지도 앱은 재설치나 초기화 시 기기 내부에서 IDFV를 자체 생성하여 전송함.
+  * 서버 DB에 저장된 과거 `original.idfv`와 기기 실전송 `idfv`가 다를 경우 단순 고정 매핑만으로는 누락(Unreplaced Leak)이 발생함.
+* **대응**:
+  * 패킷의 전용 식별자 필드(`da-dv` 헤더, `iv` 쿼리, `usr.idfv` 등)에서 실시간으로 원본 값을 포착하여 `IdentityLookup`에 동적 등록(`register`).
+  * 등록 즉시 해당 세션의 모든 헤더, 쿼리, JSON/Protobuf 트리를 대상으로 1:1 값 치환을 완벽하게 수행한다.
+
 ---
 
 ## 2. 동적 재귀 트리 순회(Universal Dynamic Tree-Walker) 규격
 
 ### 동작 방식
-1. **입력**: `api_response.json` (또는 환경변수 `NMAP_ORIG_*`)의 원본 식별자 5종 및 타깃 식별자 5종.
+1. **입력**: `api_response.json` (또는 환경변수 `NMAP_ORIG_*`)의 원본 식별자 5종 및 타깃 식별자 5종 + **런타임 자동 감지된 실기기 식별자**.
 2. **대상**:
    * HTTP Headers
    * URL Query Parameters
