@@ -17,7 +17,7 @@ def main():
     task_id = sys.argv[3]
     reason = sys.argv[4]
     
-    # 1. Load original & spoofed pairs from environment
+    # 1. Load original & spoofed pairs from environment (with api_response.json fallback)
     pairs = {
         "ssaid": (os.environ.get("NMAP_ORIG_SSAID"), os.environ.get("NMAP_ID_SSAID")),
         "adid": (os.environ.get("NMAP_ORIG_ADID"), os.environ.get("NMAP_ID_ADID")),
@@ -25,7 +25,36 @@ def main():
         "ni": (os.environ.get("NMAP_ORIG_NI"), os.environ.get("NMAP_ID_NI")),
         "token": (os.environ.get("NMAP_ORIG_TOKEN"), os.environ.get("NMAP_ID_TOKEN")),
     }
+    api_resp_path = os.path.join(log_dir, "api_response.json")
+    if os.path.exists(api_resp_path):
+        try:
+            with open(api_resp_path, "r", encoding="utf-8") as af:
+                api_data = json.load(af).get("identity", {})
+                for k in pairs:
+                    orig_env, spoof_env = pairs[k]
+                    orig_val = orig_env or api_data.get("original", {}).get(k)
+                    spoof_val = spoof_env or api_data.get("spoofed", {}).get(k)
+                    pairs[k] = (orig_val, spoof_val)
+        except Exception:
+            pass
     
+    # [Failsafe] Auto-detect real client identities from modifications.json if environment had stale/mismatched DB values
+    mod_path = os.path.join(log_dir, "modifications.json")
+    if os.path.exists(mod_path):
+        try:
+            with open(mod_path, "r", encoding="utf-8") as mf:
+                mod_data = json.load(mf)
+            for m in mod_data:
+                field = m.get("field", "")
+                orig_m = m.get("original")
+                if orig_m and len(orig_m) > 5:
+                    if ("idfv" in field or field in ["da-dv", "iv"]) and pairs["idfv"][1] and orig_m != pairs["idfv"][1]:
+                        pairs["idfv"] = (orig_m, pairs["idfv"][1])
+                    elif ("adid" in field or field in ["da-dd", "ai", "x-adid"]) and pairs["adid"][1] and orig_m != pairs["adid"][1]:
+                        pairs["adid"] = (orig_m, pairs["adid"][1])
+        except Exception:
+            pass
+
     # 2. Scan packets for counts
     actual_replacements = {}
     
