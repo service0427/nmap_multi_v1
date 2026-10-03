@@ -44,7 +44,9 @@ def get_device_diagnostics(serial):
 
     # 3. Find Latest Task Badge (current_task.json)
     try:
-        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+        task_info_path = os.path.join(LOG_BASE_DIR, "devices", serial, "current_task.json")
+        if not os.path.exists(task_info_path):
+            task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
         if os.path.exists(task_info_path):
             with open(task_info_path, 'r') as f:
                 task_data = json.load(f)

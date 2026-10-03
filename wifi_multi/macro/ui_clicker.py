@@ -32,7 +32,7 @@ def get_ui_dump_pair(device_id, category_name):
     try:
         # 기기별 격리된 tmp 폴더 경로 확보
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        dev_tmp_dir = os.path.join(root_dir, "logs", device_id, "tmp")
+        dev_tmp_dir = os.path.join(root_dir, "logs", "devices", device_id, "tmp")
         os.makedirs(dev_tmp_dir, exist_ok=True)
         
         # [V2.5] Added timeout to prevent infinite hang of uiautomator dump

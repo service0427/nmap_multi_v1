@@ -16,21 +16,31 @@ def main():
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.dirname(script_dir)
-    logs_dir = os.path.join(base_dir, "logs", device_id)
+    macro_dir = os.path.join(base_dir, "logs", "macro")
     
-    if not os.path.exists(logs_dir):
-        print(f"[!] No logs found for device {device_id} at {logs_dir}")
-        sys.exit(1)
-        
-    date_dirs = sorted(os.listdir(logs_dir), reverse=True)
-    if not date_dirs:
-        print(f"[!] No date logs found for {device_id}")
-        sys.exit(1)
-        
-    latest_date_dir = os.path.join(logs_dir, date_dirs[0])
-    session_dirs = sorted(os.listdir(latest_date_dir), reverse=True)
+    session_dirs = []
+    latest_date_dir = ""
+    if os.path.exists(macro_dir):
+        date_dirs = sorted([d for d in os.listdir(macro_dir) if os.path.isdir(os.path.join(macro_dir, d))], reverse=True)
+        for d in date_dirs:
+            dev_dir = os.path.join(macro_dir, d, device_id)
+            if os.path.exists(dev_dir):
+                s_dirs = sorted([s for s in os.listdir(dev_dir) if os.path.isdir(os.path.join(dev_dir, s))], reverse=True)
+                if s_dirs:
+                    latest_date_dir = dev_dir
+                    session_dirs = s_dirs
+                    break
+                    
     if not session_dirs:
-        print(f"[!] No session logs found for {device_id} on {date_dirs[0]}")
+        legacy_logs = os.path.join(base_dir, "logs", device_id)
+        if os.path.exists(legacy_logs):
+            date_dirs = sorted([d for d in os.listdir(legacy_logs) if os.path.isdir(os.path.join(legacy_logs, d))], reverse=True)
+            if date_dirs:
+                latest_date_dir = os.path.join(legacy_logs, date_dirs[0])
+                session_dirs = sorted([s for s in os.listdir(latest_date_dir) if os.path.isdir(os.path.join(latest_date_dir, s))], reverse=True)
+                
+    if not session_dirs:
+        print(f"[!] No session logs found for device {device_id}")
         sys.exit(1)
         
     latest_session_dir = os.path.join(latest_date_dir, session_dirs[0])

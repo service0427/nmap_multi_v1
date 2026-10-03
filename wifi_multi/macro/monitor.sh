@@ -27,7 +27,10 @@ exec >> "$EXEC_LOG" 2>&1
 MACRO_EXEC="python3 macro/macro_executor.py"
 SCHEDULE_JSON="macro/action_schedule.json"
 
-CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
+CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/devices/${DEV_ID}/current_task.json"
+if [ ! -f "$CURRENT_TASK_JSON" ] && [ -f "${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json" ]; then
+    CURRENT_TASK_JSON="${WIFI_MULTI_LOGS}/${DEV_ID}/current_task.json"
+fi
 
 # --- [SUBNET LOCK SETUP] ---
 SUBNET_IDX=""
@@ -465,7 +468,8 @@ while true; do
                     STATE_FLAGS[STEP_07_2_DRIVING_STARTED]=1
                     IS_DRIVING=true
                     update_live_status "DRIVING"
-                    touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                    mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
+                    touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                 fi
             fi
         fi
@@ -550,7 +554,8 @@ while true; do
                     if [ "$USE_GPS_QOS_GUARD" == "true" ]; then
                         # QoS 안전장치 활성화 상태: 네비 진입 확정 감지 후 지연 출발 처리
                         echo "[$(NOW)] [🚀] GPS QoS Guard active. Waking up GPS Emulator..."
-                        touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
+                        touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                     fi
                     ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
@@ -568,7 +573,8 @@ while true; do
                     # [🔒 Subnet Lock Control] 전역 설정(USE_SUBNET_LOCK)에 의거하여 모뎀 대역폭 락 집행 여부 결정
                     if [ "$USE_SUBNET_LOCK" == "true" ] && [ -n "$SUBNET_IDX" ] && [ "$HAS_SUBNET_LOCK" != "true" ]; then
                         echo "[$(NOW)] [🔒] Subnet Lock is enabled. Waiting for lock on subnet_${SUBNET_IDX}..."
-                        exec 9>>"logs/subnet_${SUBNET_IDX}.lock"
+                        mkdir -p "logs/locks"
+                        exec 9>>"logs/locks/subnet_${SUBNET_IDX}.lock"
                         flock -w 1500 -x 9
                         if [ $? -ne 0 ]; then
                             echo "[$(NOW)] [⚠️] Subnet Lock wait timed out (1500s). Previous device might be hung. Proceeding anyway..."
@@ -643,7 +649,8 @@ while true; do
                         if [ "$USE_GPS_QOS_GUARD" != "true" ]; then
                             # Signal auto_reloader.py to start GPS immediately after clicking guidance start (QoS Guard disabled)
                             echo "[$(NOW)] [🚀] GPS QoS Guard is FALSE. Starting GPS Emulator immediately..."
-                            touch "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                            mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
+                            touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                         else
                             echo "[$(NOW)] [🛰️] GPS QoS Guard is TRUE. Delaying GPS Emulator start until driving screen is active."
                         fi

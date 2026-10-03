@@ -273,7 +273,9 @@ def is_subnet_active_deprecated(subnet):
         # Check logs of running devices for active task matching this subnet
         logs_dir = os.path.join(PROJECT_ROOT, "wifi_multi", "logs")
         for dev_id in running_devices:
-            task_file = os.path.join(logs_dir, dev_id, "current_task.json")
+            task_file = os.path.join(logs_dir, "devices", dev_id, "current_task.json")
+            if not os.path.exists(task_file):
+                task_file = os.path.join(logs_dir, dev_id, "current_task.json")
             if os.path.exists(task_file):
                 with open(task_file, 'r', encoding='utf-8', errors='ignore') as f:
                     data = json.load(f)

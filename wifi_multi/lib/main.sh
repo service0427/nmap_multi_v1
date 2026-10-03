@@ -20,7 +20,10 @@ fi
 DEV_ID=$1
 if [ -z "$DEV_ID" ]; then exit 1; fi
 
-CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
+CURRENT_TASK_JSON="logs/devices/${DEV_ID}/current_task.json"
+if [ ! -f "$CURRENT_TASK_JSON" ] && [ -f "logs/${DEV_ID}/current_task.json" ]; then
+    CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
+fi
 # Do not remove CURRENT_TASK_JSON to preserve the allocation metadata written by loop.sh
 
 # Bypassed per-device binding to route through default route (lowest metric: lte11)
@@ -88,7 +91,7 @@ adb -s "$DEV_ID" forward --remove tcp:"$NMAP_FRIDA_PORT" 2>/dev/null
 adb -s "$DEV_ID" reverse --remove tcp:"$NMAP_MITM_PORT" 2>/dev/null
 adb -s "$DEV_ID" shell am force-stop com.nhn.android.nmap 2>/dev/null
 
-DEV_TMP_DIR="logs/${DEV_ID}/tmp"
+DEV_TMP_DIR="logs/devices/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 rm -f "${DEV_TMP_DIR}/guidance_started" 2>/dev/null
 LOCK_FILE="${DEV_TMP_DIR}/nmap_lock"
@@ -258,8 +261,8 @@ for i in {1..3}; do
 done
 
 if [ "$IP_READY" = false ]; then
-    mkdir -p "logs/${DEV_ID}/tmp"
-    touch "logs/${DEV_ID}/tmp/ip_failed_gate"
+    mkdir -p "$DEV_TMP_DIR"
+    touch "$DEV_TMP_DIR/ip_failed_gate" "logs/${DEV_ID}/tmp/ip_failed_gate" 2>/dev/null
     cleanup "NETWORK_TIMEOUT"
 fi
 
@@ -270,10 +273,14 @@ response=$(curl $CURL_OPT -s -w "\nHTTP_CODE:%{http_code}" -X POST "http://${API
 log_api_backup "$endpoint" "$payload" "$response"
 
 # Save Real IP to current_task.json and session_summary.json for Web Monitor
-CURRENT_TASK_JSON="logs/${DEV_ID}/current_task.json"
+CURRENT_TASK_JSON="logs/devices/${DEV_ID}/current_task.json"
+mkdir -p "logs/devices/${DEV_ID}"
 if [ -f "$CURRENT_TASK_JSON" ]; then
     TMP_JSON=$(mktemp)
     jq --arg ip "$REAL_IP" '.real_ip = $ip' "$CURRENT_TASK_JSON" > "$TMP_JSON" && mv "$TMP_JSON" "$CURRENT_TASK_JSON"
+elif [ -f "logs/${DEV_ID}/current_task.json" ]; then
+    TMP_JSON=$(mktemp)
+    jq --arg ip "$REAL_IP" '.real_ip = $ip' "logs/${DEV_ID}/current_task.json" > "$TMP_JSON" && mv "$TMP_JSON" "logs/${DEV_ID}/current_task.json"
 else
     echo "{\"real_ip\": \"$REAL_IP\"}" > "$CURRENT_TASK_JSON"
 fi

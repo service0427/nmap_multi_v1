@@ -109,7 +109,10 @@ while true; do
             # 포트 파싱 및 미트덤프/프리다 정리 (current_task.json에서 고유 device_seq를 조회하여 복원)
             # [원칙] DB 고유의 불변값인 device_seq를 기반으로 포트를 지정하므로 충돌이 없습니다.
             # 절대 cksum 방식으로 롤백하지 마십시오.
-            SEQ=$(jq -r '.device_seq // empty' "logs/${DEV_ID}/current_task.json" 2>/dev/null)
+            SEQ=$(jq -r '.device_seq // empty' "logs/devices/${DEV_ID}/current_task.json" 2>/dev/null)
+            if [ -z "$SEQ" ] || [ "$SEQ" = "null" ]; then
+                SEQ=$(jq -r '.device_seq // empty' "logs/${DEV_ID}/current_task.json" 2>/dev/null)
+            fi
             if [ -n "$SEQ" ] && [ "$SEQ" != "null" ]; then
                 FRIDA_PORT=$((10000 + SEQ))
                 MITM_PORT=$((20000 + SEQ))
@@ -152,7 +155,7 @@ while true; do
             timeout 10 adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
             
             # 락 파일 및 태스크 메타파일 정리
-            rm -f "logs/${DEV_ID}/tmp/nmap_lock" "logs/${DEV_ID}/current_task.json" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+            rm -f "logs/devices/${DEV_ID}/tmp/nmap_lock" "logs/devices/${DEV_ID}/current_task.json" "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/nmap_lock" "logs/${DEV_ID}/current_task.json" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
             
             # API 서버에 실패 결과 보고
             curl -s -X POST "http://${API_SERVER}/api/v1/report_result" \
@@ -193,20 +196,23 @@ while true; do
             fi
         fi
 
+        DEV_TMP="logs/devices/${DEV_ID}/tmp"
+        DEV_TASK="logs/devices/${DEV_ID}/current_task.json"
+
         # --- IP Failure Cooldown Shield (180s) ---
-        if [ -f "logs/${DEV_ID}/tmp/ip_failed_gate" ]; then
+        if [ -f "$DEV_TMP/ip_failed_gate" ] || [ -f "logs/${DEV_ID}/tmp/ip_failed_gate" ]; then
             CURRENT_TIME=$(date +%s)
             DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 180))
-            rm -f "logs/${DEV_ID}/tmp/ip_failed_gate"
+            rm -f "$DEV_TMP/ip_failed_gate" "logs/${DEV_ID}/tmp/ip_failed_gate"
             echo "[IP_BLOCKED] [$DEV_ID] IP lookup failed. Applying heavy 180s cooldown to save modem bandwidth."
-            mkdir -p "logs/${DEV_ID}"
-            echo "{\"status\": \"IP_COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "logs/${DEV_ID}/current_task.json"
+            mkdir -p "logs/devices/${DEV_ID}"
+            echo "{\"status\": \"IP_COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "$DEV_TASK"
             DEV_INDEX=$((DEV_INDEX + 1))
             continue
         fi
 
         # --- Pre-Cleanup: Ensure stale Naver Map app is closed if loop is idle ---
-        if [ ! -f "logs/${DEV_ID}/tmp/nmap_lock" ]; then
+        if [ ! -f "$DEV_TMP/nmap_lock" ] && [ ! -f "logs/${DEV_ID}/tmp/nmap_lock" ]; then
             timeout 5 adb -s "$DEV_ID" shell "am force-stop com.nhn.android.nmap; settings put global http_proxy :0" >/dev/null 2>&1
         fi
 
@@ -218,26 +224,26 @@ while true; do
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
             CURRENT_TIME=$(date +%s)
             if [ "$BATT_LEVEL" -lt 25 ]; then
-                if [ -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" ]; then
+                if [ -f "$DEV_TMP/deep_sleep_manual_off" ] || [ -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" ]; then
                     echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%), but Deep Sleep manually disabled via Web UI. Keeping default mode..."
                 else
                     echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%). Entering MAX SLEEP (Fast-Charging Standby)..."
                     "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
                 fi
-                mkdir -p "logs/${DEV_ID}"
-                echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
+                mkdir -p "logs/devices/${DEV_ID}"
+                echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "$DEV_TASK"
                 DEV_INDEX=$((DEV_INDEX + 1))
                 continue
             elif [ "$BATT_LEVEL" -le 30 ]; then
-                rm -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
+                rm -f "$DEV_TMP/deep_sleep_manual_off" "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
                 echo "[🔋] [$DEV_ID] Battery preparing (${BATT_LEVEL}% in 25~30%). Default mode set, standby charging (Task execution starts at >= 31%)..."
                 "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "default"
-                mkdir -p "logs/${DEV_ID}"
-                echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "logs/${DEV_ID}/current_task.json"
+                mkdir -p "logs/devices/${DEV_ID}"
+                echo "{\"status\": \"CHARGING\", \"battery_level\": $BATT_LEVEL, \"exclude_until\": $((CURRENT_TIME + 60))}" > "$DEV_TASK"
                 DEV_INDEX=$((DEV_INDEX + 1))
                 continue
             fi
-            rm -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
+            rm -f "$DEV_TMP/deep_sleep_manual_off" "logs/${DEV_ID}/tmp/deep_sleep_manual_off" 2>/dev/null
         fi
 
         # Ensure ADBKeyboard is enabled and set as default IME
@@ -304,7 +310,10 @@ while true; do
         CURRENT_TIME=$(date +%s)
         
         # Skip if the device is already in allocation or launch phase
-        TASK_JSON="logs/${DEV_ID}/current_task.json"
+        TASK_JSON="logs/devices/${DEV_ID}/current_task.json"
+        if [ ! -f "$TASK_JSON" ] && [ -f "logs/${DEV_ID}/current_task.json" ]; then
+            TASK_JSON="logs/${DEV_ID}/current_task.json"
+        fi
         if [ -f "$TASK_JSON" ]; then
             T_STATUS=$(jq -r '.status // empty' "$TASK_JSON" 2>/dev/null)
             if [ "$T_STATUS" = "LAUNCHING" ] || [ "$T_STATUS" = "ALLOCATED" ]; then
@@ -330,7 +339,8 @@ while true; do
         fi
 
         # Mark as LAUNCHING immediately in the main loop to prevent duplicate spawns
-        mkdir -p "logs/${DEV_ID}"
+        TASK_JSON="logs/devices/${DEV_ID}/current_task.json"
+        mkdir -p "logs/devices/${DEV_ID}"
         echo "{\"status\": \"LAUNCHING\"}" > "$TASK_JSON"
 
         # Spawn background subshell to request task and boot main.sh in parallel
@@ -382,7 +392,7 @@ while true; do
             echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
             echo "     └─ Log Directory: wifi_multi/logs/macro/${DATE_STR}/${DEV_ID}/${TIME_STR}_${DEST_ID}/"
 
-            mkdir -p "logs/${DEV_ID}/tmp"
+            mkdir -p "logs/devices/${DEV_ID}/tmp"
             echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\", \"task_id\": $TASK_ID, \"subnet\": $MODEM_IDX}" > "$TASK_JSON"
 
             NMAP_ORIG_SSAID=$(echo "$RESPONSE" | jq -r '.identity.original.ssaid')
@@ -431,7 +441,7 @@ while true; do
             NMAP_ID_IDFV=$(echo "$RESPONSE" | jq -r '.identity.spoofed.idfv') \
             NMAP_ID_NI=$(echo "$RESPONSE" | jq -r '.identity.spoofed.ni') \
             NMAP_ID_TOKEN=$(echo "$RESPONSE" | jq -r '.identity.spoofed.token') \
-            setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" 8>&- > "logs/${DEV_ID}/tmp/main_debug.log" 2>&1 &
+            setsid bash "$WIFI_MULTI_LIB/main.sh" "$DEV_ID" 8>&- > "logs/devices/${DEV_ID}/tmp/main_debug.log" 2>&1 &
             
             # Sleep 5 seconds to space out launches of devices sharing the same subnet
             sleep 5

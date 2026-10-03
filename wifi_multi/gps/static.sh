@@ -19,7 +19,7 @@ fi
 PKG_NAME="com.rosteam.gpsemulator"
 
 # 2. XML 생성 (정적 모드 - 기기별 격리된 tmp 폴더 사용)
-DEV_TMP_DIR="${WIFI_MULTI_LOGS}/${DEVICE_ID}/tmp"
+DEV_TMP_DIR="${WIFI_MULTI_LOGS}/devices/${DEVICE_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 LOCAL_XML="${DEV_TMP_DIR}/static_prefs.xml"
 

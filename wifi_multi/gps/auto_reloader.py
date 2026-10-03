@@ -86,7 +86,7 @@ def move_gps_to_target(device_id, target_lat, target_lng):
     
     # 기기별 격리된 tmp 폴더 경로 확보
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    dev_tmp_dir = os.path.join(script_dir, "..", "logs", device_id, "tmp")
+    dev_tmp_dir = os.path.join(script_dir, "..", "logs", "devices", device_id, "tmp")
     os.makedirs(dev_tmp_dir, exist_ok=True)
     local_xml = os.path.join(dev_tmp_dir, "force_prefs.xml")
     
@@ -132,7 +132,9 @@ def update_current_task_badge(device_id, data):
     """[NEW] 웹 모니터용 실시간 명표(current_task.json) 정보 보강"""
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        badge_path = os.path.join(script_dir, "..", "logs", device_id, "current_task.json")
+        badge_path = os.path.join(script_dir, "..", "logs", "devices", device_id, "current_task.json")
+        if not os.path.exists(badge_path):
+            badge_path = os.path.join(script_dir, "..", "logs", device_id, "current_task.json")
         if os.path.exists(badge_path):
             with open(badge_path, 'r') as f:
                 current = json.load(f)
@@ -218,18 +220,19 @@ def main(log_dir, device_id):
                             })
                             
                             # Wait for monitor.sh to click 'Guidance Start' and create the flag file
-                            flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
+                            flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "devices", device_id, "tmp", "guidance_started")
+                            fallback_flag = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
                             log_print(f"[⏳] Waiting for Guidance Start click (checking flag: {flag_path})...")
                             
                             # Timeout to prevent infinite hang if click fails (max 90s for slow networks & modal delays)
                             wait_start = time.time()
-                            while not os.path.exists(flag_path):
+                            while not (os.path.exists(flag_path) or os.path.exists(fallback_flag)):
                                 time.sleep(0.5)
                                 if time.time() - wait_start > 90.0:
                                     log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
                                     break
                             
-                            if os.path.exists(flag_path):
+                            if os.path.exists(flag_path) or os.path.exists(fallback_flag):
                                 log_print("[🚀] Guidance Start click detected! Starting road simulation immediately...")
                                 script_dir = os.path.dirname(os.path.abspath(__file__))
                                 env = os.environ.copy()

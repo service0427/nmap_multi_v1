@@ -7,7 +7,7 @@ DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ID_SSAID=$4; NMAP_ID_IDFV=$5; NMAP_ID_A
 NC="\e[0m"; GREEN="\e[1;32m"
 
 # 기기별 격리된 tmp 폴더 경로 설정 및 생성
-DEV_TMP_DIR="${WIFI_MULTI_LOGS}/${DEV_ID}/tmp"
+DEV_TMP_DIR="${WIFI_MULTI_LOGS}/devices/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 
 # Dynamic Date for Consent Realism

@@ -45,6 +45,7 @@ fi
 # 4. Clean legacy session logs (wifi_multi/logs/{DEV_ID}/{DATE}) if any remain
 find "$LOG_ROOT" -mindepth 2 -maxdepth 3 \
     ! -path "*/macro*" \
+    ! -path "*/devices*" \
     ! -path "*/tmp*" \
     ! -path "*/locks*" \
     ! -path "*/stealth_logs*" \
@@ -57,7 +58,7 @@ find "$LOG_ROOT" -mindepth 2 -maxdepth 3 \
 # 5. Specific 30-day retention cleanup for stealth_logs and rotator_history
 find "$LOG_ROOT/stealth_logs" "$LOG_ROOT/rotator_history" -type f -mtime +30 -delete 2>/dev/null
 
-# 6. Cleanup empty directories (excluding tmp folders)
-find "$LOG_ROOT" -mindepth 2 -not -path "*/tmp*" -type d -empty -delete 2>/dev/null
+# 6. Cleanup empty directories (excluding tmp and devices folders)
+find "$LOG_ROOT" -mindepth 2 -not -path "*/tmp*" -not -path "*/devices*" -type d -empty -delete 2>/dev/null
 
 echo "[$NOW] Cleanup complete. Disk usage remains at $(df / | tail -1 | awk '{print $5}')."

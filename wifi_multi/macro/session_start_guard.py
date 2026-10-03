@@ -79,7 +79,9 @@ def enforce_safety_guard(device_id, log_dir, mitm_port):
 
     # Fallback to local files if any env var is empty
     if not all([adid, ssaid, idfv, ni, token]):
-        current_task_path = os.path.join("logs", device_id, "current_task.json")
+        current_task_path = os.path.join("logs", "devices", device_id, "current_task.json")
+        if not os.path.exists(current_task_path):
+            current_task_path = os.path.join("logs", device_id, "current_task.json")
         if os.path.exists(current_task_path):
             try:
                 with open(current_task_path) as cf:

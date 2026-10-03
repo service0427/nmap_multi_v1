@@ -49,7 +49,7 @@ set_power_mode() {
                 input keyevent 223 2>/dev/null
             " >/dev/null 2>&1
             local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-            local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
+            local state_file="$(dirname "$script_dir")/logs/devices/$serial/tmp/deep_sleep_active"
             mkdir -p "$(dirname "$state_file")" 2>/dev/null
             touch "$state_file" 2>/dev/null
             ;;
@@ -104,8 +104,8 @@ set_power_mode() {
                 settings put secure location_providers_allowed "+gps,+network" 2>/dev/null
             " >/dev/null 2>&1
             local script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-            local state_file="$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active"
-            rm -f "$state_file" 2>/dev/null
+            local state_file="$(dirname "$script_dir")/logs/devices/$serial/tmp/deep_sleep_active"
+            rm -f "$state_file" "$(dirname "$script_dir")/logs/$serial/tmp/deep_sleep_active" 2>/dev/null
             ;;
 
         *)
