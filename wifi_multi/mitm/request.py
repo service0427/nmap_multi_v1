@@ -8,6 +8,14 @@ from mitmproxy import http
 from .whitelist import should_process
 from .rules import AUDIT_LOGGER, find_matching_rules, get_target_identities
 from .dynamic_tree_replacer import IdentityLookup, dynamic_walk_and_replace, dynamic_replace_headers, dynamic_replace_url_query
+from .payload_codec import (
+    capture_original_audit,
+    decode_request_payload,
+    encode_request_payload,
+    get_safe_content,
+    to_jsonable,
+    HAS_BLACKBOX
+)
 
 IDENTITY_MAP = {}
 IDENTITY_MAP_BYTES = {}
@@ -141,14 +149,6 @@ def synthesize_session_timestamps(obj):
 
 smart_cleanse = synthesize_session_timestamps
 
-def to_jsonable(d):
-    """Deep convert to JSON-safe structure. [V2.0.9]"""
-    if isinstance(d, dict): return {str(k): to_jsonable(v) for k, v in d.items()}
-    elif isinstance(d, list): return [to_jsonable(v) for v in d]
-    elif isinstance(d, (bytes, bytearray)):
-        try: return d.decode('utf-8')
-        except: return f"hex:{bytes(d).hex()}"
-    return d
 
 def jitter_location_dict(o):
     """Randomize specific fields in trafficjam location dict.
@@ -218,11 +218,7 @@ def wash_network_env(o):
         for item in o:
             wash_network_env(item)
 
-try:
-    import blackboxprotobuf
-    HAS_BLACKBOX = True
-except ImportError:
-    HAS_BLACKBOX = False
+
 
 def handle_request(addon, flow: http.HTTPFlow):
     host = flow.request.pretty_host
@@ -239,64 +235,8 @@ def handle_request(addon, flow: http.HTTPFlow):
             ef.write(f"[URL] {path_lower}\n")
 
     # [V2.0.5] Capture original content for auditing before any modification (except large driving routes)
-    if flow.request.content and "driving" not in path_lower:
-        raw = flow.request.content
-        is_gz = raw.startswith(b'\x1f\x8b')
-        try:
-            work_raw = gzip.decompress(raw) if is_gz else raw
-        except Exception:
-            work_raw = raw
-        
-        orig_ct = flow.request.headers.get("Content-Type", "").lower()
-        orig_ce = flow.request.headers.get("Content-Encoding", "").lower()
-        if is_gz or "gzip" in orig_ce:
-            orig_encoding = "gzip"
-        elif "json" in orig_ct:
-            orig_encoding = "json"
-        elif "protobuf" in orig_ct or "octet-stream" in orig_ct or b"\x00" in raw:
-            orig_encoding = "protobuf"
-        elif "urlencoded" in orig_ct:
-            orig_encoding = "form-urlencoded"
-        else:
-            orig_encoding = "raw"
-
-        orig_audit = {
-            "_encoding": orig_encoding,
-            "_raw": "base64:" + base64.b64encode(work_raw).decode('ascii'),
-            "_decoded": None
-        }
-        
-        try:
-            ct = flow.request.headers.get("Content-Type", "").lower()
-            work_str = None
-            try:
-                work_str = work_raw.decode('utf-8')
-            except Exception:
-                pass
-
-            # 1. Try JSON if content-type has json or text begins with { or [
-            if "json" in ct or (work_str and (work_str.strip().startswith('{') or work_str.strip().startswith('['))):
-                try:
-                    orig_audit["_decoded"] = json.loads(work_str if work_str else work_raw.decode('utf-8', 'ignore'))
-                    orig_audit["_encoding"] = "json"
-                except Exception:
-                    pass
-
-            # 2. Try Protobuf if not already decoded and looks like protobuf/binary
-            if orig_audit["_decoded"] is None and HAS_BLACKBOX and ("protobuf" in ct or "octet-stream" in ct or b"\x00" in work_raw):
-                try:
-                    dec, _ = blackboxprotobuf.decode_message(work_raw)
-                    orig_audit["_decoded"] = to_jsonable(dec)
-                    orig_audit["_encoding"] = "protobuf"
-                except Exception:
-                    pass
-
-            # 3. Fallback to readable string if UTF-8
-            if orig_audit["_decoded"] is None and work_str:
-                orig_audit["_decoded"] = work_str
-        except Exception:
-            pass
-        
+    orig_audit = capture_original_audit(flow.request, path_lower)
+    if orig_audit:
         flow.request.trafficjam_original = orig_audit
 
     # 1. Target identity credentials & Dynamic Lookup
@@ -319,98 +259,64 @@ def handle_request(addon, flow: http.HTTPFlow):
     except Exception as e:
         print(f"[-] Error in header/URL washing: {e}", flush=True)
 
-    # 3. Universal Body Washing (Gzip Decompress -> Parse/Decode -> Dynamic Walk -> Encode -> Re-compress)
-    if flow.request.content:
-        raw = flow.request.content
-        is_gz = raw.startswith(b'\x1f\x8b')
-        if is_gz:
-            try:
-                raw = gzip.decompress(raw)
-            except Exception:
-                pass
-        
-        content_type = flow.request.headers.get("Content-Type", "").lower()
-        is_json = "json" in content_type
-        is_pb_target = ("trafficjam" in path_lower or "receiver" in path_lower or 
-                        "log-receiver" in host.lower() or "protobuf" in content_type or 
-                        "octet-stream" in content_type)
-
+    # 3. Universal Body Washing (Decoded via payload_codec -> Walk/Jitter/Wash -> Re-encoded via payload_codec)
+    if get_safe_content(flow.request):
         try:
+            decoded_obj, meta = decode_request_payload(flow.request)
+
             # A. Protobuf Processing
-            if not is_json and (is_pb_target or HAS_BLACKBOX):
-                pb_handled = False
-                if HAS_BLACKBOX:
-                    try:
-                        dec, mt = blackboxprotobuf.decode_message(raw)
-                        if dec and isinstance(dec, dict):
-                            # Location jittering (WiFi blanking & speed/bearing jitter)
-                            if "trafficjam" in path_lower or "location" in path_lower:
-                                jitter_location_dict(dec)
+            if meta.encoding == "protobuf":
+                # Location jittering (WiFi blanking & speed/bearing jitter)
+                if "trafficjam" in path_lower or "location" in path_lower:
+                    jitter_location_dict(decoded_obj)
 
-                            # Dynamic 1:1 tree replacement across entire Protobuf message
-                            dynamic_walk_and_replace(dec, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
+                # Dynamic 1:1 tree replacement across entire Protobuf message
+                dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
 
-                            wash_network_env(dec)
+                wash_network_env(decoded_obj)
 
-                            flow.request.modified_decoded = to_jsonable(dec)
-                            work = blackboxprotobuf.encode_message(dec, mt)
-                            flow.request.content = bytes(gzip.compress(work) if is_gz else work)
-                            pb_handled = True
-                    except Exception:
-                        pass
-                
-                if pb_handled:
-                    return
+                flow.request.modified_decoded = to_jsonable(decoded_obj)
+                flow.request.content = encode_request_payload(decoded_obj, meta)
+                return
 
             # B. JSON Processing (nlog, nelo, graphql, etc.)
-            if is_json or "nlog" in path_lower or "nelo" in path_lower:
-                json_handled = False
-                try:
-                    body_json = json.loads(raw.decode('utf-8', 'ignore'))
-                    body_json = synthesize_session_timestamps(body_json)
+            elif meta.encoding == "json":
+                decoded_obj = synthesize_session_timestamps(decoded_obj)
 
-                    # Auto-learn from JSON usr dictionary (nlogapp, etc.)
-                    usr = body_json.get("usr")
-                    if isinstance(usr, dict):
-                        for k, target_k in [("idfv", "idfv"), ("adid", "adid"), ("ssaid", "ssaid"), ("ni", "ni")]:
-                            cur_val = usr.get(k)
-                            target_val = target_ids.get(target_k)
-                            if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
-                                if cur_val not in dynamic_lookup.exact_map:
-                                    dynamic_lookup.register(cur_val, target_val)
-                                    SESSION_LEARNED_IDENTITIES[cur_val] = target_val
-                                    register_identity(cur_val, target_val)
+                # Auto-learn from JSON usr dictionary (nlogapp, etc.)
+                usr = decoded_obj.get("usr")
+                if isinstance(usr, dict):
+                    for k, target_k in [("idfv", "idfv"), ("adid", "adid"), ("ssaid", "ssaid"), ("ni", "ni")]:
+                        cur_val = usr.get(k)
+                        target_val = target_ids.get(target_k)
+                        if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
+                            if cur_val not in dynamic_lookup.exact_map:
+                                dynamic_lookup.register(cur_val, target_val)
+                                SESSION_LEARNED_IDENTITIES[cur_val] = target_val
+                                register_identity(cur_val, target_val)
 
-                    # Dynamic 1:1 tree replacement across entire JSON tree
-                    dynamic_walk_and_replace(body_json, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
+                # Dynamic 1:1 tree replacement across entire JSON tree
+                dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
 
-                    wash_network_env(body_json)
-                    
-                    flow.request.modified_decoded = body_json
-                    work = json.dumps(body_json, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-                    flow.request.content = bytes(gzip.compress(work) if is_gz else work)
-                    json_handled = True
+                wash_network_env(decoded_obj)
 
-                    # Extract events in bulk to a flat timeline
-                    evts = body_json.get("evts", [])
-                    if evts and isinstance(evts, list) and log_dir:
-                        event_log_path = os.path.join(log_dir, "events.log")
-                        with open(event_log_path, "a", encoding="utf-8") as ef:
-                            for e in evts:
-                                t = e.get("type", "unknown")
-                                s = e.get("screen_name") or e.get("act_act") or (e.get("act_oval", {}).get("tab") if isinstance(e.get("act_oval"), dict) else None) or "none"
-                                ef.write(f"[{t}] {s}\n")
-                except Exception:
-                    pass
-                
-                if json_handled:
-                    return
+                flow.request.modified_decoded = decoded_obj
+                flow.request.content = encode_request_payload(decoded_obj, meta)
+
+                # Extract events in bulk to a flat timeline
+                evts = decoded_obj.get("evts", [])
+                if evts and isinstance(evts, list) and log_dir:
+                    event_log_path = os.path.join(log_dir, "events.log")
+                    with open(event_log_path, "a", encoding="utf-8") as ef:
+                        for e in evts:
+                            t = e.get("type", "unknown")
+                            s = e.get("screen_name") or e.get("act_act") or (e.get("act_oval", {}).get("tab") if isinstance(e.get("act_oval"), dict) else None) or "none"
+                            ef.write(f"[{t}] {s}\n")
+                return
 
             # C. Non-target / Fallback Payload Washing
-            try:
-                cleansed_raw, _, _, _ = dynamic_lookup.replace_value(raw)
-                flow.request.content = bytes(gzip.compress(cleansed_raw) if is_gz else cleansed_raw)
-            except Exception:
-                pass
+            else:
+                cleansed_raw, _, _, _ = dynamic_lookup.replace_value(decoded_obj)
+                flow.request.content = encode_request_payload(cleansed_raw, meta)
         except Exception as err:
             print(f"[-] Error in body washing: {err}", flush=True)
