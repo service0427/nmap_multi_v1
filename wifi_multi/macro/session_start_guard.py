@@ -16,6 +16,7 @@ import datetime
 import subprocess
 import requests
 import urllib3
+import base64
 
 urllib3.disable_warnings()
 
