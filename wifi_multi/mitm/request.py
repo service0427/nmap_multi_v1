@@ -104,15 +104,16 @@ def handle_request(addon, flow: http.HTTPFlow):
                 decoded_obj = synthesize_session_timestamps(decoded_obj, url=flow.request.url, logger=AUDIT_LOGGER)
 
                 # Auto-learn from JSON usr dictionary (nlogapp, etc.)
-                usr = decoded_obj.get("usr")
-                if isinstance(usr, dict):
-                    for k, target_k in [("idfv", "idfv"), ("adid", "adid"), ("ssaid", "ssaid"), ("ni", "ni")]:
-                        cur_val = usr.get(k)
-                        target_val = target_ids.get(target_k)
-                        if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
-                            if cur_val not in dynamic_lookup.exact_map:
-                                dynamic_lookup.register(cur_val, target_val)
-                                SESSION_LEARNED_IDENTITIES[cur_val] = target_val
+                if isinstance(decoded_obj, dict):
+                    usr = decoded_obj.get("usr")
+                    if isinstance(usr, dict):
+                        for k, target_k in [("idfv", "idfv"), ("adid", "adid"), ("ssaid", "ssaid"), ("ni", "ni")]:
+                            cur_val = usr.get(k)
+                            target_val = target_ids.get(target_k)
+                            if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
+                                if cur_val not in dynamic_lookup.exact_map:
+                                    dynamic_lookup.register(cur_val, target_val)
+                                    SESSION_LEARNED_IDENTITIES[cur_val] = target_val
 
                 # Dynamic 1:1 tree replacement across entire JSON tree
                 dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
@@ -123,9 +124,10 @@ def handle_request(addon, flow: http.HTTPFlow):
                 flow.request.content = encode_request_payload(decoded_obj, meta)
 
                 # Extract events in bulk to a flat timeline
-                evts = decoded_obj.get("evts", [])
-                if evts and isinstance(evts, list) and log_dir:
-                    log_screen_events(log_dir, evts)
+                if isinstance(decoded_obj, dict):
+                    evts = decoded_obj.get("evts", [])
+                    if evts and isinstance(evts, list) and log_dir:
+                        log_screen_events(log_dir, evts)
                 return
 
             # C. Non-target / Fallback Payload Washing
