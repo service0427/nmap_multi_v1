@@ -75,7 +75,7 @@ def main():
     actual_replacements = {}
     
     # Target files to audit (ignore local log/debug files and internally blocked mocks)
-    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log", "modifications.json", "filtered_urls.jsonl", "blocked_errors.json"}
+    ignore_files = {"api_response.json", "session_summary.json", "execution.log", "report.json", "result.json", "events.log", "modifications.json", "filtered_urls.jsonl", "blocked_errors.json", "raw_leak_audit.log", "mitm.log", "frida.log", "monitor.log"}
     target_files = []
     for root, _, files in os.walk(log_dir):
         for f in files:
@@ -163,15 +163,19 @@ def main():
                     p_json = json.loads(p_content)
                     req = p_json.get("request", {})
                     if not req and "url" not in p_json:
-                        transmitted_txt = p_content
-                    else:
-                        url_t = str(p_json.get("url", ""))
-                        hdr_t = str(req.get("headers", {}))
-                        b_val = req.get("body", {})
+                        # Skip non-packet JSON files (e.g. metadata)
+                        continue
+                    url_t = str(p_json.get("url", ""))
+                    hdr_t = str(req.get("headers", {}))
+                    b_val = req.get("body", {})
+                    if isinstance(b_val, (dict, list)):
+                        clean_original_logs(b_val)
                         b_t = str(b_val.get("_decoded", b_val)) if isinstance(b_val, dict) else str(b_val)
-                        transmitted_txt = f"{url_t}\n{hdr_t}\n{b_t}"
+                    else:
+                        b_t = str(b_val)
+                    transmitted_txt = f"{url_t}\n{hdr_t}\n{b_t}"
                 except Exception:
-                    transmitted_txt = p_content
+                    continue
             else:
                 transmitted_txt = p_content
 
