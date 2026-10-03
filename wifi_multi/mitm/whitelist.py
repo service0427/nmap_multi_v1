@@ -9,7 +9,10 @@ NOISE_HOSTS = [
     "google.com",
     "gstatic.com",
     "gvt1.com",
-    "gvt2.com"
+    "gvt2.com",
+    "yandex.com",
+    "yastatic.net",
+    "yandexadexchange.net"
 ]
 NOISE_EXTS = [".mvt", ".png", ".jpg", ".jpeg", ".woff", ".ttf", ".svg", ".js", ".css", ".sdf"]
 
