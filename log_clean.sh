@@ -62,6 +62,9 @@ if [ -d "$API_BACKUP_DIR" ]; then
     find "$API_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null
 fi
 
+# Clean stale temporary GPS preferences (older than 7 days)
+find "$SCRIPT_DIR/wifi_multi/tmp" -name "gps_prefs_*.xml" -mtime +7 -delete 2>/dev/null
+
 # 6. Cleanup empty directories (excluding tmp and devices folders)
 find "$LOG_ROOT" -mindepth 2 -not -path "*/tmp*" -not -path "*/devices*" -type d -empty -delete 2>/dev/null
 
