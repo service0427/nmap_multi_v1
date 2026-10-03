@@ -115,7 +115,10 @@ while true; do
                 MITM_PORT=$((20000 + SEQ))
             else
                 # Fallback: 만약 current_task.json에 없고 최근 api_response.json이 존재한다면 탐색
-                LATEST_API_RESP=$(find "logs/${DEV_ID}" -name "api_response.json" 2>/dev/null | sort | tail -n 1)
+                LATEST_API_RESP=$(find "logs/macro" -path "*/${DEV_ID}/*" -name "api_response.json" 2>/dev/null | sort | tail -n 1)
+                if [ -z "$LATEST_API_RESP" ]; then
+                    LATEST_API_RESP=$(find "logs/${DEV_ID}" -name "api_response.json" 2>/dev/null | sort | tail -n 1)
+                fi
                 if [ -n "$LATEST_API_RESP" ]; then
                     SEQ=$(jq -r '.device_seq // empty' "$LATEST_API_RESP" 2>/dev/null)
                 fi
@@ -377,7 +380,7 @@ while true; do
             DEST_ID=$(echo "$RESPONSE" | jq -r '.destination.id')
 
             echo "[🚀] [$DEV_ID] ALLOCATED: $DEST_NAME (Task:$TASK_ID) -> Modem lte$MODEM_IDX ($BIND_IP)"
-            echo "     └─ Log Directory: wifi_multi/logs/${DEV_ID}/${DATE_STR}/${TIME_STR}_${DEST_ID}/"
+            echo "     └─ Log Directory: wifi_multi/logs/macro/${DATE_STR}/${DEV_ID}/${TIME_STR}_${DEST_ID}/"
 
             mkdir -p "logs/${DEV_ID}/tmp"
             echo "{\"status\": \"ALLOCATED\", \"device_seq\": $DEVICE_SEQ, \"dest_name\": \"$DEST_NAME\", \"dest_id\": \"$DEST_ID\", \"real_ip\": \"$BIND_IP\", \"task_id\": $TASK_ID, \"subnet\": $MODEM_IDX}" > "$TASK_JSON"

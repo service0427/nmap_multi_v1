@@ -6,13 +6,18 @@ import json
 from datetime import datetime
 
 def find_session_folder(dev_id, date_str, task_id, ts_str):
-    device_dir = f"/home/tech/nmap_multi_v1/wifi_multi/logs/{dev_id}/{date_str}"
-    if not os.path.exists(device_dir):
-        return None
-        
-    try:
-        subdirs = [os.path.join(device_dir, d) for d in os.listdir(device_dir) if os.path.isdir(os.path.join(device_dir, d))]
-    except:
+    candidates = [
+        f"/home/tech/nmap_multi_v1/wifi_multi/logs/macro/{date_str}/{dev_id}",
+        f"/home/tech/nmap_multi_v1/wifi_multi/logs/{dev_id}/{date_str}"
+    ]
+    subdirs = []
+    for d_dir in candidates:
+        if os.path.exists(d_dir):
+            try:
+                subdirs.extend([os.path.join(d_dir, d) for d in os.listdir(d_dir) if os.path.isdir(os.path.join(d_dir, d))])
+            except Exception:
+                pass
+    if not subdirs:
         return None
     
     # 1. Try matching via report.json

@@ -16,35 +16,48 @@ fi
 DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
 
 # 2. Determine retention limit based on disk usage
-if [ "$DISK_USAGE" -ge 90 ]; then
-    KEEP_TIME="30 minutes ago"
+# Adaptive Tiered Retention (preserving 48h~72h when disk has comfortable free space)
+if [ "$DISK_USAGE" -ge 93 ]; then
+    KEEP_TIME="1 hour ago"
+elif [ "$DISK_USAGE" -ge 88 ]; then
+    KEEP_TIME="6 hours ago"
 elif [ "$DISK_USAGE" -ge 80 ]; then
-    KEEP_TIME="2 hours ago"
-elif [ "$DISK_USAGE" -ge 70 ]; then
-    KEEP_TIME="4 hours ago"
-elif [ "$DISK_USAGE" -ge 50 ]; then
-    KEEP_TIME="8 hours ago"
-else
     KEEP_TIME="24 hours ago"
+elif [ "$DISK_USAGE" -ge 65 ]; then
+    KEEP_TIME="48 hours ago"
+else
+    KEEP_TIME="72 hours ago"
 fi
 
 echo "[$NOW] Current Disk Usage: $DISK_USAGE%. Setting retention threshold to: $KEEP_TIME"
 
-# 3. Delete everything older than threshold at depth 2 or deeper
-# We explicitly protect critical orchestrator files and the 'tmp' directory.
-find "$LOG_ROOT" -mindepth 2 -not -newermt "$KEEP_TIME" \
+# 3. Clean macro session logs (wifi_multi/logs/macro/{DATE}/{DEV_ID}/{SESSION})
+MACRO_ROOT="$LOG_ROOT/macro"
+if [ -d "$MACRO_ROOT" ]; then
+    # Delete individual session folders older than threshold
+    find "$MACRO_ROOT" -mindepth 3 -maxdepth 3 -type d -not -newermt "$KEEP_TIME" -exec rm -rf {} + 2>/dev/null
+    # Delete date folders older than threshold
+    find "$MACRO_ROOT" -mindepth 1 -maxdepth 1 -type d -not -newermt "$KEEP_TIME" -exec rm -rf {} + 2>/dev/null
+    # Remove empty directories in macro tree
+    find "$MACRO_ROOT" -type d -empty -delete 2>/dev/null
+fi
+
+# 4. Clean legacy session logs (wifi_multi/logs/{DEV_ID}/{DATE}) if any remain
+find "$LOG_ROOT" -mindepth 2 -maxdepth 3 \
+    ! -path "*/macro*" \
     ! -path "*/tmp*" \
     ! -path "*/locks*" \
     ! -path "*/stealth_logs*" \
     ! -path "*/rotator_history*" \
     ! -name "current_task.json" \
-    ! -name "nmap_lock" \
+    ! -name "*lock*" \
+    -not -newermt "$KEEP_TIME" \
     -exec rm -rf {} + 2>/dev/null
 
-# 4. Specific 30-day retention cleanup for stealth_logs and rotator_history
+# 5. Specific 30-day retention cleanup for stealth_logs and rotator_history
 find "$LOG_ROOT/stealth_logs" "$LOG_ROOT/rotator_history" -type f -mtime +30 -delete 2>/dev/null
 
-# 5. Cleanup empty directories (date folders, session folders)
-find "$LOG_ROOT" -mindepth 2 -type d -empty -delete 2>/dev/null
+# 6. Cleanup empty directories (excluding tmp folders)
+find "$LOG_ROOT" -mindepth 2 -not -path "*/tmp*" -type d -empty -delete 2>/dev/null
 
-echo "[$NOW] Cleanup complete. Disk usage remains at $DISK_USAGE%."
+echo "[$NOW] Cleanup complete. Disk usage remains at $(df / | tail -1 | awk '{print $5}')."

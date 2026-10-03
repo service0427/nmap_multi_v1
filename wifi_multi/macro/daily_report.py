@@ -60,21 +60,34 @@ def generate_report(target_date_str=None):
             return f"lte{idx}"
         return "unknown"
 
-    # Walk through device log directories
+    # Collect all session paths across both new logs/macro/ and legacy layouts
+    session_targets = []
+
+    # 1. New structure: logs/macro/{target_date_str}/{device_id}/{session_dir}
+    macro_date_path = os.path.join(logs_dir, "macro", target_date_str)
+    if os.path.isdir(macro_date_path):
+        for device_id in os.listdir(macro_date_path):
+            dev_path = os.path.join(macro_date_path, device_id)
+            if os.path.isdir(dev_path):
+                for session_dir in os.listdir(dev_path):
+                    session_targets.append((device_id, os.path.join(dev_path, session_dir)))
+
+    # 2. Legacy fallback: logs/{device_id}/{target_date_str}/{session_dir}
     for device_id in os.listdir(logs_dir):
+        if device_id in ["macro", "rotator_history", "stealth_logs", "locks", "fallback", "cache"]:
+            continue
         dev_path = os.path.join(logs_dir, device_id)
-        if not os.path.isdir(dev_path) or device_id == "rotator_history":
+        if not os.path.isdir(dev_path):
             continue
-            
         date_path = os.path.join(dev_path, target_date_str)
-        if not os.path.isdir(date_path):
+        if os.path.isdir(date_path):
+            for session_dir in os.listdir(date_path):
+                session_targets.append((device_id, os.path.join(date_path, session_dir)))
+
+    for device_id, session_path in session_targets:
+        exec_log_path = os.path.join(session_path, "execution.log")
+        if not os.path.exists(exec_log_path):
             continue
-            
-        for session_dir in os.listdir(date_path):
-            session_path = os.path.join(date_path, session_dir)
-            exec_log_path = os.path.join(session_path, "execution.log")
-            if not os.path.exists(exec_log_path):
-                continue
                 
             bind_ip = None
             status = "UNKNOWN"
