@@ -55,8 +55,12 @@ find "$LOG_ROOT" -mindepth 2 -maxdepth 3 \
     -not -newermt "$KEEP_TIME" \
     -exec rm -rf {} + 2>/dev/null
 
-# 5. Specific 30-day retention cleanup for stealth_logs and rotator_history
+# 5. Specific 30-day retention cleanup for stealth_logs, rotator_history, and api_backup
 find "$LOG_ROOT/stealth_logs" "$LOG_ROOT/rotator_history" -type f -mtime +30 -delete 2>/dev/null
+API_BACKUP_DIR="$SCRIPT_DIR/api_backup"
+if [ -d "$API_BACKUP_DIR" ]; then
+    find "$API_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} + 2>/dev/null
+fi
 
 # 6. Cleanup empty directories (excluding tmp and devices folders)
 find "$LOG_ROOT" -mindepth 2 -not -path "*/tmp*" -not -path "*/devices*" -type d -empty -delete 2>/dev/null
