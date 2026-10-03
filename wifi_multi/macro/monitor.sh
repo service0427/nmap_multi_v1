@@ -743,6 +743,27 @@ while true; do
 
                     if [ "$IDENTITY_VALID" = true ]; then
                         echo "[$(NOW)] [✓] Identity Validation Passed. All target values matched."
+
+                        # [🛡️ Zero-Mutation & Security Leak Audit Gate]
+                        echo "[$(NOW)] [Action] Running post-session security and zero-mutation audit gate..."
+                        REPORT_SCRIPT="$WIFI_MULTI_ROOT/lib/report.py"
+                        [ ! -f "$REPORT_SCRIPT" ] && REPORT_SCRIPT="$(dirname "$0")/../lib/report.py"
+                        python3 "$REPORT_SCRIPT" "$ABS_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "ROUTEEND_REACHED"
+                        REPORT_EXIT_CODE=$?
+
+                        if [ $REPORT_EXIT_CODE -eq 1 ]; then
+                            LEAK_MSG=$(jq -r '.security_audit.leak_message // "IDENTITY_LEAK_DETECTED"' "$ABS_LOG_DIR/report.json" 2>/dev/null)
+                            echo "[$(NOW)] [🚨🚨🚨] CRITICAL AUDIT FAILURE: Security leak detected ($LEAK_MSG)!"
+                            send_report_result "FAIL" "IDENTITY_LEAK_DETECTED: $LEAK_MSG"
+                            echo "{\"status\":\"FAIL\",\"reason\":\"IDENTITY_LEAK_DETECTED\"}" > "$CURRENT_TASK_JSON"
+                            exit 1
+                        elif [ $REPORT_EXIT_CODE -eq 2 ]; then
+                            PATCH_REASON=$(jq -r '.patch_audit.status // "ZERO_MUTATION"' "$ABS_LOG_DIR/report.json" 2>/dev/null)
+                            echo "[$(NOW)] [🚨🚨🚨] CRITICAL AUDIT FAILURE: App patch mismatch detected ($PATCH_REASON)!"
+                            send_report_result "FAIL" "PATCH_MISMATCH: $PATCH_REASON"
+                            echo "{\"status\":\"PATCH_ALERT\",\"reason\":\"$PATCH_REASON\"}" > "$CURRENT_TASK_JSON"
+                            exit 1
+                        fi
                         
                         # Calculate final average speed to report to server
                         FINAL_CALC_SPEED=0

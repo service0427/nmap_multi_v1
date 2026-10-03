@@ -38,7 +38,7 @@ reset_session_offsets()
 # =============================================================================
 # 2. Timestamp Synthesis (pm clear recovery)
 # =============================================================================
-def synthesize_session_timestamps(obj):
+def synthesize_session_timestamps(obj, url: str = "", logger=None):
     """Auto-synthesizes realistic time values if pm clear resets them to 0."""
     current_ms = int(time.time() * 1000)
     
@@ -53,18 +53,35 @@ def synthesize_session_timestamps(obj):
                 return int(time.time()) - random.randint(86400, 2592000)
             return val
 
-        return {
-            k: (
-                v + SESSION_STORAGE_OFFSET if k == "storage_size" and isinstance(v, (int, float)) else 
-                (v - SESSION_BOOT_OFFSET_MS if k == "last_boot_ts" and isinstance(v, (int, float)) else 
-                (get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC if k == "install_ts" and isinstance(v, (int, float)) else 
-                (get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS if k == "init_ts" and isinstance(v, (int, float)) else 
-                synthesize_session_timestamps(v))))
-            )
-            for k, v in obj.items()
-        }
+        res = {}
+        for k, v in obj.items():
+            if k == "storage_size" and isinstance(v, (int, float)):
+                new_v = v + SESSION_STORAGE_OFFSET
+                if logger:
+                    logger.record(url, "telemetry_jitter", "timestamp", "storage_size", v, new_v)
+                res[k] = new_v
+            elif k == "last_boot_ts" and isinstance(v, (int, float)):
+                new_v = v - SESSION_BOOT_OFFSET_MS
+                if logger:
+                    logger.record(url, "telemetry_jitter", "timestamp", "last_boot_ts", v, new_v)
+                res[k] = new_v
+            elif k == "install_ts" and isinstance(v, (int, float)):
+                new_v = get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC
+                if logger:
+                    logger.record(url, "telemetry_jitter", "timestamp", "install_ts", v, new_v)
+                res[k] = new_v
+            elif k == "init_ts" and isinstance(v, (int, float)):
+                new_v = get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS
+                if logger:
+                    logger.record(url, "telemetry_jitter", "timestamp", "init_ts", v, new_v)
+                res[k] = new_v
+            elif isinstance(v, (dict, list)):
+                res[k] = synthesize_session_timestamps(v, url=url, logger=logger)
+            else:
+                res[k] = v
+        return res
     elif isinstance(obj, list):
-        return [synthesize_session_timestamps(i) for i in obj]
+        return [synthesize_session_timestamps(i, url=url, logger=logger) for i in obj]
     return obj
 
 smart_cleanse = synthesize_session_timestamps
@@ -73,7 +90,7 @@ smart_cleanse = synthesize_session_timestamps
 # =============================================================================
 # 3. Location Jittering & WiFi AP Blanking
 # =============================================================================
-def jitter_location_dict(o):
+def jitter_location_dict(o, url: str = "", logger=None):
     """Randomize specific fields in trafficjam location dict.
     - Blanks Object 4 (Wi-Fi AP scan list) to prevent office location pinning.
     - Randomizes static/simulated speed, bearing, and accuracy indicators (fields 5, 6, 7).
@@ -82,7 +99,11 @@ def jitter_location_dict(o):
         # 1. WiFi Data Array Cleanup (Object 4)
         for wk in [4, "4"]:
             if wk in o and isinstance(o[wk], list):
-                print(f"[📡 DEBUG] Object 4 (WiFi Array) detected. Items: {len(o[wk])}. Blanking...", flush=True)
+                orig_cnt = len(o[wk])
+                if orig_cnt > 0:
+                    print(f"[📡 DEBUG] Object 4 (WiFi Array) detected. Items: {orig_cnt}. Blanking...", flush=True)
+                    if logger:
+                        logger.record(url, "telemetry_jitter", "wifi_blanking", "object_4_wifi", f"wifi_count_{orig_cnt}", "blanked")
                 o[wk] = []
 
         # 2. Aggressive Mutation for Speed/Bearing/Accuracy (5, 6, 7)
@@ -102,48 +123,66 @@ def jitter_location_dict(o):
                         new_val = int(random.randint(1080000000, 1150000000))
                         o[k] = new_val
                         print(f"  [⚡ JITTER] Field {ks} matched value {val}. Randomized to: {new_val}", flush=True)
+                        if logger:
+                            logger.record(url, "telemetry_jitter", "location_jitter", f"field_{ks}", val, new_val)
                 except Exception:
                     pass
             
             # Recursively process children
             if isinstance(val, (dict, list)):
-                jitter_location_dict(val)
+                jitter_location_dict(val, url=url, logger=logger)
     elif isinstance(o, list):
         for i in o:
-            jitter_location_dict(i)
+            jitter_location_dict(i, url=url, logger=logger)
 
 
 # =============================================================================
 # 4. Network Environment Washer (Cellular / LTE Emulation)
 # =============================================================================
-def wash_network_env(o):
+def wash_network_env(o, url: str = "", logger=None):
     """Recursively search for 'env' dict or specific keys and override them to emulate cellular network.
     Specifically: env.network_type -> 'cellular', env.mcc_mnc -> '450_08', Carrier -> 'KT'
     """
     if isinstance(o, dict):
         if "env" in o and isinstance(o["env"], dict):
             env = o["env"]
-            if "network_type" in env:
+            if "network_type" in env and env["network_type"] != "cellular":
+                if logger:
+                    logger.record(url, "cellular_env", "network", "env.network_type", env["network_type"], "cellular")
                 env["network_type"] = "cellular"
-            if "mcc_mnc" in env:
+            if "mcc_mnc" in env and env["mcc_mnc"] != "450_08":
+                if logger:
+                    logger.record(url, "cellular_env", "network", "env.mcc_mnc", env["mcc_mnc"], "450_08")
                 env["mcc_mnc"] = "450_08"
         
-        if "network_type" in o:
+        if "network_type" in o and o["network_type"] != "cellular":
+            if logger:
+                logger.record(url, "cellular_env", "network", "network_type", o["network_type"], "cellular")
             o["network_type"] = "cellular"
-        if "mcc_mnc" in o:
+        if "mcc_mnc" in o and o["mcc_mnc"] != "450_08":
+            if logger:
+                logger.record(url, "cellular_env", "network", "mcc_mnc", o["mcc_mnc"], "450_08")
             o["mcc_mnc"] = "450_08"
 
-        if "NetworkType" in o:
+        if "NetworkType" in o and o["NetworkType"] != "Cellular":
+            if logger:
+                logger.record(url, "cellular_env", "network", "NetworkType", o["NetworkType"], "Cellular")
             o["NetworkType"] = "Cellular"
-        if "Carrier" in o:
+        if "Carrier" in o and o["Carrier"] != "KT":
+            if logger:
+                logger.record(url, "cellular_env", "network", "Carrier", o["Carrier"], "KT")
             o["Carrier"] = "KT"
-        if "host" in o and isinstance(o["host"], str):
+        if "host" in o and isinstance(o["host"], str) and o["host"] != "192.0.0.2":
             parts = o["host"].split('.')
             if len(parts) == 4 and all(p.isdigit() for p in parts):
+                if logger:
+                    logger.record(url, "cellular_env", "network", "host", o["host"], "192.0.0.2")
                 o["host"] = "192.0.0.2"
 
         for k, v in o.items():
-            wash_network_env(v)
+            if isinstance(v, (dict, list)):
+                wash_network_env(v, url=url, logger=logger)
     elif isinstance(o, list):
         for item in o:
-            wash_network_env(item)
+            if isinstance(item, (dict, list)):
+                wash_network_env(item, url=url, logger=logger)

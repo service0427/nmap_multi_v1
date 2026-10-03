@@ -39,19 +39,35 @@ def main():
             pass
     
     # [Failsafe] Auto-detect real client identities from modifications.json if environment had stale/mismatched DB values
+    # Also collect mutation counts for zero-mutation patch audit gate
     mod_path = os.path.join(log_dir, "modifications.json")
+    identity_mutations = 0
+    jitter_mutations = 0
+    cellular_mutations = 0
+
     if os.path.exists(mod_path):
         try:
             with open(mod_path, "r", encoding="utf-8") as mf:
                 mod_data = json.load(mf)
             for m in mod_data:
                 field = m.get("field", "")
+                rule = m.get("rule", "")
+                mtype = m.get("type", "")
+
                 orig_m = m.get("original")
                 if orig_m and len(orig_m) > 5:
                     if ("idfv" in field or field in ["da-dv", "iv"]) and pairs["idfv"][1] and orig_m != pairs["idfv"][1]:
                         pairs["idfv"] = (orig_m, pairs["idfv"][1])
                     elif ("adid" in field or field in ["da-dd", "ai", "x-adid"]) and pairs["adid"][1] and orig_m != pairs["adid"][1]:
                         pairs["adid"] = (orig_m, pairs["adid"][1])
+
+                # Tally categorized mutations
+                if rule == "telemetry_jitter" or mtype in ["telemetry_jitter", "timestamp", "wifi_blanking", "location_jitter"]:
+                    jitter_mutations += 1
+                elif rule == "cellular_env" or mtype in ["cellular_env", "network"]:
+                    cellular_mutations += 1
+                elif rule == "dynamic_walker" or mtype in ["header", "tree_node", "query_param", "primitive", "list_item"]:
+                    identity_mutations += 1
         except Exception:
             pass
 
@@ -125,6 +141,53 @@ def main():
             "original_found_count": orig_count,
             "spoofed_found_count": spoof_count
         }
+
+    identities_replaced = sum(1 for v in actual_replacements.values() if v.get("status") == "SUCCESSFULLY_REPLACED")
+
+    # [🛡️ Zero-Mutation & App Patch Mismatch Gate]
+    is_completion_run = (
+        reason in ["ROUTEEND_REACHED", "Task Completed"]
+        or "SUCCESS" in str(reason)
+        or len(glob.glob(os.path.join(log_dir, "*routeend*.json"))) > 0
+    )
+
+    patch_status = "CLEAN"
+    anomaly_msg = ""
+    exit_code = 0
+
+    if leak_detected:
+        patch_status = "LEAK_DETECTED"
+        exit_code = 1
+        anomaly_msg = "; ".join(leak_msg_list)
+    elif is_completion_run:
+        if identities_replaced == 0 and identity_mutations == 0:
+            patch_status = "PATCH_MISMATCH_ZERO_IDENTITY"
+            exit_code = 2
+            anomaly_msg = "Zero identity mutations detected across entire session. App patch likely altered identity headers or payload schema."
+        elif jitter_mutations == 0:
+            patch_status = "PATCH_MISMATCH_ZERO_JITTER"
+            exit_code = 2
+            anomaly_msg = "Zero telemetry jitter mutations applied. App patch likely changed telemetry, timestamp, or location wire schema."
+        elif cellular_mutations == 0:
+            patch_status = "PATCH_MISMATCH_ZERO_CELLULAR_ENV"
+            exit_code = 2
+            anomaly_msg = "Zero cellular network mutations applied. App patch likely altered network environment carrier/type keys."
+        else:
+            patch_status = "CLEAN"
+            exit_code = 0
+    else:
+        patch_status = "SKIPPED_INCOMPLETE_SESSION"
+        exit_code = 0
+
+    if exit_code == 2:
+        try:
+            # Auto-invalidate verified cache for this device so invalid mappings are not re-used
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from mitm.identity_cache import invalidate_cache
+            invalidate_cache(device_id)
+            print(f"[!] [PATCH GATE] Invalidated verified identity cache for {device_id} due to {patch_status}")
+        except Exception as cache_err:
+            print(f"[-] Could not invalidate cache: {cache_err}", file=sys.stderr)
         
     # 3. Parse captured cookies from v2_tokens.json
     cookie_data = {
@@ -157,6 +220,16 @@ def main():
             "leak_status": "LEAK_DETECTED" if leak_detected else "CLEAN",
             "leak_message": leak_msg
         },
+        "patch_audit": {
+            "status": patch_status,
+            "anomaly_detected": exit_code != 0,
+            "anomaly_message": anomaly_msg,
+            "identity_mutation_count": identity_mutations,
+            "jitter_mutation_count": jitter_mutations,
+            "cellular_mutation_count": cellular_mutations,
+            "identities_replaced_count": identities_replaced,
+            "is_completion_run": is_completion_run
+        },
         "identity_spoofing_audit": actual_replacements,
         "actual_captured_cookies": cookie_data
     }
@@ -166,7 +239,7 @@ def main():
     with open(report_path, "w", encoding="utf-8") as rf:
         json.dump(report, rf, indent=2, ensure_ascii=False)
         
-    print(f"[✓] report.json generated successfully. Leak Status: {report['security_audit']['leak_status']}")
+    print(f"[✓] report.json generated successfully. Leak Status: {report['security_audit']['leak_status']}, Patch Status: {patch_status} (Exit: {exit_code})")
     
     # [🚀 Unified Score-based IP Rotator Integration with Exclusive File Lock]
     # Update lte_rotator_state.json dynamically based on the session execution result
@@ -410,10 +483,7 @@ def main():
     except Exception as score_err:
         print(f"[-] Error writing unified IP scores: {score_err}", file=sys.stderr)
         
-    if leak_detected:
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()

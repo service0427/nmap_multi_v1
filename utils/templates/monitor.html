@@ -61,6 +61,7 @@
         .badge-unauthorized { background: #555555; color: white; }
         .badge-disabled { background: #616161; color: #ccc; }
         .badge-charging { background: #0288D1; color: white; }
+        .badge-patch-alert { background: #D50000; color: white; animation: pulse-red 1s infinite; font-weight: bold; }
         
         .battery-warning { color: #f44336 !important; font-weight: bold; animation: pulse-red 1s infinite; text-shadow: 0 0 5px rgba(244, 67, 54, 0.8); }
         @keyframes pulse-red { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
@@ -801,6 +802,8 @@
                             badgeClass = 'badge-disabled';
                         } else if (dev.status === 'CHARGING') {
                             badgeClass = 'badge-charging';
+                        } else if (dev.status === 'PATCH_ALERT') {
+                            badgeClass = 'badge-patch-alert';
                         } else if (dev.status === 'IP_COOLDOWN' || dev.status === 'COOLDOWN') {
                             badgeClass = 'badge-cooldown';
                         } else if (dev.status === 'PENALTY') {

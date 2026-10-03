@@ -88,12 +88,12 @@ def handle_request(addon, flow: http.HTTPFlow):
             if meta.encoding == "protobuf":
                 # Location jittering (WiFi blanking & speed/bearing jitter)
                 if "trafficjam" in path_lower or "location" in path_lower:
-                    jitter_location_dict(decoded_obj)
+                    jitter_location_dict(decoded_obj, url=flow.request.url, logger=AUDIT_LOGGER)
 
                 # Dynamic 1:1 tree replacement across entire Protobuf message
                 dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "pbf", flow.request.url, AUDIT_LOGGER)
 
-                wash_network_env(decoded_obj)
+                wash_network_env(decoded_obj, url=flow.request.url, logger=AUDIT_LOGGER)
 
                 flow.request.modified_decoded = to_jsonable(decoded_obj)
                 flow.request.content = encode_request_payload(decoded_obj, meta)
@@ -101,7 +101,7 @@ def handle_request(addon, flow: http.HTTPFlow):
 
             # B. JSON Processing (nlog, nelo, graphql, etc.)
             elif meta.encoding == "json":
-                decoded_obj = synthesize_session_timestamps(decoded_obj)
+                decoded_obj = synthesize_session_timestamps(decoded_obj, url=flow.request.url, logger=AUDIT_LOGGER)
 
                 # Auto-learn from JSON usr dictionary (nlogapp, etc.)
                 usr = decoded_obj.get("usr")
@@ -117,7 +117,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                 # Dynamic 1:1 tree replacement across entire JSON tree
                 dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)
 
-                wash_network_env(decoded_obj)
+                wash_network_env(decoded_obj, url=flow.request.url, logger=AUDIT_LOGGER)
 
                 flow.request.modified_decoded = decoded_obj
                 flow.request.content = encode_request_payload(decoded_obj, meta)

@@ -126,7 +126,7 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
                 with open(task_info_path, 'r') as f:
                     cdata = json.load(f)
                     cstatus = cdata.get("status")
-                    if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING"]:
+                    if cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING", "PATCH_ALERT"]:
                         info["status"] = cstatus
         except:
             pass
@@ -359,7 +359,7 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
             info["status"] = "SUCCESS"
             task_data["status"] = "SUCCESS"
             info["current_task"] = task_data
-        elif cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING"]:
+        elif cstatus in ["IP_COOLDOWN", "COOLDOWN", "PENALTY", "UNAUTHORIZED", "CHARGING", "PATCH_ALERT"]:
             info["status"] = cstatus
             info["current_task"] = None
         else:

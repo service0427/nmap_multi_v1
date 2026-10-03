@@ -52,8 +52,8 @@ def get_device_diagnostics(serial):
                 task_data = json.load(f)
                 info["current_task"] = task_data
                 info["ip"] = task_data.get("real_ip", "N/A")
-                if task_data.get("status") == "CHARGING":
-                    info["status"] = "CHARGING"
+                if task_data.get("status") in ["CHARGING", "PATCH_ALERT"]:
+                    info["status"] = task_data.get("status")
                 sp = task_data.get("session_path", "")
                 if "_" in sp:
                     info["dest_id"] = sp.split("_")[-1]

@@ -106,11 +106,17 @@ cleanup() {
     # [NEW] Advanced report.py Audit Engine
     local LEAK_DETECTED=false
     local LEAK_MSG=""
+    local PATCH_ALERT=false
+    local PATCH_MSG=""
     if [ -d "$CAPTURE_LOG_DIR" ]; then
         python3 "$LIB_DIR/report.py" "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON"
-        if [ $? -eq 1 ]; then
+        local AUDIT_RC=$?
+        if [ $AUDIT_RC -eq 1 ]; then
             LEAK_DETECTED=true
             LEAK_MSG=$(jq -r '.security_audit.leak_message // empty' "$CAPTURE_LOG_DIR/report.json" 2>/dev/null)
+        elif [ $AUDIT_RC -eq 2 ]; then
+            PATCH_ALERT=true
+            PATCH_MSG=$(jq -r '.patch_audit.status // empty' "$CAPTURE_LOG_DIR/report.json" 2>/dev/null)
         fi
     fi
 
@@ -128,6 +134,15 @@ cleanup() {
         IS_SUCCESS=false
         REASON="IDENTITY_LEAK_DETECTED ($LEAK_MSG)"
         rm -f "$CURRENT_TASK_JSON" 2>/dev/null
+        # report.json 다시 생성해서 실패 원인 업데이트
+        python3 "$LIB_DIR/report.py" "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON" > /dev/null 2>&1
+    elif [ "$PATCH_ALERT" = true ]; then
+        echo -e "\n[🚨🚨🚨] CRITICAL APP PATCH MISMATCH DETECTED: $PATCH_MSG!"
+        echo -e "[🚨🚨🚨] Zero mutations detected in identity, jitter, or cellular env!"
+        echo -e "[🚨🚨🚨] FORCING TASK RESULT TO 'FAIL' & RAISING PATCH_ALERT!\n"
+        IS_SUCCESS=false
+        REASON="PATCH_MISMATCH ($PATCH_MSG)"
+        echo "{\"status\":\"PATCH_ALERT\",\"reason\":\"$PATCH_MSG\"}" > "$CURRENT_TASK_JSON"
         # report.json 다시 생성해서 실패 원인 업데이트
         python3 "$LIB_DIR/report.py" "$CAPTURE_LOG_DIR" "$DEV_ID" "$NMAP_LOG_ID" "$REASON" > /dev/null 2>&1
     fi
