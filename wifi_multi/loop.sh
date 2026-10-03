@@ -155,7 +155,7 @@ while true; do
             timeout 10 adb -s "$DEV_ID" shell settings put global http_proxy :0 2>/dev/null
             
             # 락 파일 및 태스크 메타파일 정리
-            rm -f "logs/devices/${DEV_ID}/tmp/nmap_lock" "logs/devices/${DEV_ID}/current_task.json" "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/nmap_lock" "logs/${DEV_ID}/current_task.json" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+            rm -f "logs/devices/${DEV_ID}/tmp/nmap_lock" "logs/devices/${DEV_ID}/current_task.json" "logs/devices/${DEV_ID}/tmp/guidance_started" 2>/dev/null
             
             # API 서버에 실패 결과 보고
             curl -s -X POST "http://${API_SERVER}/api/v1/report_result" \

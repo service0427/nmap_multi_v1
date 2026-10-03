@@ -119,7 +119,9 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
     except:
         info["status"] = "IDLE"
         try:
-            task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+            task_info_path = os.path.join(LOG_BASE_DIR, "devices", serial, "current_task.json")
+            if not os.path.exists(task_info_path):
+                task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
             if os.path.exists(task_info_path):
                 with open(task_info_path, 'r') as f:
                     cdata = json.load(f)
@@ -145,7 +147,9 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
         pass
 
     # 2.5. Check Deep Sleep State
-    deep_sleep_file = os.path.join(LOG_BASE_DIR, serial, "tmp", "deep_sleep_active")
+    deep_sleep_file = os.path.join(LOG_BASE_DIR, "devices", serial, "tmp", "deep_sleep_active")
+    if not os.path.exists(deep_sleep_file):
+        deep_sleep_file = os.path.join(LOG_BASE_DIR, serial, "tmp", "deep_sleep_active")
     info["is_deep_sleep"] = os.path.exists(deep_sleep_file)
 
     # 3. Find Latest Task Details from execution.log & session files (Safety fallback / Contrast)
@@ -160,32 +164,53 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
         "status": "IDLE"
     }
     
-    # 3-1. Try parsing logs directory structure
+    # 3-1. Try parsing logs directory structure (Priority: logs/macro/{date}/{serial}, Fallback: logs/{serial})
     latest_session_dir = None
     latest_date_str = None
     try:
-        dev_log_dir = os.path.join(LOG_BASE_DIR, serial)
-        if os.path.exists(dev_log_dir):
-            dates = sorted([d for d in os.listdir(dev_log_dir) if d.isdigit()], reverse=True)
-            if dates:
-                latest_date_str = dates[0]
-                date_dir = os.path.join(dev_log_dir, latest_date_str)
-                sessions = sorted([s for s in os.listdir(date_dir) if "_" in s], reverse=True)
-                if sessions:
-                    latest_session_dir = os.path.join(date_dir, sessions[0])
-                    # Revert latest_log to show the session directory name
-                    info["latest_log"] = sessions[0]
-                    parts = sessions[0].split("_")
-                    if len(parts) >= 2:
-                        task_data["dest_id"] = parts[1]
-                        
-                    time_str = parts[0]
-                    try:
-                        dt_str = f"{latest_date_str} {time_str}"
-                        struct_time = time.strptime(dt_str, "%Y%m%d %H%M%S")
-                        task_data["start_ts"] = int(time.mktime(struct_time))
-                    except:
-                        pass
+        macro_dir = os.path.join(LOG_BASE_DIR, "macro")
+        if os.path.exists(macro_dir):
+            dates = sorted([d for d in os.listdir(macro_dir) if d.isdigit()], reverse=True)
+            for d in dates:
+                dev_d = os.path.join(macro_dir, d, serial)
+                if os.path.exists(dev_d):
+                    latest_date_str = d
+                    sessions = sorted([s for s in os.listdir(dev_d) if "_" in s], reverse=True)
+                    if sessions:
+                        latest_session_dir = os.path.join(dev_d, sessions[0])
+                        info["latest_log"] = sessions[0]
+                        parts = sessions[0].split("_")
+                        if len(parts) >= 2:
+                            task_data["dest_id"] = parts[1]
+                        time_str = parts[0]
+                        try:
+                            dt_str = f"{latest_date_str} {time_str}"
+                            struct_time = time.strptime(dt_str, "%Y%m%d %H%M%S")
+                            task_data["start_ts"] = int(time.mktime(struct_time))
+                        except:
+                            pass
+                        break
+        if not latest_session_dir:
+            dev_log_dir = os.path.join(LOG_BASE_DIR, serial)
+            if os.path.exists(dev_log_dir):
+                dates = sorted([d for d in os.listdir(dev_log_dir) if d.isdigit()], reverse=True)
+                if dates:
+                    latest_date_str = dates[0]
+                    date_dir = os.path.join(dev_log_dir, latest_date_str)
+                    sessions = sorted([s for s in os.listdir(date_dir) if "_" in s], reverse=True)
+                    if sessions:
+                        latest_session_dir = os.path.join(date_dir, sessions[0])
+                        info["latest_log"] = sessions[0]
+                        parts = sessions[0].split("_")
+                        if len(parts) >= 2:
+                            task_data["dest_id"] = parts[1]
+                        time_str = parts[0]
+                        try:
+                            dt_str = f"{latest_date_str} {time_str}"
+                            struct_time = time.strptime(dt_str, "%Y%m%d %H%M%S")
+                            task_data["start_ts"] = int(time.mktime(struct_time))
+                        except:
+                            pass
     except Exception as e:
         print(f"Error resolving latest session dir: {e}", flush=True)
 
@@ -206,7 +231,9 @@ def get_device_diagnostics(serial, excluded_list=None, usb_ports=None):
 
     # 3-3. Load values from current_task.json if available as fallback
     try:
-        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+        task_info_path = os.path.join(LOG_BASE_DIR, "devices", serial, "current_task.json")
+        if not os.path.exists(task_info_path):
+            task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
         if os.path.exists(task_info_path):
             with open(task_info_path, 'r') as f:
                 cdata = json.load(f)
@@ -591,7 +618,9 @@ def reset_device_penalty():
         threading.Thread(target=trigger_external_reset, args=(serial,), daemon=True).start()
             
         # 2. Local Reset (current_task.json 갱신 또는 삭제)
-        task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
+        task_info_path = os.path.join(LOG_BASE_DIR, "devices", serial, "current_task.json")
+        if not os.path.exists(task_info_path) and os.path.exists(os.path.join(LOG_BASE_DIR, serial, "current_task.json")):
+            task_info_path = os.path.join(LOG_BASE_DIR, serial, "current_task.json")
         if os.path.exists(task_info_path):
             try:
                 with open(task_info_path, 'r') as f:
@@ -671,7 +700,7 @@ def reboot(dev_id):
 @app.route('/toggle_deep_sleep/<serial>', methods=['POST', 'GET'])
 def toggle_deep_sleep(serial):
     try:
-        tmp_dir = os.path.join(LOG_BASE_DIR, serial, "tmp")
+        tmp_dir = os.path.join(LOG_BASE_DIR, "devices", serial, "tmp")
         os.makedirs(tmp_dir, exist_ok=True)
         deep_sleep_file = os.path.join(tmp_dir, "deep_sleep_active")
         manual_off_file = os.path.join(tmp_dir, "deep_sleep_manual_off")

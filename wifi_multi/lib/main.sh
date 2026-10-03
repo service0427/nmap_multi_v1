@@ -262,7 +262,7 @@ done
 
 if [ "$IP_READY" = false ]; then
     mkdir -p "$DEV_TMP_DIR"
-    touch "$DEV_TMP_DIR/ip_failed_gate" "logs/${DEV_ID}/tmp/ip_failed_gate" 2>/dev/null
+    touch "$DEV_TMP_DIR/ip_failed_gate" 2>/dev/null
     cleanup "NETWORK_TIMEOUT"
 fi
 

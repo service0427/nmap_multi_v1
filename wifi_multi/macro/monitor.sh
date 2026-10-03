@@ -469,7 +469,7 @@ while true; do
                     IS_DRIVING=true
                     update_live_status "DRIVING"
                     mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
-                    touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                    touch "logs/devices/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                 fi
             fi
         fi
@@ -555,7 +555,7 @@ while true; do
                         # QoS 안전장치 활성화 상태: 네비 진입 확정 감지 후 지연 출발 처리
                         echo "[$(NOW)] [🚀] GPS QoS Guard active. Waking up GPS Emulator..."
                         mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
-                        touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                        touch "logs/devices/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                     fi
                     ;;
                 "STEP_08_DRIVING_GOAL") update_live_status "ARRIVED" ;;
@@ -650,7 +650,7 @@ while true; do
                             # Signal auto_reloader.py to start GPS immediately after clicking guidance start (QoS Guard disabled)
                             echo "[$(NOW)] [🚀] GPS QoS Guard is FALSE. Starting GPS Emulator immediately..."
                             mkdir -p "logs/devices/${DEV_ID}/tmp" 2>/dev/null
-                            touch "logs/devices/${DEV_ID}/tmp/guidance_started" "logs/${DEV_ID}/tmp/guidance_started" 2>/dev/null
+                            touch "logs/devices/${DEV_ID}/tmp/guidance_started" 2>/dev/null
                         else
                             echo "[$(NOW)] [🛰️] GPS QoS Guard is TRUE. Delaying GPS Emulator start until driving screen is active."
                         fi

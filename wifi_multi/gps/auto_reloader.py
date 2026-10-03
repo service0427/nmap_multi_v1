@@ -221,18 +221,17 @@ def main(log_dir, device_id):
                             
                             # Wait for monitor.sh to click 'Guidance Start' and create the flag file
                             flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", "devices", device_id, "tmp", "guidance_started")
-                            fallback_flag = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs", device_id, "tmp", "guidance_started")
                             log_print(f"[⏳] Waiting for Guidance Start click (checking flag: {flag_path})...")
                             
                             # Timeout to prevent infinite hang if click fails (max 90s for slow networks & modal delays)
                             wait_start = time.time()
-                            while not (os.path.exists(flag_path) or os.path.exists(fallback_flag)):
+                            while not os.path.exists(flag_path):
                                 time.sleep(0.5)
                                 if time.time() - wait_start > 90.0:
                                     log_print("[-] Timeout waiting for guidance_started flag file. Aborting GPS trigger.")
                                     break
                             
-                            if os.path.exists(flag_path) or os.path.exists(fallback_flag):
+                            if os.path.exists(flag_path):
                                 log_print("[🚀] Guidance Start click detected! Starting road simulation immediately...")
                                 script_dir = os.path.dirname(os.path.abspath(__file__))
                                 env = os.environ.copy()
