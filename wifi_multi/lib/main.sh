@@ -380,8 +380,8 @@ if [ -n "$NMAP_BIND_IP" ]; then
     BIND_OPT="--set connect_addr=$NMAP_BIND_IP"
 fi
 
-# [OPT] Bypass TLS decryption on heavy vector tiles, 3D models, video trailers, and telemetry
-IGNORE_HOSTS_REGEX='^(.*\.pstatic\.net|.*tivan\.naver\.com|resty-base3d-map\.naver\.com|panorama\.map\.naver\.com|.*appsflyersdk\.com|.*crashlytics\.com|.*akamaized\.net)(:[0-9]+)?$'
+# [OPT] Bypass TLS decryption on heavy vector tiles, 3D models, video trailers, and third-party noise (Google, Yandex, Mail.ru, Samsung)
+IGNORE_HOSTS_REGEX='^(.*\.pstatic\.net|.*tivan\.naver\.com|resty-base3d-map\.naver\.com|panorama\.map\.naver\.com|.*appsflyersdk\.com|.*crashlytics\.com|.*akamaized\.net|.*\.googleapis\.com|.*\.google\.com|.*\.gstatic\.com|.*\.gvt[0-9]\.com|.*\.ytimg\.com|.*\.yandex\.(com|net|ru)|.*yastatic\.net|.*yandexadexchange\.net|.*ad\.mail\.ru|.*\.samsungcloud\.com)(:[0-9]+)?$'
 
 nohup mitmdump -p "$NMAP_MITM_PORT" $BIND_OPT --ignore-hosts "$IGNORE_HOSTS_REGEX" -s mitm/addon.py --ssl-insecure --listen-host 0.0.0.0 --set flow_detail=0 > "$CAPTURE_LOG_DIR/mitm.log" 2>&1 &
 MITM_PID=$!

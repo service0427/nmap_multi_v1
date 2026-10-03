@@ -656,7 +656,7 @@ while true; do
                         fi
                     fi
                 elif [ "$ACTION" == "EXIT_SUCCESS" ]; then
-                    WAIT_SEC=${END_ROUTE_WAIT_SECONDS:-10}
+                    WAIT_SEC=${END_ROUTE_WAIT_SECONDS:-15}
                     echo "[$(NOW)] [Action] GOAL REACHED. Waiting ${WAIT_SEC}s for transition to safety driving mode..."
                     sleep "$WAIT_SEC"
                     echo "[$(NOW)] [Action] EXTRACTING ACTUAL STATS AND VALIDATING IDENTITY..."
