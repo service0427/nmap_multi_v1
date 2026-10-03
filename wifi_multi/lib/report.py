@@ -144,6 +144,98 @@ def main():
 
     identities_replaced = sum(1 for v in actual_replacements.values() if v.get("status") == "SUCCESSFULLY_REPLACED")
 
+    # [🔍 SECONDARY INDEPENDENT AUDIT] Structureless Raw String Text Leak Scanner
+    # Treats all transmitted request payloads (URL, headers, body) as pure flat string text,
+    # completely ignoring object structures, and verifies 0 occurrences of target original values.
+    raw_leak_detected = False
+    raw_packet_matches = []
+    total_raw_chars = 0
+    total_raw_files = 0
+    raw_hits_by_key = {k: 0 for k in pairs.keys()}
+
+    for fpath in target_files:
+        try:
+            with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                p_content = f.read()
+
+            if fpath.endswith(".json"):
+                try:
+                    p_json = json.loads(p_content)
+                    req = p_json.get("request", {})
+                    if not req and "url" not in p_json:
+                        transmitted_txt = p_content
+                    else:
+                        url_t = str(p_json.get("url", ""))
+                        hdr_t = str(req.get("headers", {}))
+                        b_val = req.get("body", {})
+                        b_t = str(b_val.get("_decoded", b_val)) if isinstance(b_val, dict) else str(b_val)
+                        transmitted_txt = f"{url_t}\n{hdr_t}\n{b_t}"
+                except Exception:
+                    transmitted_txt = p_content
+            else:
+                transmitted_txt = p_content
+
+            total_raw_files += 1
+            total_raw_chars += len(transmitted_txt)
+            t_lower = transmitted_txt.lower()
+            fname = os.path.basename(fpath)
+            for k, (orig, _) in pairs.items():
+                if orig and len(orig) > 5:
+                    c = t_lower.count(orig.lower())
+                    if c > 0:
+                        raw_leak_detected = True
+                        raw_hits_by_key[k] += c
+                        raw_packet_matches.append({
+                            "file": fname,
+                            "key": k,
+                            "orig_val": orig,
+                            "occurrences": c
+                        })
+        except Exception:
+            pass
+
+    # Record to dedicated per-session raw leak audit log
+    raw_audit_log_path = os.path.join(log_dir, "raw_leak_audit.log")
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(raw_audit_log_path, "w", encoding="utf-8") as rf:
+            rf.write("=== RAW STRING LEAK AUDIT REPORT ===\n")
+            rf.write(f"Timestamp: {now_str}\n")
+            rf.write(f"Device: {device_id} | Task: {task_id}\n")
+            rf.write(f"Scanned Packet Files: {total_raw_files} | Total Characters: {total_raw_chars}\n")
+            if raw_leak_detected:
+                rf.write("STATUS: FAILED_RAW_LEAK_DETECTED\n")
+                rf.write("Leak Summary:\n")
+                for k, cnt in raw_hits_by_key.items():
+                    if cnt > 0:
+                        rf.write(f"  - [{k}] Raw String '{pairs[k][0]}' appeared {cnt} times\n")
+                rf.write("\nMatched Packets Detail:\n")
+                for m in raw_packet_matches:
+                    rf.write(f"  - {m['file']}: {m['key']} ({m['orig_val']}) -> {m['occurrences']} times\n")
+            else:
+                rf.write("STATUS: CLEAN (0 leaks detected across all raw strings)\n")
+                for k in pairs.keys():
+                    if pairs[k][0]:
+                        rf.write(f"  - [{k}] '{pairs[k][0]}': 0 matches\n")
+    except Exception as log_err:
+        print(f"[-] Could not write raw_leak_audit.log: {log_err}", file=sys.stderr)
+
+    # If raw string leak detected, log to central stealth log and mark leak_detected = True
+    if raw_leak_detected:
+        leak_detected = True
+        raw_msg_parts = [f"{k} raw-matched {cnt}x" for k, cnt in raw_hits_by_key.items() if cnt > 0]
+        leak_msg_list.append(f"Raw string leak: {', '.join(raw_msg_parts)}")
+        try:
+            today_str = datetime.now().strftime("%Y%m%d")
+            stealth_dir = "/home/tech/nmap_multi_v1/wifi_multi/logs/stealth_logs"
+            os.makedirs(stealth_dir, exist_ok=True)
+            central_raw_log = os.path.join(stealth_dir, f"raw_leak_alerts_{today_str}.log")
+            with open(central_raw_log, "a", encoding="utf-8") as crf:
+                crf.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{device_id}] [{task_id}] [RAW_STRING_LEAK] "
+                          f"Matches: {len(raw_packet_matches)} in files {[m['file'] for m in raw_packet_matches[:5]]}\n")
+        except Exception:
+            pass
+
     # [🛡️ Zero-Mutation & App Patch Mismatch Gate]
     is_completion_run = (
         reason in ["ROUTEEND_REACHED", "Task Completed"]
@@ -229,6 +321,13 @@ def main():
             "cellular_mutation_count": cellular_mutations,
             "identities_replaced_count": identities_replaced,
             "is_completion_run": is_completion_run
+        },
+        "raw_string_audit": {
+            "status": "RAW_LEAK_DETECTED" if raw_leak_detected else "CLEAN",
+            "total_packet_files_scanned": total_raw_files,
+            "total_chars_scanned": total_raw_chars,
+            "detections": raw_hits_by_key,
+            "matched_packets": raw_packet_matches
         },
         "identity_spoofing_audit": actual_replacements,
         "actual_captured_cookies": cookie_data
