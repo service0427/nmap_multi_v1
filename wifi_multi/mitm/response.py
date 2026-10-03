@@ -123,12 +123,17 @@ def handle_response(addon, flow: http.HTTPFlow):
 
     is_parsed_json = (isinstance(parsed, (dict, list)) and "_raw" not in parsed)
 
-    if is_req_gz:
-        req_encoding = "gzip"
+    tj_orig = getattr(flow.request, "trafficjam_original", {})
+    orig_enc = tj_orig.get("_encoding") if isinstance(tj_orig, dict) else None
+
+    if orig_enc:
+        req_encoding = orig_enc
     elif "json" in ct_req or (isinstance(tj_mod, dict) and "usr" in tj_mod) or is_parsed_json:
         req_encoding = "json"
     elif "protobuf" in ct_req or "octet-stream" in ct_req or b"\x00" in req_bytes:
         req_encoding = "protobuf"
+    elif is_req_gz:
+        req_encoding = "gzip"
     elif "urlencoded" in ct_req:
         req_encoding = "form-urlencoded"
     else:

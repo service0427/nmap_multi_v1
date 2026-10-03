@@ -278,8 +278,7 @@ def handle_request(addon, flow: http.HTTPFlow):
             if "json" in ct or (work_str and (work_str.strip().startswith('{') or work_str.strip().startswith('['))):
                 try:
                     orig_audit["_decoded"] = json.loads(work_str if work_str else work_raw.decode('utf-8', 'ignore'))
-                    if orig_audit["_encoding"] == "raw":
-                        orig_audit["_encoding"] = "json"
+                    orig_audit["_encoding"] = "json"
                 except Exception:
                     pass
 
