@@ -188,3 +188,36 @@ def handle_response(addon, flow: http.HTTPFlow):
             "status": flow.response.status_code
         }
     })
+
+    # [RouteEnd Verified Cache Save]
+    # When routeend succeeds with HTTP 200 and no errorLog/429 failures occurred,
+    # create a verified snapshot cache to be reused across future cycles on the same app version.
+    if "routeend" in path and flow.response.status_code == 200:
+        try:
+            has_error = (
+                os.path.exists(os.path.join(addon.base_log_dir, "errorLog_detected")) or
+                os.path.exists(os.path.join(addon.base_log_dir, "gql_429_detected"))
+            )
+            if not has_error:
+                from .identity_cache import extract_app_version, save_verified_cache
+                from .rules import get_target_identities
+                from .request import SESSION_LEARNED_IDENTITIES
+
+                dev_id = getattr(addon, "device_id", None) or os.environ.get("NMAP_DEV_ID", "Unknown")
+                app_ver = extract_app_version(flow.request)
+                target_ids = get_target_identities()
+                cached_targets = getattr(addon, "_cached_targets", {})
+                for k in ["orig_ssaid", "orig_adid", "orig_idfv", "orig_ni", "orig_token"]:
+                    if not target_ids.get(k) and cached_targets.get(k):
+                        target_ids[k] = cached_targets[k]
+
+                saved = save_verified_cache(dev_id, app_ver, target_ids, SESSION_LEARNED_IDENTITIES)
+                if saved:
+                    if hasattr(addon, "_write_stealth_log"):
+                        addon._write_stealth_log("RouteEnd Verified", f"Created verified identity cache for {dev_id} (App Ver: {app_ver})")
+                    addon.update_summary({
+                        "routeend_verified": True,
+                        "verified_cache_saved": True
+                    })
+        except Exception as e:
+            print(f" [!] Error saving routeend verified cache: {e}", flush=True)

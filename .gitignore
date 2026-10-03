@@ -16,3 +16,4 @@ api_backup/
 wifi_multi/config/
 .*.lock
 *.lock
+wifi_multi/mitm/cache/*.json

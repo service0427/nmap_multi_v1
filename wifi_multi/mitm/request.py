@@ -18,55 +18,9 @@ from .telemetry_jitter import (
     wash_network_env
 )
 
+from .identity_cache import extract_app_version, load_verified_cache
+
 SESSION_LEARNED_IDENTITIES = {}
-
-def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, target_ids: dict, logger=None):
-    """Dynamically auto-learns client original identities when server api_response credentials are stale or mismatched."""
-    if not flow or not lookup or not target_ids:
-        return
-
-    # 1. Direct header identity carriers
-    h = flow.request.headers
-    target_idfv = target_ids.get("idfv")
-    if target_idfv and "da-dv" in h:
-        val = h.get("da-dv")
-        if val and val != target_idfv and len(val) > 3:
-            lookup.register(val, target_idfv)
-            SESSION_LEARNED_IDENTITIES[val] = target_idfv
-            h["da-dv"] = target_idfv
-            if logger:
-                logger.record(flow.request.url, "autodiscover", "header", "da-dv", val, target_idfv)
-
-    target_adid = target_ids.get("adid")
-    if target_adid:
-        for hk in ["da-dd", "x-adid"]:
-            if hk in h:
-                val = h.get(hk)
-                if val and val != target_adid and len(val) > 3:
-                    lookup.register(val, target_adid)
-                    SESSION_LEARNED_IDENTITIES[val] = target_adid
-                    h[hk] = target_adid
-                    if logger:
-                        logger.record(flow.request.url, "autodiscover", "header", hk, val, target_adid)
-
-    # 2. Direct query parameter identity carriers
-    if target_idfv and "iv" in flow.request.query:
-        val = flow.request.query.get("iv")
-        if val and val != target_idfv and len(val) > 3:
-            lookup.register(val, target_idfv)
-            SESSION_LEARNED_IDENTITIES[val] = target_idfv
-            flow.request.query["iv"] = target_idfv
-            if logger:
-                logger.record(flow.request.url, "autodiscover", "query", "iv", val, target_idfv)
-
-    if target_adid and "ai" in flow.request.query:
-        val = flow.request.query.get("ai")
-        if val and val != target_adid and len(val) > 3:
-            lookup.register(val, target_adid)
-            SESSION_LEARNED_IDENTITIES[val] = target_adid
-            flow.request.query["ai"] = target_adid
-            if logger:
-                logger.record(flow.request.url, "autodiscover", "query", "ai", val, target_adid)
 
 
 
@@ -90,14 +44,30 @@ def handle_request(addon, flow: http.HTTPFlow):
     if orig_audit:
         flow.request.trafficjam_original = orig_audit
 
-    # 1. Target identity credentials & Dynamic Lookup
+    # 1. Target identity credentials & Dynamic Lookup with Verified Cache
+    dev_id = getattr(addon, "device_id", None) or os.environ.get("NMAP_DEV_ID", "Unknown")
+    app_ver = extract_app_version(flow.request)
+
+    # Load verified cache if this session hasn't loaded it yet
+    if not getattr(addon, "_cache_loaded", False):
+        cached_data = load_verified_cache(dev_id, app_ver)
+        if cached_data:
+            cached_learned = cached_data.get("session_learned", {})
+            for orig_k, spoof_v in cached_learned.items():
+                if orig_k not in SESSION_LEARNED_IDENTITIES:
+                    SESSION_LEARNED_IDENTITIES[orig_k] = spoof_v
+            setattr(addon, "_cached_targets", cached_data.get("target_ids", {}))
+        setattr(addon, "_cache_loaded", True)
+
     target_ids = get_target_identities()
+    cached_targets = getattr(addon, "_cached_targets", {})
+    for k in ["orig_ssaid", "orig_adid", "orig_idfv", "orig_ni", "orig_token"]:
+        if not target_ids.get(k) and cached_targets.get(k):
+            target_ids[k] = cached_targets[k]
+
     dynamic_lookup = IdentityLookup(target_ids)
     for orig_v, spoof_v in SESSION_LEARNED_IDENTITIES.items():
         dynamic_lookup.register(orig_v, spoof_v)
-
-    # Auto-learn and align direct identity transport carriers (da-dv, da-dd, iv, ai)
-    dynamic_auto_learn_identities(flow, dynamic_lookup, target_ids, AUDIT_LOGGER)
 
     # Protected query params and headers that must never be altered
     all_protected_query = {"caller", "x-hmac-md", "timestamp"}
