@@ -6,7 +6,7 @@ import base64
 import re
 from mitmproxy import http
 from .whitelist import should_process
-from .rules import AUDIT_LOGGER, find_matching_rules, get_target_identities
+from .rules import AUDIT_LOGGER, get_target_identities
 from .dynamic_tree_replacer import IdentityLookup, dynamic_walk_and_replace, dynamic_replace_headers, dynamic_replace_url_query
 from .payload_codec import (
     capture_original_audit,
@@ -17,34 +17,7 @@ from .payload_codec import (
     HAS_BLACKBOX
 )
 
-IDENTITY_MAP = {}
-IDENTITY_MAP_BYTES = {}
 SESSION_LEARNED_IDENTITIES = {}
-
-def register_identity(orig_val, spoof_val):
-    """Register identity mapping with case variations and raw byte representations (No hyphen stripping)."""
-    if not orig_val or not spoof_val:
-        return
-    if not isinstance(orig_val, (str, bytes, bytearray)) or not isinstance(spoof_val, (str, bytes, bytearray)):
-        return
-    orig_str = orig_val.decode('utf-8', 'ignore').strip() if isinstance(orig_val, (bytes, bytearray)) else str(orig_val).strip()
-    spoof_str = spoof_val.decode('utf-8', 'ignore').strip() if isinstance(spoof_val, (bytes, bytearray)) else str(spoof_val).strip()
-    if len(orig_str) <= 3 or orig_str == spoof_str:
-        return
-
-    # 1. Exact string & case variations
-    IDENTITY_MAP[orig_str] = spoof_str
-    IDENTITY_MAP[orig_str.lower()] = spoof_str.lower()
-    IDENTITY_MAP[orig_str.upper()] = spoof_str.upper()
-
-    # 2. Raw hex bytes (for 32-char hex like NI or 16-char hex like SSAID)
-    if len(orig_str) in [16, 32] and all(c in "0123456789abcdefABCDEF" for c in orig_str):
-        try:
-            b_orig = bytes.fromhex(orig_str)
-            b_spoof = bytes.fromhex(spoof_str)
-            IDENTITY_MAP_BYTES[b_orig] = b_spoof
-        except Exception:
-            pass
 
 def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, target_ids: dict, logger=None):
     """Dynamically auto-learns client original identities when server api_response credentials are stale or mismatched."""
@@ -59,7 +32,6 @@ def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, t
         if val and val != target_idfv and len(val) > 3:
             lookup.register(val, target_idfv)
             SESSION_LEARNED_IDENTITIES[val] = target_idfv
-            register_identity(val, target_idfv)
             h["da-dv"] = target_idfv
             if logger:
                 logger.record(flow.request.url, "autodiscover", "header", "da-dv", val, target_idfv)
@@ -72,7 +44,6 @@ def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, t
                 if val and val != target_adid and len(val) > 3:
                     lookup.register(val, target_adid)
                     SESSION_LEARNED_IDENTITIES[val] = target_adid
-                    register_identity(val, target_adid)
                     h[hk] = target_adid
                     if logger:
                         logger.record(flow.request.url, "autodiscover", "header", hk, val, target_adid)
@@ -83,7 +54,6 @@ def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, t
         if val and val != target_idfv and len(val) > 3:
             lookup.register(val, target_idfv)
             SESSION_LEARNED_IDENTITIES[val] = target_idfv
-            register_identity(val, target_idfv)
             flow.request.query["iv"] = target_idfv
             if logger:
                 logger.record(flow.request.url, "autodiscover", "query", "iv", val, target_idfv)
@@ -93,28 +63,9 @@ def dynamic_auto_learn_identities(flow: http.HTTPFlow, lookup: IdentityLookup, t
         if val and val != target_adid and len(val) > 3:
             lookup.register(val, target_adid)
             SESSION_LEARNED_IDENTITIES[val] = target_adid
-            register_identity(val, target_adid)
             flow.request.query["ai"] = target_adid
             if logger:
                 logger.record(flow.request.url, "autodiscover", "query", "ai", val, target_adid)
-
-# Initialize from environment variables
-pairs = [
-    ("NMAP_ORIG_SSAID", "NMAP_ID_SSAID"),
-    ("NMAP_ORIG_ADID", "NMAP_ID_ADID"),
-    ("NMAP_ORIG_NI", "NMAP_ID_NI"),
-    ("NMAP_ORIG_IDFV", "NMAP_ID_IDFV"),
-    ("NMAP_ORIG_TOKEN", "NMAP_ID_TOKEN")
-]
-for orig_key, spoof_key in pairs:
-    o, s = os.environ.get(orig_key), os.environ.get(spoof_key)
-    if o and s:
-        register_identity(o, s)
-
-# [DEBUG] Check Identity Map
-print(f"[*] IDENTITY_MAP Loaded: {len(IDENTITY_MAP)} entries, {len(IDENTITY_MAP_BYTES)} byte entries", flush=True)
-for k, v in list(IDENTITY_MAP.items())[:6]:
-    print(f"    - Mapping: {k[:6]}... -> {v[:6]}...", flush=True)
 
 SESSION_STORAGE_OFFSET = random.randint(-500000000, 500000000)
 SESSION_BOOT_OFFSET_MS = random.randint(300000, 86400000)
@@ -293,7 +244,6 @@ def handle_request(addon, flow: http.HTTPFlow):
                             if cur_val not in dynamic_lookup.exact_map:
                                 dynamic_lookup.register(cur_val, target_val)
                                 SESSION_LEARNED_IDENTITIES[cur_val] = target_val
-                                register_identity(cur_val, target_val)
 
                 # Dynamic 1:1 tree replacement across entire JSON tree
                 dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)

@@ -1,12 +1,10 @@
 """
-wifi_multi/mitm/rules.py: Declarative URL & Endpoint Rewriting Rules Engine
-- Defines explicit endpoint-to-field rewriting rules.
-- Prevents cross-endpoint spillover (e.g. protects caller in routechoice and receiver).
-- Records all replacements in real-time to $CAPTURE_LOG_DIR/modifications.json.
+wifi_multi/mitm/rules.py: Audit Logging & Identity Configuration
+- Thread-safe ModificationAuditLogger recording all packet modifications per session into modifications.json.
+- get_target_identities(): Reads current session target identity credentials from environment variables.
 """
 
 import os
-import re
 import json
 import datetime
 import threading
@@ -80,130 +78,3 @@ def get_target_identities():
         "orig_ssaid": os.environ.get("NMAP_ORIG_SSAID"),
         "orig_token": os.environ.get("NMAP_ORIG_TOKEN")
     }
-
-# Explicit URL-to-rule mapping dictionary
-ENDPOINT_RULES = [
-    # 1. Drive Routechoice (Path finding)
-    # Strictly replaces device_id/uuid -> NI, and protects caller & HMAC from being touched.
-    {
-        "name": "drive_routechoice",
-        "url_pattern": re.compile(r"/drive/v3/routechoice", re.IGNORECASE),
-        "query_params": {
-            "device_id": "ni",
-            "ai": "adid",
-            "iv": "idfv"
-        },
-        "headers": {
-            "uuid": "ni",
-            "device-id": "ni",
-            "x-adid": "adid",
-            "da-dd": "adid",
-            "da-dv": "idfv"
-        },
-        "protected_query": {"caller", "x-hmac-md", "timestamp"},
-        "protected_headers": {"caller", "x-hmac-md"}
-    },
-
-    # 2. General Drive Navigation (driving, routeend, summary)
-    {
-        "name": "drive_navigation",
-        "url_pattern": re.compile(r"/drive/v3/(driving|routeend|summary)", re.IGNORECASE),
-        "query_params": {
-            "device_id": "ni",
-            "ai": "adid",
-            "iv": "idfv"
-        },
-        "headers": {
-            "uuid": "ni",
-            "device-id": "ni"
-        },
-        "protected_query": {"caller"}
-    },
-
-    # 3. Trafficjam Location (FCD real-time congestion)
-    # Field 1.1 is device NI. Fields 5,6,7 are jittered. Field 4 (WiFi) is blanked.
-    {
-        "name": "trafficjam_location",
-        "url_pattern": re.compile(r"/trafficjam/location", re.IGNORECASE),
-        "protobuf": {
-            "field_1_1": "ni",
-            "clear_wifi": [4, "4"],
-            "jitter_fields": [5, 6, 7, "5", "6", "7"]
-        }
-    },
-
-    # 4. Receiver Log (Telemetry / device log)
-    # Field 1.3 is device NI. Field 1.1 (caller) is PRESERVED.
-    {
-        "name": "receiver_log",
-        "url_pattern": re.compile(r"/(receiver/log|log-receiver)", re.IGNORECASE),
-        "protobuf": {
-            "field_1_3": "ni",
-            "protected_fields": ["1.1"]
-        }
-    },
-
-    # 5. nlogapp (Analytics, screen events, and user IDs)
-    # usr.adid/ssaid/idfv/ni -> target credentials. evts[].nlog_id -> target_token.
-    {
-        "name": "nlogapp",
-        "url_pattern": re.compile(r"/nlogapp", re.IGNORECASE),
-        "json": {
-            "usr_fields": {
-                "adid": "adid",
-                "ssaid": "ssaid",
-                "idfv": "idfv",
-                "ni": "ni"
-            },
-            "token_evts": "evts"
-        }
-    },
-
-    # 6. Clova Auth
-    {
-        "name": "clova_auth",
-        "url_pattern": re.compile(r"/auth\.(clova\.ai|naver\.com)|/(authorize|token)\b", re.IGNORECASE),
-        "query_params": {
-            "device_id": "ni"
-        }
-    },
-
-    # 7. GFP / Ad SDK
-    {
-        "name": "veta_gfp_ads",
-        "url_pattern": re.compile(r"/(gfp|adDebugger)/v1", re.IGNORECASE),
-        "query_params": {
-            "ai": "adid",
-            "iv": "idfv"
-        }
-    },
-
-    # 8. Fallback Common Headers, Query Params & Cookies (applied across all matched Naver domains)
-    {
-        "name": "common_headers_and_cookies",
-        "url_pattern": re.compile(r".*", re.IGNORECASE),
-        "headers": {
-            "uuid": "ni",
-            "device-id": "ni",
-            "x-adid": "adid",
-            "da-dd": "adid",
-            "da-dv": "idfv"
-        },
-        "query_params": {
-            "device_id": "ni",
-            "ai": "adid",
-            "iv": "idfv"
-        },
-        "cookie_keys": {
-            "NAPP_DI": "ni"
-        }
-    }
-]
-
-def find_matching_rules(url_path):
-    """Finds all applicable rules for a given URL path in order."""
-    matched = []
-    for r in ENDPOINT_RULES:
-        if r["url_pattern"].search(url_path):
-            matched.append(r)
-    return matched
