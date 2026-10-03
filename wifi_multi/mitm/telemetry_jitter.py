@@ -15,20 +15,24 @@ import time
 # =============================================================================
 # 1. Session-level Randomized State Offsets
 # =============================================================================
-SESSION_STORAGE_OFFSET = random.randint(-500000000, 500000000)
-SESSION_BOOT_OFFSET_MS = random.randint(300000, 86400000)
-SESSION_INSTALL_OFFSET_SEC = random.randint(86400, 604800)
-# [V2.1.7] App initialization timestamp offset (Install + 60~600s jitter)
-SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) - random.randint(60000, 600000)
+# Global session state offsets (initialized on import via reset_session_offsets)
+SESSION_STORAGE_OFFSET = 0
+SESSION_BOOT_OFFSET_MS = 0
+SESSION_INSTALL_OFFSET_SEC = 0
+SESSION_INIT_OFFSET_MS = 0
 
 
 def reset_session_offsets():
-    """Optionally re-randomizes session offsets when starting a completely fresh execution run."""
+    """Initializes or re-randomizes session offsets."""
     global SESSION_STORAGE_OFFSET, SESSION_BOOT_OFFSET_MS, SESSION_INSTALL_OFFSET_SEC, SESSION_INIT_OFFSET_MS
     SESSION_STORAGE_OFFSET = random.randint(-500000000, 500000000)
     SESSION_BOOT_OFFSET_MS = random.randint(300000, 86400000)
     SESSION_INSTALL_OFFSET_SEC = random.randint(86400, 604800)
     SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) - random.randint(60000, 600000)
+
+
+# Initialize on module import
+reset_session_offsets()
 
 
 # =============================================================================
