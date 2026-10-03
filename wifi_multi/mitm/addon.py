@@ -23,6 +23,8 @@ try:
 except ImportError:
     HAS_BLACKBOX = False
 
+from mitm.session_logger import SessionLogger
+
 class ProxyV2ClassicLog:
     def __init__(self):
         self.lock = threading.Lock()
@@ -34,152 +36,24 @@ class ProxyV2ClassicLog:
         self.device_id = os.environ.get("NMAP_DEV_ID", "Unknown")
         self.bind_ip = os.environ.get("NMAP_BIND_IP", "Unknown")
 
+        # Modularized Session Logger
+        self.logger = SessionLogger(self.base_log_dir, self.lock, self.device_id)
+
     def _write_stealth_log(self, log_type, details):
         """Write detailed replacement log organized by date under logs/stealth_logs/"""
-        try:
-            date_str = datetime.datetime.now().strftime("%Y%m%d")
-            stealth_dir = "/home/tech/nmap_multi_v1/wifi_multi/logs/stealth_logs"
-            os.makedirs(stealth_dir, exist_ok=True)
-            log_path = os.path.join(stealth_dir, f"stealth_replacements_{date_str}.log")
-            
-            # Clean session path to highlight 'Device/Date/Time_PlaceID'
-            session_rel = self.base_log_dir.replace("/home/tech/nmap_multi_v1/wifi_multi/logs/", "").replace("logs/", "")
-            
-            with open(log_path, "a") as f_repl:
-                log_line = (
-                    f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
-                    f"[{session_rel}] [{log_type}] {details}\n"
-                )
-                f_repl.write(log_line)
-        except Exception as e:
-            print(f" [!] Error writing stealth log: {e}")
+        self.logger.write_stealth_log(log_type, details)
 
     def update_summary(self, data):
         """Thread-safe update of session_summary.json"""
-        with self.lock:
-            try:
-                current = {}
-                if os.path.exists(self.summary_path):
-                    with open(self.summary_path, "r") as f:
-                        current = json.load(f)
-                
-                if "packet" in data:
-                    if "packets" not in current:
-                        current["packets"] = []
-                    current["packets"].append(data["packet"])
-                elif "blocked_error" in data:
-                    if "blocked_errors" not in current:
-                        current["blocked_errors"] = []
-                    current["blocked_errors"].append(data["blocked_error"])
-                    current["blocked_error_count"] = len(current["blocked_errors"])
-                else:
-                    current.update(data)
-                
-                with open(self.summary_path, "w") as f:
-                    json.dump(current, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                print(f" [!] Error updating summary: {e}")
+        self.logger.update_summary(data)
 
     def _record_blocked_error(self, method, url, raw_body_dict, err_msg_str):
         """Record blocked errorLog into session's blocked_errors.json, summary, and events.log."""
-        try:
-            now_dt = datetime.datetime.now()
-            ts_time = now_dt.strftime("%H:%M:%S.%f")[:-3]
-
-            code = "unknown"
-            name = "unknown"
-            desc = ""
-            ver = ""
-            parsed_detail = err_msg_str
-
-            if isinstance(raw_body_dict, dict):
-                msg_val = raw_body_dict.get("message")
-                if isinstance(msg_val, str):
-                    try:
-                        msg_json = json.loads(msg_val)
-                        ver = msg_json.get("version", "")
-                        err_obj = msg_json.get("error", {})
-                        code = err_obj.get("code", "unknown")
-                        name = err_obj.get("name", "unknown")
-                        desc = err_obj.get("message", "")
-                        parsed_detail = msg_json
-                    except Exception:
-                        desc = msg_val
-                elif isinstance(msg_val, dict):
-                    if "cipherText" in msg_val:
-                        code = "encrypted"
-                        name = "CIPHER_TEXT"
-                        desc = "Encrypted client error payload"
-                        parsed_detail = msg_val
-                    else:
-                        parsed_detail = msg_val
-            elif isinstance(err_msg_str, str):
-                desc = err_msg_str
-
-            entry = {
-                "timestamp": ts_time,
-                "method": method,
-                "url": url.split('?')[0] if '?' in url else url,
-                "action": "BLOCKED_MOCK_200",
-                "sent_to_naver": False,
-                "error_code": code,
-                "error_name": name,
-                "error_message": desc,
-                "version": ver,
-                "detail": parsed_detail
-            }
-
-            # 1. Append to blocked_errors.json in session directory
-            blocked_file = os.path.join(self.base_log_dir, "blocked_errors.json")
-            with self.lock:
-                current_blocked = []
-                if os.path.exists(blocked_file):
-                    try:
-                        with open(blocked_file, "r", encoding="utf-8") as bf:
-                            current_blocked = json.load(bf)
-                    except Exception:
-                        current_blocked = []
-                current_blocked.append(entry)
-                with open(blocked_file, "w", encoding="utf-8") as bf:
-                    json.dump(current_blocked, bf, ensure_ascii=False, indent=2)
-
-            # 2. Update session_summary.json
-            self.update_summary({
-                "blocked_error": {
-                    "time": ts_time,
-                    "method": method,
-                    "code": code,
-                    "name": name,
-                    "action": "BLOCKED_MOCK_200"
-                }
-            })
-
-            # 3. Append to events.log in session directory
-            events_log = os.path.join(self.base_log_dir, "events.log")
-            try:
-                with open(events_log, "a", encoding="utf-8") as ef:
-                    ef.write(f"[ERROR_BLOCKED] {method} {code} ({name}) - Mocked HTTP 200\n")
-            except Exception:
-                pass
-        except Exception as e:
-            print(f" [!] Error recording blocked error: {e}", flush=True)
+        self.logger.record_blocked_error(method, url, raw_body_dict, err_msg_str)
 
     def try_pbf_decode(self, raw_bytes):
         """Helper to decode protobuf for logging"""
-        if not HAS_BLACKBOX: return None
-        try:
-            data = raw_bytes
-            if data.startswith(b'\x1f\x8b'): data = gzip.decompress(data)
-            decoded, _ = blackboxprotobuf.decode_message(data)
-            def serializable(d):
-                if isinstance(d, dict): return {str(k): serializable(v) for k, v in d.items()}
-                elif isinstance(d, list): return [serializable(v) for v in d]
-                elif isinstance(d, bytes):
-                    try: return d.decode('utf-8')
-                    except: return f"hex:{d.hex()}"
-                return d
-            return serializable(decoded)
-        except: return None
+        return self.logger.try_pbf_decode(raw_bytes)
 
     def request(self, flow: http.HTTPFlow):
         # 1. Prevent errorLog from ever reaching Naver (Drop/Mock it with empty HTTP 200)

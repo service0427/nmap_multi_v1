@@ -5,6 +5,7 @@ import gzip
 import datetime
 from mitmproxy import http
 from .whitelist import should_process
+from .session_logger import deep_tparse, write_packet_log
 
 def handle_response(addon, flow: http.HTTPFlow):
     if not flow.response: return
@@ -57,58 +58,6 @@ def handle_response(addon, flow: http.HTTPFlow):
     
     m = flow.request.method
     cp = path.split('?')[0].replace('/', '_').strip('_')
-    fn = f"{idx:03d}_{m}_{cp[:80]}.json"
-
-    # [V1 STYLE] Recursive Deep Decoding for Logging
-    def deep_tparse(c, ct, p="", is_response=False):
-        if not c: return ""
-        ct_l = ct.lower()
-        
-        work_str = None
-        try:
-            work_str = c.decode('utf-8')
-        except Exception:
-            pass
-
-        # JSON (Check for nested base64 for logs)
-        if "json" in ct_l or "nlog" in p or "nlog.naver.com" in host.lower() or (work_str and (work_str.strip().startswith('{') or work_str.strip().startswith('['))):
-            try: 
-                bj = json.loads(work_str if work_str else c.decode('utf-8'))
-                
-                # drive_v3_driving 경로는 파일이 너무 크기 때문에 response nested base64 디코딩 생략
-                if is_response and ("driving" in p or "drive_v3_driving" in cp):
-                    return bj
-                    
-                def scan(o):
-                    if isinstance(o, dict):
-                        res = {k: scan(v) for k, v in o.items()}
-                        for k, v in o.items():
-                            if isinstance(v, str) and v.startswith("base64:"):
-                                try:
-                                    raw = base64.b64decode(v[7:])
-                                    d = addon.try_pbf_decode(raw)
-                                    if d: res[k + "_decoded"] = d
-                                except: pass
-                        return res
-                    elif isinstance(o, list): return [scan(i) for i in o]
-                    return o
-                return scan(bj)
-            except: pass
-        
-        # Binary / Protobuf
-        if "octet-stream" in ct_l or "protobuf" in ct_l or b"\x00" in c:
-            b64_str = "base64:" + base64.b64encode(c).decode('ascii')
-            
-            # drive_v3_driving 경로는 파일이 너무 크기 때문에 response base64 디코딩 생략
-            if is_response and ("driving" in p or "drive_v3_driving" in cp):
-                return b64_str
-                
-            decoded = addon.try_pbf_decode(c)
-            if decoded: return {"_raw": b64_str, "_decoded": decoded}
-            return b64_str
-        
-        try: return c.decode('utf-8', 'ignore')
-        except: return "base64:" + base64.b64encode(c).decode('ascii')
 
     # [V2.0.6] Include modified body, its encoding format, and raw base64 sent to upstream server
     tj_mod = getattr(flow.request, "modified_decoded", None)
@@ -119,7 +68,7 @@ def handle_response(addon, flow: http.HTTPFlow):
 
     parsed = None
     if not tj_mod:
-        parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, is_response=False)
+        parsed = deep_tparse(flow.request.content, flow.request.headers.get("Content-Type", ""), path, host=host, is_response=False)
 
     is_parsed_json = (isinstance(parsed, (dict, list)) and "_raw" not in parsed)
 
@@ -173,11 +122,10 @@ def handle_response(addon, flow: http.HTTPFlow):
             "body": req_body,
             "original_body": tj_orig if tj_orig else {}
         },
-        "response": {"status_code": flow.response.status_code, "headers": dict(flow.response.headers), "body": deep_tparse(flow.response.content, flow.response.headers.get("Content-Type", ""), path, is_response=True)}
+        "response": {"status_code": flow.response.status_code, "headers": dict(flow.response.headers), "body": deep_tparse(flow.response.content, flow.response.headers.get("Content-Type", ""), path, host=host, is_response=True)}
     }
 
-    with open(os.path.join(addon.base_log_dir, fn), "w") as f:
-        json.dump(full_packet, f, ensure_ascii=False, indent=2)
+    fn = write_packet_log(addon.base_log_dir, idx, m, path, full_packet)
 
     # Append packet log summary to session_summary.json
     addon.update_summary({

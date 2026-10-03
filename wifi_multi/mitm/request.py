@@ -19,6 +19,7 @@ from .telemetry_jitter import (
 )
 
 from .identity_cache import extract_app_version, load_verified_cache
+from .session_logger import log_url_event, log_screen_events
 
 SESSION_LEARNED_IDENTITIES = {}
 
@@ -35,9 +36,7 @@ def handle_request(addon, flow: http.HTTPFlow):
     path_lower = path.lower()
     log_dir = os.environ.get("CAPTURE_LOG_DIR")
     if log_dir:
-        event_log_path = os.path.join(log_dir, "events.log")
-        with open(event_log_path, "a", encoding="utf-8") as ef:
-            ef.write(f"[URL] {path_lower}\n")
+        log_url_event(log_dir, path_lower)
 
     # [V2.0.5] Capture original content for auditing before any modification (except large driving routes)
     orig_audit = capture_original_audit(flow.request, path_lower)
@@ -126,12 +125,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                 # Extract events in bulk to a flat timeline
                 evts = decoded_obj.get("evts", [])
                 if evts and isinstance(evts, list) and log_dir:
-                    event_log_path = os.path.join(log_dir, "events.log")
-                    with open(event_log_path, "a", encoding="utf-8") as ef:
-                        for e in evts:
-                            t = e.get("type", "unknown")
-                            s = e.get("screen_name") or e.get("act_act") or (e.get("act_oval", {}).get("tab") if isinstance(e.get("act_oval"), dict) else None) or "none"
-                            ef.write(f"[{t}] {s}\n")
+                    log_screen_events(log_dir, evts)
                 return
 
             # C. Non-target / Fallback Payload Washing

@@ -63,33 +63,49 @@ def extract_app_version(flow_request) -> str:
     return os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")
 
 
-def get_cache_path(device_id: str) -> str:
-    """Returns absolute path to verified identity cache file for given device."""
+def get_cache_path(device_id: str, app_version: Optional[str] = None) -> str:
+    """Returns absolute path to verified identity cache file for given device and app version."""
     clean_dev = re.sub(r'[^a-zA-Z0-9_-]', '_', device_id.strip())
-    return os.path.join(CACHE_DIR, f"{clean_dev}_verified_cache.json")
+    ver_str = (app_version or "default").strip()
+    clean_ver = re.sub(r'[^a-zA-Z0-9_.-]', '_', ver_str)
+    return os.path.join(CACHE_DIR, f"{clean_dev}_{clean_ver}_verified_cache.json")
 
 
 def load_verified_cache(device_id: str, current_app_version: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Loads verified identity cache for device if app version matches.
-    If app version changed, returns None (invalidating stale cache).
-    """
+    """Loads verified identity cache for device and app version if available."""
     if not device_id or device_id == "Unknown":
         return None
 
-    cache_file = get_cache_path(device_id)
-    if not os.path.exists(cache_file):
+    app_ver = (current_app_version or os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")).strip()
+    cache_file = get_cache_path(device_id, app_ver)
+
+    # Check version-specific cache first
+    target_file = None
+    if os.path.exists(cache_file):
+        target_file = cache_file
+    else:
+        # Check legacy unversioned cache fallback if matching
+        legacy_file = os.path.join(CACHE_DIR, f"{re.sub(r'[^a-zA-Z0-9_-]', '_', device_id.strip())}_verified_cache.json")
+        if os.path.exists(legacy_file):
+            try:
+                with open(legacy_file, "r", encoding="utf-8") as f:
+                    leg_data = json.load(f)
+                if leg_data.get("app_version", "").strip() == app_ver:
+                    target_file = legacy_file
+            except Exception:
+                pass
+
+    if not target_file:
         return None
 
     with _LOCK:
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
+            with open(target_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            cached_ver = data.get("app_version")
-            if current_app_version and cached_ver:
-                if cached_ver.strip() != current_app_version.strip():
-                    print(f" [🔄 CACHE INVALIDATE] App version changed: cached {cached_ver} != current {current_app_version}. Re-verifying...", flush=True)
-                    return None
+            cached_ver = data.get("app_version", "").strip()
+            if app_ver and cached_ver and cached_ver != app_ver:
+                return None
 
             print(f" [⚡ CACHE HIT] Loaded verified identity cache for {device_id} (App Ver: {cached_ver})", flush=True)
             return data
@@ -99,14 +115,15 @@ def load_verified_cache(device_id: str, current_app_version: Optional[str] = Non
 
 
 def save_verified_cache(device_id: str, app_version: str, target_ids: Dict[str, Any], session_learned: Optional[Dict[str, str]] = None) -> bool:
-    """Saves verified identity mapping upon successful routeend HTTP 200 completion."""
+    """Saves verified identity mapping for specific device and app version upon successful routeend HTTP 200."""
     if not device_id or device_id == "Unknown":
         return False
 
-    cache_file = get_cache_path(device_id)
+    app_ver = (app_version or os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")).strip()
+    cache_file = get_cache_path(device_id, app_ver)
     cache_data = {
         "device_id": device_id,
-        "app_version": app_version or "6.10.0.16",
+        "app_version": app_ver,
         "verified_at": datetime.datetime.now().isoformat(),
         "routeend_status": 200,
         "target_ids": {k: v for k, v in target_ids.items() if v},
@@ -117,22 +134,39 @@ def save_verified_cache(device_id: str, app_version: str, target_ids: Dict[str, 
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
-            print(f" [🌟 CACHE SAVED] Verified identity cache saved for device {device_id} (App Ver: {app_version})!", flush=True)
+            print(f" [🌟 CACHE SAVED] Verified identity cache saved for device {device_id} (App Ver: {app_ver})!", flush=True)
             return True
         except Exception as e:
             print(f" [!] Error saving verified identity cache: {e}", flush=True)
             return False
 
 
-def invalidate_cache(device_id: str) -> bool:
-    """Explicitly deletes cache file for device if needed."""
-    cache_file = get_cache_path(device_id)
+def invalidate_cache(device_id: str, app_version: Optional[str] = None) -> bool:
+    """Invalidates cache for device. If app_version is given, deletes only that version;
+    otherwise deletes all cached versions for this device.
+    """
+    clean_dev = re.sub(r'[^a-zA-Z0-9_-]', '_', device_id.strip())
+    removed_any = False
     with _LOCK:
         try:
-            if os.path.exists(cache_file):
-                os.remove(cache_file)
-                print(f" [🗑️ CACHE REMOVED] Cleared identity cache for {device_id}", flush=True)
-                return True
+            if app_version:
+                cache_file = get_cache_path(device_id, app_version)
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+                    print(f" [🗑️ CACHE REMOVED] Cleared identity cache for {device_id} (Ver: {app_version})", flush=True)
+                    return True
+            else:
+                prefix = f"{clean_dev}_"
+                for fn in os.listdir(CACHE_DIR):
+                    if (fn.startswith(prefix) and fn.endswith("_verified_cache.json")) or fn == f"{clean_dev}_verified_cache.json":
+                        try:
+                            os.remove(os.path.join(CACHE_DIR, fn))
+                            removed_any = True
+                        except Exception:
+                            pass
+                if removed_any:
+                    print(f" [🗑️ CACHE REMOVED] Cleared all identity caches for {device_id}", flush=True)
+                    return True
         except Exception as e:
             print(f" [!] Error invalidating identity cache: {e}", flush=True)
     return False
