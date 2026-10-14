@@ -176,7 +176,9 @@ init_app_installation() {
         else
             echo -e "    - $pkg not found. Installing..."
             if [ "$type" -eq "0" ]; then
-                timeout 60 adb -s "$serial" install -r -d -g --bypass-low-target-sdk-block $files >/dev/null 2>&1
+                if ! timeout 60 adb -s "$serial" install -r -d -g --bypass-low-target-sdk-block $files >/dev/null 2>&1; then
+                    timeout 60 adb -s "$serial" install -r -d -g $files >/dev/null 2>&1
+                fi
             else
                 timeout 120 adb -s "$serial" install-multiple -r -d -g $files >/dev/null 2>&1
             fi
