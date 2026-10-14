@@ -268,6 +268,7 @@ while true; do
                     if adb -s "$DEV_ID" shell cmd device_state state 2>/dev/null | grep -q "Committed state:.*CLOSE"; then
                         echo "[INITIALIZE] [$DEV_ID] Z Flip is CLOSED. Overriding to state 3 (OPEN)..."
                         adb -s "$DEV_ID" shell cmd device_state state 3 >/dev/null 2>&1
+                        adb -s "$DEV_ID" shell "settings put system accelerometer_rotation 0; settings put system user_rotation 0" >/dev/null 2>&1
                     fi
                 fi
             fi

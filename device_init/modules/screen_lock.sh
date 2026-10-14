@@ -45,7 +45,7 @@ init_screen_lock() {
         adb -s "$serial" shell "wm dismiss-keyguard" 2>/dev/null
 
         # 5. Z-Flip / Foldable: ensure main screen is OPEN (prevents SubHome/Cover screen mode)
-        adb -s "$serial" shell "cmd device_state state 3 2>/dev/null || true"
+        adb -s "$serial" shell "if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then cmd device_state state 3 2>/dev/null || true; sleep 0.5 2>/dev/null; fi"
 
         # 6. Battery & Display Power Optimization:
         # - Lock to 60Hz (prevents 120Hz power drain)
@@ -54,6 +54,8 @@ init_screen_lock() {
         # - Disable battery protect cap (allow 100% full charge)
         # - Disable slate kiosk mode & enable high-current USB
         adb -s "$serial" shell "
+            settings put system accelerometer_rotation 0
+            settings put system user_rotation 0
             settings put system screen_brightness_mode 0
             settings put system peak_refresh_rate 60.0
             settings put system min_refresh_rate 60.0
@@ -69,8 +71,10 @@ init_screen_lock() {
     else
         # Still dismiss keyguard, ensure device_state and power settings just in case
         adb -s "$serial" shell "wm dismiss-keyguard" 2>/dev/null
-        adb -s "$serial" shell "cmd device_state state 3 2>/dev/null || true"
+        adb -s "$serial" shell "if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then cmd device_state state 3 2>/dev/null || true; sleep 0.5 2>/dev/null; fi"
         adb -s "$serial" shell "
+            settings put system accelerometer_rotation 0
+            settings put system user_rotation 0
             settings put system screen_brightness_mode 0
             settings put system peak_refresh_rate 60.0
             settings put system min_refresh_rate 60.0

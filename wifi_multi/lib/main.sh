@@ -475,6 +475,9 @@ else
 fi
 
 
+# Ensure display rotation lock to Portrait before app launch
+adb -s "$DEV_ID" shell "settings put system accelerometer_rotation 0; settings put system user_rotation 0" >/dev/null 2>&1
+
 # Fixed: Use START coordinates for initial position
 ./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
 adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1

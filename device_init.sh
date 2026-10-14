@@ -310,9 +310,9 @@ for serial in $DEVICES; do
         
         # Run these at the very end to override/correct any volume/portrait changes caused by the apps
         init_sound "$serial" "$HAS_SU"
-        init_screen_orientation "$serial" "$HAS_SU"
         init_touch_protection "$serial" "$HAS_SU"
         init_screen_lock "$serial" "$HAS_SU"
+        init_screen_orientation "$serial" "$HAS_SU"
 
         # Apply MITM certificate recovery and reboot
         force_reboot_flag="false"

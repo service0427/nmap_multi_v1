@@ -75,7 +75,12 @@ set_power_mode() {
                 settings put system screen_off_timeout 2147483647 2>/dev/null
 
                 # 4. Foldable Check (Ensure main screen is OPEN)
-                cmd device_state state 3 2>/dev/null || true
+                if ! cmd device_state state 2>/dev/null | grep -q "Committed state:.*OPEN"; then
+                    cmd device_state state 3 2>/dev/null || true
+                    sleep 0.5 2>/dev/null
+                fi
+                settings put system accelerometer_rotation 0 2>/dev/null
+                settings put system user_rotation 0 2>/dev/null
 
                 # 5. Disable Android Battery Saver (Restore full performance)
                 cmd power set-mode 0 2>/dev/null
