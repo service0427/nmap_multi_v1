@@ -54,6 +54,7 @@ init_screen_lock() {
         # - Disable battery protect cap (allow 100% full charge)
         # - Disable slate kiosk mode & enable high-current USB
         adb -s "$serial" shell "
+            settings put global adb_allowed_connection_time 0
             settings put system accelerometer_rotation 0
             settings put system user_rotation 0
             settings put system screen_brightness_mode 0
@@ -73,6 +74,7 @@ init_screen_lock() {
         adb -s "$serial" shell "wm dismiss-keyguard" 2>/dev/null
         adb -s "$serial" shell "if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then cmd device_state state 3 2>/dev/null || true; sleep 0.5 2>/dev/null; fi"
         adb -s "$serial" shell "
+            settings put global adb_allowed_connection_time 0
             settings put system accelerometer_rotation 0
             settings put system user_rotation 0
             settings put system screen_brightness_mode 0

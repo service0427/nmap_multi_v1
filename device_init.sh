@@ -139,6 +139,58 @@ GREEN="\e[1;32m"
 YELLOW="\e[1;33m"
 NC="\e[0m"
 
+# Sync tech user's ADB key to root account if non-interactive sudo is available (prevents root/tech key mismatch)
+if [ -f "/home/tech/.android/adbkey" ] && [ -f "/home/tech/.android/adbkey.pub" ]; then
+    sudo -n sh -c 'mkdir -p /root/.android && cp /home/tech/.android/adbkey /home/tech/.android/adbkey.pub /root/.android/ && chmod 600 /root/.android/adbkey && chmod 644 /root/.android/adbkey.pub' 2>/dev/null || true
+fi
+
+# Helper: Prevent ADB authorization expiration & permanently pin host adbkey.pub
+ensure_adb_auth_persistence() {
+    local serial="$1"
+    local has_su="$2"
+    local verbose="${3:-false}"
+
+    # 1. Disable Android 12/13+ 7-day ADB authorization timeout (0 = never expire)
+    adb -s "$serial" shell "settings put global adb_allowed_connection_time 0" 2>/dev/null
+
+    # 2. Permanently pin host's adbkey.pub into /data/misc/adb/adb_keys (survives reboots even if 1-time 'Allow' was tapped)
+    if [ -n "$has_su" ]; then
+        local pub_file=""
+        for candidate in "$HOME/.android/adbkey.pub" "/home/tech/.android/adbkey.pub" "/root/.android/adbkey.pub"; do
+            if [ -f "$candidate" ]; then
+                pub_file="$candidate"
+                break
+            fi
+        done
+
+        if [ -n "$pub_file" ]; then
+            local pub_content
+            pub_content=$(cat "$pub_file" 2>/dev/null | tr -d '\r\n')
+            local key_body
+            key_body=$(awk '{print $1}' "$pub_file" 2>/dev/null)
+            if [ -n "$key_body" ]; then
+                adb -s "$serial" shell "$has_su -c '
+                    mkdir -p /data/misc/adb
+                    touch /data/misc/adb/adb_keys
+                    if ! grep -qF \"$key_body\" /data/misc/adb/adb_keys 2>/dev/null; then
+                        echo \"$pub_content\" >> /data/misc/adb/adb_keys
+                    fi
+                    chown system:shell /data/misc/adb /data/misc/adb/adb_keys
+                    chmod 2750 /data/misc/adb
+                    chmod 640 /data/misc/adb/adb_keys
+                    restorecon -R /data/misc/adb 2>/dev/null || chcon u:object_r:adb_keys_file:s0 /data/misc/adb/adb_keys 2>/dev/null || true
+                '" >/dev/null 2>&1
+            fi
+        fi
+    fi
+
+    if [ "$verbose" = "true" ]; then
+        local verify_timeout
+        verify_timeout=$(adb -s "$serial" shell "settings get global adb_allowed_connection_time" 2>/dev/null | tr -d '\r\n')
+        echo -e "[✓] ADB authorization persistence: ${GREEN}Timeout disabled (adb_allowed_connection_time=${verify_timeout:-0}) & host key pinned${NC}"
+    fi
+}
+
 # Preliminary Root Check for multi-device initialization
 if [ -z "$TARGET_DEVICE" ]; then
     echo -e "${YELLOW}[*] Performing preliminary root authorization check on all connected devices...${NC}"
@@ -164,6 +216,7 @@ if [ -z "$TARGET_DEVICE" ]; then
         # Test su with a 3-second timeout. If it's waiting for approval, it will time out and trigger the prompt on device.
         SU_TEST=$(timeout 3 adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
         if [[ "$SU_TEST" == *"uid=0"* ]]; then
+            ensure_adb_auth_persistence "$serial" "$HAS_SU" "false" &
             echo -e "  - ${formatted_idx}. ${serial}: ${GREEN}Root shell authorization OK${NC}"
         else
             echo -e "  - ${formatted_idx}. ${serial}: ${YELLOW}Root shell authorization failed / Requesting popup...${NC}"
@@ -171,6 +224,7 @@ if [ -z "$TARGET_DEVICE" ]; then
         fi
         ((IDX++))
     done
+    wait
     
     # Check if there are failures
     if [ ${#FAILED_DEVICES[@]} -ne 0 ] || [ ${#NO_SU_DEVICES[@]} -ne 0 ]; then
@@ -284,6 +338,7 @@ for serial in $DEVICES; do
             SU_TEST=$(adb -s "$serial" shell "$HAS_SU -c 'id'" 2>/dev/null | tr -d '\r')
             if [[ "$SU_TEST" == *"uid=0"* ]]; then
                 echo -e "[✓] Root shell authorization: ${GREEN}OK (uid=0)${NC}"
+                ensure_adb_auth_persistence "$serial" "$HAS_SU" "true"
             else
                 echo -e "\n\e[1;31m[⚠️] 디바이스 $serial 의 Root 권한(su) 승인이 필요합니다.\e[0m"
                 echo -e "    - 휴대폰 화면을 켜고 Magisk 팝업 창에서 'Grant(허용)' 버튼을 클릭해주세요."

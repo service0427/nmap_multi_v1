@@ -73,6 +73,7 @@ set_power_mode() {
                 settings put secure lockscreen.disabled 1 2>/dev/null
                 settings put global stay_on_while_plugged_in 7 2>/dev/null
                 settings put system screen_off_timeout 2147483647 2>/dev/null
+                settings put global adb_allowed_connection_time 0 2>/dev/null
 
                 # 4. Foldable Check (Ensure main screen is OPEN)
                 if ! cmd device_state state 2>/dev/null | grep -q "Committed state:.*OPEN"; then
