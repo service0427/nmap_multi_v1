@@ -388,19 +388,25 @@ def refresh_device_slots():
         output = subprocess.check_output(["adb", "devices", "-l"], timeout=5).decode("utf-8")
         lines = output.strip().split("\n")[1:]
         current_connected = {}
+        unauthorized_set = set()
         usb_mapping_updates = {}
         for line in lines:
-            if not line.strip() or "device" not in line: continue
+            if not line.strip() or line.startswith("*"): continue
             parts = line.split()
+            if len(parts) < 2: continue
             serial = parts[0]
+            state = parts[1]
             model = "Unknown"
             usb_path = "N/A"
-            for p in parts:
+            for p in parts[2:]:
                 if p.startswith("model:"): model = p.split(":")[1]
                 if p.startswith("usb:"): usb_path = p
-            current_connected[serial] = model
             if usb_path != "N/A":
                 usb_mapping_updates[serial] = usb_path
+            if state == "device":
+                current_connected[serial] = model
+            elif state == "unauthorized":
+                unauthorized_set.add(serial)
 
         # Check if custom order config exists
         order_list = []
@@ -465,19 +471,20 @@ def refresh_device_slots():
                     **diag
                 }
             else:
-                # Device is offline but slot position is strictly preserved
+                # Device is offline or unauthorized, slot position is strictly preserved
                 old_slot = device_slots[i]
                 old_model = old_slot.get("model", "Unknown") if old_slot else "Unknown"
                 
                 # Check if offline device is disabled
                 is_disabled = (serial in excluded)
                 usb_path = usb_ports.get(serial, "N/A")
+                offline_status = "DISABLED" if is_disabled else ("UNAUTHORIZED" if serial in unauthorized_set else "OFFLINE")
                 
                 device_slots[i] = {
                     "id": serial,
                     "model": old_model,
                     "offline": True,
-                    "status": "DISABLED" if is_disabled else "OFFLINE",
+                    "status": offline_status,
                     "ip": "N/A",
                     "temp": "??",
                     "battery": "??",

@@ -40,10 +40,22 @@ for dev in $DEVICES; do
     echo "------------------------------------------------------------"
     echo " Processing Device: $dev"
     
-    # A. Push common adbkey.pub to device and append to adb_keys
+    # A. Push common adbkey.pub to device and append to adb_keys (without duplicates)
     echo "  -> Injecting shared public key to device adb_keys..."
+    adb -s "$dev" shell "settings put global adb_allowed_connection_time 0" >/dev/null 2>&1
     adb -s "$dev" push "$TECH_ANDROID_DIR/adbkey.pub" /data/local/tmp/new_adbkey.pub >/dev/null 2>&1
-    adb -s "$dev" shell "su -c 'cat /data/local/tmp/new_adbkey.pub >> /data/misc/adb/adb_keys && chmod 640 /data/misc/adb/adb_keys && chown system:shell /data/misc/adb/adb_keys && rm -f /data/local/tmp/new_adbkey.pub'" >/dev/null 2>&1
+    adb -s "$dev" shell "su -c '
+        mkdir -p /data/misc/adb
+        touch /data/misc/adb/adb_keys
+        KEY_BODY=\$(awk \"{print \\\$1}\" /data/local/tmp/new_adbkey.pub 2>/dev/null)
+        if [ -n \"\$KEY_BODY\" ] && ! grep -qF \"\$KEY_BODY\" /data/misc/adb/adb_keys 2>/dev/null; then
+            cat /data/local/tmp/new_adbkey.pub >> /data/misc/adb/adb_keys
+        fi
+        chmod 640 /data/misc/adb/adb_keys
+        chown system:shell /data/misc/adb/adb_keys
+        restorecon /data/misc/adb/adb_keys 2>/dev/null || true
+        rm -f /data/local/tmp/new_adbkey.pub
+    '" >/dev/null 2>&1
     
     # B. Restart adbd daemon inside the device to reload keys
     echo "  -> Restarting adbd daemon on device..."

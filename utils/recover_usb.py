@@ -16,8 +16,10 @@ def get_adb_status():
             if len(parts) >= 2:
                 serial, status = parts[0], parts[1]
                 connected.append(serial)
-                if status == "offline" or status == "unauthorized":
+                if status == "offline":
                     offline.append(serial)
+                elif status == "unauthorized":
+                    print(f"[!] Note: Device {serial} is unauthorized (requires screen approval / key sync, skipping USB reset).")
             elif len(parts) == 1:
                 connected.append(parts[0])
     return connected, offline

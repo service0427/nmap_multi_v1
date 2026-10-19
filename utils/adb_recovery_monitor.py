@@ -135,37 +135,91 @@ def write_recovery_log(event_type, details):
     except Exception as e:
         log("ERROR", f"Failed to write to adb_recovery.log: {e}")
 
-def get_usb_path_by_serial(serial):
-    # 1. Try reading from usb_ports.json first (No FS scan, 100% safe against D-state)
-    config_path = "/home/tech/nmap_multi_v1/wifi_multi/config/usb_ports.json"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
+USB_PORTS_CONFIG_PATH = "/home/tech/nmap_multi_v1/wifi_multi/config/usb_ports.json"
+DEVICE_ORDER_CONFIG_PATH = "/home/tech/nmap_multi_v1/wifi_multi/config/device_order.json"
+
+def scan_sysfs_usb_ports():
+    """Scans /sys/bus/usb/devices/*/serial with a 2-second timeout to get live {serial: usb_port} mapping."""
+    mapping = {}
+    try:
+        cmd = "timeout 2 sh -c 'for f in /sys/bus/usb/devices/*/serial; do [ -f \"$f\" ] && s=$(cat \"$f\" 2>/dev/null) && [ -n \"$s\" ] && echo \"$s $(basename $(dirname \"$f\"))\"; done'"
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+        if res.returncode == 0 and res.stdout.strip():
+            for line in res.stdout.strip().split("\n"):
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    serial, port = parts[0], parts[1]
+                    if ":" not in serial and len(serial) >= 6:
+                        mapping[serial] = port
+    except Exception as e:
+        log("ERROR", f"Sysfs USB scan failed: {e}")
+    return mapping
+
+def remove_stale_device_from_configs(serial, reason=""):
+    """Removes a physically unplugged/stale serial from usb_ports.json and device_order.json."""
+    try:
+        if os.path.exists(USB_PORTS_CONFIG_PATH):
+            with open(USB_PORTS_CONFIG_PATH, "r") as f:
                 usb_ports = json.load(f)
             if serial in usb_ports:
-                return usb_ports[serial].replace("usb:", "")
+                removed_port = usb_ports.pop(serial, None)
+                with open(USB_PORTS_CONFIG_PATH, "w") as f:
+                    json.dump(usb_ports, f, indent=2)
+                log("INFO", f"[AUTO_PRUNE] Removed stale device {serial} ({removed_port}) from usb_ports.json ({reason})")
+                write_recovery_log("AUTO_PRUNE", f"Removed stale {serial} ({removed_port}) from usb_ports.json: {reason}")
+    except Exception as e:
+        log("ERROR", f"Failed to prune {serial} from usb_ports.json: {e}")
+
+    try:
+        if os.path.exists(DEVICE_ORDER_CONFIG_PATH):
+            with open(DEVICE_ORDER_CONFIG_PATH, "r") as f:
+                order_list = json.load(f)
+            if serial in order_list:
+                order_list.remove(serial)
+                with open(DEVICE_ORDER_CONFIG_PATH, "w") as f:
+                    json.dump(order_list, f, indent=2)
+    except Exception as e:
+        log("ERROR", f"Failed to prune {serial} from device_order.json: {e}")
+
+def get_usb_path_by_serial(serial, sysfs_map=None):
+    # 1. Always check live sysfs first so moved devices never reset the wrong port
+    if sysfs_map is None:
+        sysfs_map = scan_sysfs_usb_ports()
+    if serial in sysfs_map:
+        return sysfs_map[serial]
+
+    # 2. Fallback to usb_ports.json only if device dropped off sysfs
+    if os.path.exists(USB_PORTS_CONFIG_PATH):
+        try:
+            with open(USB_PORTS_CONFIG_PATH, "r") as f:
+                usb_ports = json.load(f)
+            if serial in usb_ports:
+                usb_path = usb_ports[serial].replace("usb:", "")
+                # Safety Check A: Ensure this port is not occupied by a different live device
+                occupant = next((s for s, p in sysfs_map.items() if p == usb_path and s != serial), None)
+                if occupant:
+                    remove_stale_device_from_configs(serial, f"port {usb_path} is now occupied by {occupant}")
+                    return None
+                # Safety Check B: Ensure parent USB hub actually exists on this machine
+                parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else usb_path.split("-")[0]
+                if not os.path.exists(f"/sys/bus/usb/devices/{parent_hub}"):
+                    remove_stale_device_from_configs(serial, f"parent USB hub {parent_hub} does not exist on this host")
+                    return None
+                return usb_path
         except Exception as e:
             log("ERROR", f"Failed to read usb_ports.json: {e}")
-
-    # 2. Fallback to shell-level grep with 2-second timeout to prevent D-state hangs
-    try:
-        cmd = f"timeout 2 grep -s -l '^{serial}$' /sys/bus/usb/devices/*/serial"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if res.returncode == 0 and res.stdout.strip():
-            path = res.stdout.strip().split("\n")[0]
-            parts = path.split("/")
-            if len(parts) >= 2:
-                return parts[-2]
-    except Exception as e:
-        log("ERROR", f"Fallback grep scanning failed: {e}")
     return None
 
 def reset_usb_device(usb_path):
     unbind_file = "/sys/bus/usb/drivers/usb/unbind"
     bind_file = "/sys/bus/usb/drivers/usb/bind"
+    if not os.path.exists(f"/sys/bus/usb/devices/{usb_path}"):
+        log("WARNING", f"Sysfs path /sys/bus/usb/devices/{usb_path} does not exist (device physically unplugged).")
+        return False
+
     log("INFO", f"Targeting USB port {usb_path} for hardware unbind/bind reset...")
     try:
-        # 1. Unbind port
+        # 1. Unbind port (Proceed to bind even if already unbound)
         res_unbind = subprocess.run(
             ["sudo", "tee", unbind_file],
             input=usb_path.encode(),
@@ -175,8 +229,7 @@ def reset_usb_device(usb_path):
         if res_unbind.returncode == 0:
             log("INFO", f"Successfully sent unbind to {usb_path}")
         else:
-            log("ERROR", f"Unbind failed for {usb_path}: {res_unbind.stderr.decode().strip()}")
-            return False
+            log("INFO", f"Unbind note for {usb_path} (may already be unbound): {res_unbind.stderr.decode().strip()}")
 
         # Wait 2 seconds for hardware power down
         time.sleep(2)
@@ -197,80 +250,128 @@ def reset_usb_device(usb_path):
         log("ERROR", f"Failed to execute hardware reset for {usb_path}: {e}")
     return False
 
-def check_adb_status():
+def check_adb_status(missing_reset_done):
     """
-    Checks the adb server status.
-    Returns (is_ok, reason, bad_serials, device_count, root_pids)
+    Checks the adb server status and synchronizes usb_ports.json with live hardware.
+    Returns (is_ok, reason, bad_serials, offline_serials, missing_serials, unauthorized_serials, device_count, root_pids, sysfs_map)
     """
     # 1. Check for root processes (Collect but don't fail immediately, we will kill them target-selectively)
     procs = get_adb_processes()
     root_pids = [p[0] for p in procs if p[1] == "root"]
 
-    # 2. Check for adb hanging
+    # 2. Check for adb hanging using 'devices -l' to also capture live usb: paths
     try:
-        success, stdout, stderr = run_adb_cmd(["devices"], timeout_sec=ADB_TIMEOUT_SEC)
+        success, stdout, stderr = run_adb_cmd(["devices", "-l"], timeout_sec=ADB_TIMEOUT_SEC)
         if not success:
-            return False, f"adb devices failed: {stderr}", [], 0, root_pids
+            return False, f"adb devices failed: {stderr}", [], [], [], [], 0, root_pids, {}
         
-        # Parse device count and statuses
+        sysfs_map = scan_sysfs_usb_ports()
+
+        # Parse device count, statuses, and usb paths
         lines = stdout.strip().split("\n")
         device_count = 0
         connected_serials = []
         unauthorized_serials = []
         offline_serials = []
+        live_usb_updates = {}
+
+        for serial, port in sysfs_map.items():
+            live_usb_updates[serial] = f"usb:{port}"
+
         for line in lines[1:]:
             line = line.strip()
             if not line or line.startswith("*"):
                 continue
-            device_count += 1
             parts = line.split()
-            if not parts:
+            if len(parts) < 2:
                 continue
             serial = parts[0]
+            state = parts[1]
+            device_count += 1
             connected_serials.append(serial)
-            if "unauthorized" in line:
+            for p in parts[2:]:
+                if p.startswith("usb:"):
+                    live_usb_updates[serial] = p
+            if state == "unauthorized":
                 unauthorized_serials.append(serial)
-            elif "offline" in line:
+            elif state == "offline":
                 offline_serials.append(serial)
 
-        # 3. Detect completely missing devices (configured in usb_ports.json but not in adb output)
+        # 3. Synchronize usb_ports.json with live port mappings and prune unplugged ghost devices
         missing_serials = []
-        config_path = "/home/tech/nmap_multi_v1/wifi_multi/config/usb_ports.json"
-        if os.path.exists(config_path):
+        usb_ports = {}
+        if os.path.exists(USB_PORTS_CONFIG_PATH):
             try:
-                with open(config_path, "r") as f:
+                with open(USB_PORTS_CONFIG_PATH, "r") as f:
                     usb_ports = json.load(f)
-                for serial in usb_ports:
-                    if serial not in connected_serials:
-                        missing_serials.append(serial)
             except Exception as e:
-                log("ERROR", f"Failed to check missing devices from config: {e}")
+                log("ERROR", f"Failed to read usb_ports.json: {e}")
 
-        bad_serials = list(set(unauthorized_serials + offline_serials + missing_serials))
+        ports_modified = False
+        for serial, usb_tag in live_usb_updates.items():
+            if usb_ports.get(serial) != usb_tag:
+                log("INFO", f"[USB_SYNC] Updating USB port for {serial}: {usb_ports.get(serial)} -> {usb_tag}")
+                usb_ports[serial] = usb_tag
+                ports_modified = True
+
+        if ports_modified:
+            try:
+                os.makedirs(os.path.dirname(USB_PORTS_CONFIG_PATH), exist_ok=True)
+                with open(USB_PORTS_CONFIG_PATH, "w") as f:
+                    json.dump(usb_ports, f, indent=2)
+            except Exception as e:
+                log("ERROR", f"Failed to save updated usb_ports.json: {e}")
+
+        for serial in list(usb_ports.keys()):
+            if serial in connected_serials:
+                missing_reset_done.discard(serial)
+                continue
+
+            usb_path = usb_ports[serial].replace("usb:", "")
+            parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else usb_path.split("-")[0]
+            occupant = next((s for s, p in sysfs_map.items() if p == usb_path and s != serial), None)
+
+            if occupant:
+                remove_stale_device_from_configs(serial, f"port {usb_path} now occupied by {occupant}")
+                missing_reset_done.discard(serial)
+            elif not os.path.exists(f"/sys/bus/usb/devices/{parent_hub}"):
+                remove_stale_device_from_configs(serial, f"parent hub {parent_hub} not present on host")
+                missing_reset_done.discard(serial)
+            elif serial in missing_reset_done and serial not in sysfs_map:
+                remove_stale_device_from_configs(serial, f"device did not return after USB reset on {usb_path} (unplugged)")
+                missing_reset_done.discard(serial)
+            else:
+                missing_serials.append(serial)
+
+        # IMPORTANT: Do NOT include unauthorized_serials in bad_serials!
+        # Resetting USB on an unauthorized device cannot authorize it and causes 12s xhci_hcd bus hangs (error -71) + popup spam.
+        bad_serials = list(set(offline_serials + missing_serials))
         if bad_serials:
             reasons = []
-            if unauthorized_serials: reasons.append(f"unauthorized: {unauthorized_serials}")
             if offline_serials: reasons.append(f"offline: {offline_serials}")
             if missing_serials: reasons.append(f"missing: {missing_serials}")
+            if unauthorized_serials: reasons.append(f"unauthorized (skipped reset): {unauthorized_serials}")
             reason_str = "Problematic/Missing devices detected: " + ", ".join(reasons)
-            return False, reason_str, bad_serials, device_count, root_pids
+            return False, reason_str, bad_serials, offline_serials, missing_serials, unauthorized_serials, device_count, root_pids, sysfs_map
             
-        return True, "OK", [], device_count, root_pids
+        return True, "OK", [], [], [], unauthorized_serials, device_count, root_pids, sysfs_map
 
     except subprocess.TimeoutExpired:
-        return False, "adb devices command timed out", [], 0, root_pids
+        return False, "adb devices command timed out", [], [], [], [], 0, root_pids, {}
     except Exception as e:
-        return False, f"adb check encountered error: {e}", [], 0, root_pids
+        return False, f"adb check encountered error: {e}", [], [], [], [], 0, root_pids, {}
 
 def main():
-    log("INFO", "ADB Recovery Monitor Daemon started (Pinpoint Targeted Healing active).")
+    log("INFO", "ADB Recovery Monitor Daemon started (Pinpoint Targeted Healing & Auto USB Sync active).")
     
     bad_consecutive_counts = {}
+    missing_reset_done = set()
+    logged_unauthorized = set()
     global_hang_streak = 0
     
     while True:
         try:
-            is_ok, reason, bad_serials, dev_count, root_pids = check_adb_status()
+            is_ok, reason, bad_serials, offline_serials, missing_serials, unauthorized_serials, dev_count, root_pids, sysfs_map = check_adb_status(missing_reset_done)
             
             # 1. Root adb 프로세스가 발견되면 전체 리셋 대신 해당 Root PID만 조용히 저격 사살
             if root_pids:
@@ -279,6 +380,14 @@ def main():
                 write_recovery_log("TARGETED_ROOT_KILL", f"Killed root adb PIDs: {root_pids}")
                 time.sleep(2)
                 continue
+
+            # Log unauthorized devices once without triggering USB reset or reconnect loops
+            current_unauth = set(unauthorized_serials)
+            new_unauth = current_unauth - logged_unauthorized
+            if new_unauth:
+                log("WARNING", f"[UNAUTHORIZED] Device(s) {sorted(list(new_unauth))} are unauthorized. Skipping USB reset/reconnect loop to prevent USB bus freeze.")
+                write_recovery_log("UNAUTHORIZED_SKIP", f"Skipped auto-reset for unauthorized devices: {sorted(list(new_unauth))}")
+            logged_unauthorized = current_unauth
             
             # Update bad serials counters
             for serial in bad_serials:
@@ -291,29 +400,29 @@ def main():
             if not is_ok:
                 log("WARNING", f"ADB issues/deviations detected: {reason}")
                 
-                # Case A: 개별 단말기 꼬임 (Offline / Unauthorized) ➡️ 기기별 저격 치유 (전체 리셋 안 함!)
+                # Case A: 개별 단말기 꼬임 (Offline / Missing) ➡️ 기기별 저격 치유 (Unauthorized는 제외됨!)
                 if bad_serials and "Problematic" in reason:
                     global_hang_streak = 0 # ADB 서버 자체는 통신이 되므로 행상태 아님
                     target_resets = []
                     for serial in bad_serials:
                         streak = bad_consecutive_counts.get(serial, 0)
                         
-                        # 1단계: 초반 1~2회 오동작 시 가벼운 소프트웨어 reconnect 재시도
-                        if streak <= 2:
-                            log("INFO", f"Attempting quick software reconnect for {serial} (Streak: {streak})")
-                            run_adb_cmd(["-s", serial, "reconnect"], timeout_sec=5)
-                            run_adb_cmd(["-s", serial, "reconnect", "device"], timeout_sec=5)
+                        # 1단계 (streak == 1): offline 기기에 한해 가벼운 소프트웨어 reconnect 1회만 시도 (unbind와 동시 실행 절대 금지)
+                        if streak == 1:
+                            if serial in offline_serials:
+                                log("INFO", f"Attempting quick software reconnect for offline {serial} (Streak: 1/2)")
+                                run_adb_cmd(["-s", serial, "reconnect"], timeout_sec=5)
+                            else:
+                                log("INFO", f"Device {serial} is missing from ADB (Streak: 1/2). Waiting grace cycle before hardware check...")
                         
-                        # 2단계: 1분(2회) 이상 꼬임 지속 시 하드웨어 USB unbind/bind 리셋
-                        if streak >= 2:
+                        # 2단계 (streak >= 2): reconnect 호출 없이 하드웨어 USB unbind/bind 단독 수행 (충돌 방지)
+                        elif streak >= 2:
                             target_resets.append(serial)
-                        else:
-                            log("INFO", f"Device {serial} is problematic. Streak: {streak}/2 (Waiting grace period...)")
                     
                     if target_resets:
-                        log("INFO", f"Handling pinpoint recovery for persistent offline/unauthorized serials: {target_resets}")
+                        log("INFO", f"Handling pinpoint hardware recovery for persistent offline/missing serials: {target_resets}")
                         for serial in target_resets:
-                            usb_path = get_usb_path_by_serial(serial)
+                            usb_path = get_usb_path_by_serial(serial, sysfs_map=sysfs_map)
                             if usb_path:
                                 log("INFO", f"Pinpoint USB reset for {serial} on USB path {usb_path}")
                                 success = reset_usb_device(usb_path)
@@ -322,8 +431,10 @@ def main():
                                 else:
                                     write_recovery_log("PINPOINT_FAILED", f"Failed reset problematic {serial} at USB {usb_path}")
                             else:
-                                log("WARNING", f"Could not find USB path for serial {serial}")
-                                write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found for {serial}")
+                                log("WARNING", f"Could not find valid USB path for serial {serial}")
+                                write_recovery_log("PINPOINT_NOT_FOUND", f"USB path not found or pruned for {serial}")
+                            if serial in missing_serials:
+                                missing_reset_done.add(serial)
                             # Reset counter after recovery attempt
                             bad_consecutive_counts[serial] = 0
                         time.sleep(10)
@@ -341,7 +452,10 @@ def main():
                         log("WARNING", f"ADB server unresponsive. Streak: {global_hang_streak}/3. Waiting next cycle before global recovery...")
             else:
                 global_hang_streak = 0
-                log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
+                if unauthorized_serials:
+                    log("INFO", f"ADB status check: OK ({dev_count} attached, {len(unauthorized_serials)} unauthorized awaiting approval: {unauthorized_serials})")
+                else:
+                    log("INFO", f"ADB status check: OK ({dev_count} devices connected)")
 
             # 4. LTE Multi-Modem Self-Healing Watchdog (Detects unmapped/reconnected modems, broken routes)
             if check_and_heal_lte_modems:
