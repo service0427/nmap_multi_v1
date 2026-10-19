@@ -68,10 +68,10 @@ if [ -f "$CURRENT_TASK_JSON" ]; then
         log_api_backup "$endpoint" "$payload" "$response"
         
         # Also log to our persistent history
-        local history_file="logs/rotator_history/session_history.csv"
+        history_file="logs/rotator_history/session_history.csv"
         if [ -f "$history_file" ]; then
             # Get subnet index from BIND_IP or BIND_IFACE
-            local sub_idx=""
+            sub_idx=""
             if [ -n "$BIND_IP" ] && [[ "$BIND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
                 sub_idx=$(echo "$BIND_IP" | cut -d. -f3)
             fi

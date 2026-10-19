@@ -284,8 +284,9 @@ while true; do
         if [ -f "$DEV_TMP/ip_failed_gate" ] || [ -f "logs/${DEV_ID}/tmp/ip_failed_gate" ]; then
             CURRENT_TIME=$(date +%s)
             DEV_EXCLUDE_UNTIL[$DEV_ID]=$((CURRENT_TIME + 180))
+            unset "SUBNET_CACHE[$DEV_ID]"
             rm -f "$DEV_TMP/ip_failed_gate" "logs/${DEV_ID}/tmp/ip_failed_gate"
-            echo "[IP_BLOCKED] [$DEV_ID] IP lookup failed. Applying heavy 180s cooldown to save modem bandwidth."
+            echo "[IP_BLOCKED] [$DEV_ID] IP lookup failed. Cleared subnet cache and applying heavy 180s cooldown to save modem bandwidth."
             mkdir -p "logs/devices/${DEV_ID}"
             echo "{\"status\": \"IP_COOLDOWN\", \"exclude_until\": ${DEV_EXCLUDE_UNTIL[$DEV_ID]}}" > "$DEV_TASK"
             DEV_INDEX=$((DEV_INDEX + 1))
