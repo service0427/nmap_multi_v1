@@ -201,7 +201,7 @@ def get_usb_path_by_serial(serial, sysfs_map=None):
                     remove_stale_device_from_configs(serial, f"port {usb_path} is now occupied by {occupant}")
                     return None
                 # Safety Check B: Ensure parent USB hub actually exists on this machine
-                parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else usb_path.split("-")[0]
+                parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else f"usb{usb_path.split('-')[0]}"
                 if not os.path.exists(f"/sys/bus/usb/devices/{parent_hub}"):
                     remove_stale_device_from_configs(serial, f"parent USB hub {parent_hub} does not exist on this host")
                     return None
@@ -275,9 +275,6 @@ def check_adb_status(missing_reset_done):
         offline_serials = []
         live_usb_updates = {}
 
-        for serial, port in sysfs_map.items():
-            live_usb_updates[serial] = f"usb:{port}"
-
         for line in lines[1:]:
             line = line.strip()
             if not line or line.startswith("*"):
@@ -289,6 +286,8 @@ def check_adb_status(missing_reset_done):
             state = parts[1]
             device_count += 1
             connected_serials.append(serial)
+            if serial in sysfs_map:
+                live_usb_updates[serial] = f"usb:{sysfs_map[serial]}"
             for p in parts[2:]:
                 if p.startswith("usb:"):
                     live_usb_updates[serial] = p
@@ -306,6 +305,11 @@ def check_adb_status(missing_reset_done):
                     usb_ports = json.load(f)
             except Exception as e:
                 log("ERROR", f"Failed to read usb_ports.json: {e}")
+
+        # Also update any known device in usb_ports if it moved ports in sysfs
+        for serial in list(usb_ports.keys()):
+            if serial in sysfs_map:
+                live_usb_updates[serial] = f"usb:{sysfs_map[serial]}"
 
         ports_modified = False
         for serial, usb_tag in live_usb_updates.items():
@@ -328,7 +332,7 @@ def check_adb_status(missing_reset_done):
                 continue
 
             usb_path = usb_ports[serial].replace("usb:", "")
-            parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else usb_path.split("-")[0]
+            parent_hub = usb_path.rsplit(".", 1)[0] if "." in usb_path else f"usb{usb_path.split('-')[0]}"
             occupant = next((s for s, p in sysfs_map.items() if p == usb_path and s != serial), None)
 
             if occupant:
