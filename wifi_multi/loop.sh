@@ -14,6 +14,8 @@ declare -A SUBNET_CACHE
 declare -A DEV_EXCLUDE_UNTIL
 declare -A DEVICE_IDFV_CACHE
 declare -A DEVICE_IDFV_SYNCED
+declare -A WIFI_RECOVERY_LAST_TRY
+declare -A CHARGING_HEAL_LAST_TRY
 
 # --- [PATH SETUP] ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -62,6 +64,85 @@ get_device_wifi_subnet() {
     if [ -n "$IP" ]; then
         echo "$IP" | cut -d. -f3
     fi
+}
+
+# Modular Wi-Fi Auto-Recovery & Balanced AP Provisioning (Android 11~15 / S20+ compatible)
+recover_device_wifi() {
+    local SERIAL=$1
+
+    # 1. Ensure Airplane mode is OFF and Wi-Fi radio is ON
+    timeout 5 adb -s "$SERIAL" shell "
+        cmd connectivity airplane-mode disable 2>/dev/null || settings put global airplane_mode_on 0 2>/dev/null
+        svc wifi enable 2>/dev/null || true
+        cmd wifi set-wifi-enabled enabled 2>/dev/null || true
+    " >/dev/null 2>&1
+
+    # 2. Determine this server's AP prefix (e.g. P07, P11) from hostname
+    local HOST_PREFIX=$(hostname | cut -d. -f1 | tr '[:lower:]' '[:upper:]')
+    if [ -z "$HOST_PREFIX" ]; then
+        return 1
+    fi
+
+    # 3. Check if the device already has a saved network matching <HOST_PREFIX>-<SUBNET>
+    #    Checks both 'cmd wifi list-networks' and WifiConfigStore.xml (Android 11~15 paths)
+    local SAVED_SSID=$(timeout 4 adb -s "$SERIAL" shell "
+        cmd wifi list-networks 2>/dev/null | grep -oE '${HOST_PREFIX}-[0-9]+' | head -n 1
+        su -c 'grep -oE \"${HOST_PREFIX}-[0-9]+\" /data/misc/apexdata/com.android.wifi/WifiConfigStore.xml /data/misc/wifi/WifiConfigStore.xml 2>/dev/null' | head -n 1
+    " 2>/dev/null | grep -oE "${HOST_PREFIX}-[0-9]+" | head -n 1 | tr -d '\r\n')
+
+    local TARGET_SSID=""
+    if [ -n "$SAVED_SSID" ]; then
+        local SAVED_SUB="${SAVED_SSID##*-}"
+        if [ -n "$(get_ip "lte${SAVED_SUB}")" ]; then
+            TARGET_SSID="$SAVED_SSID"
+            echo "[📶 WIFI-HEAL] [$SERIAL] Found existing saved AP profile ($TARGET_SSID). Reconnecting..." >&2
+        fi
+    fi
+
+    # 4. If saved Wi-Fi networks were wiped/initialized, pick the active modem subnet with the fewest devices (balanced 15/AP)
+    if [ -z "$TARGET_SSID" ]; then
+        local BEST_SUBNET=""
+        local MIN_COUNT=9999
+        for modem in $ACTIVE_LTES; do
+            local sub="${modem#lte}"
+            [ -z "$(get_ip "$modem")" ] && continue
+            local cnt=0
+            for d in $DEVICES; do
+                [ "${SUBNET_CACHE[$d]}" = "$sub" ] && cnt=$((cnt + 1))
+            done
+            if [ "$cnt" -lt "$MIN_COUNT" ]; then
+                MIN_COUNT=$cnt
+                BEST_SUBNET="$sub"
+            fi
+        done
+        if [ -n "$BEST_SUBNET" ]; then
+            TARGET_SSID="${HOST_PREFIX}-${BEST_SUBNET}"
+            echo "[📶 WIFI-HEAL] [$SERIAL] Saved Wi-Fi profile missing! Auto-provisioning balanced AP: $TARGET_SSID (current load: ${MIN_COUNT} devices)..." >&2
+        fi
+    fi
+
+    [ -z "$TARGET_SSID" ] && return 1
+
+    # 5. Connect/register network checking root/shell cmd wifi capability across Android 11~15
+    local WIFI_PASS="${WIFI_AP_PASSWORD:-13241324}"
+    timeout 8 adb -s "$SERIAL" shell "
+        if su -c 'cmd wifi -h' 2>/dev/null | grep -q 'connect-network'; then
+            su -c 'cmd wifi connect-network \"${TARGET_SSID}\" wpa2 \"${WIFI_PASS}\"' >/dev/null 2>&1
+        elif cmd wifi -h 2>/dev/null | grep -q 'connect-network'; then
+            cmd wifi connect-network \"${TARGET_SSID}\" wpa2 \"${WIFI_PASS}\" >/dev/null 2>&1
+        fi
+    " >/dev/null 2>&1
+
+    # Wait briefly (up to 5s) for DHCP lease and verify subnet
+    for _ in 1 2 3 4 5; do
+        sleep 1
+        local NEW_SUB=$(get_device_wifi_subnet "$SERIAL")
+        if [ -n "$NEW_SUB" ]; then
+            echo "$NEW_SUB"
+            return 0
+        fi
+    done
+    return 1
 }
 
 get_device_idfv() {
@@ -216,16 +297,30 @@ while true; do
             timeout 5 adb -s "$DEV_ID" shell "am force-stop com.nhn.android.nmap; settings put global http_proxy :0" >/dev/null 2>&1
         fi
 
-        # --- Battery 3-Stage Power & Gate Management ---
-        # 1. < 25%  : Deep Sleep (Screen OFF, Fast-Charging Standby)
+        # --- Battery 3-Stage Power & Proactive Charging Safety-Timer Management ---
+        # 1. < 25%  : Deep Sleep (Screen OFF, Fast-Charging Standby + Safety Timer Reset)
         # 2. 25~30% : Default Mode Prepared (Screen ON, Stay-Awake, but NO task execution)
-        # 3. >= 31% : Task Execution Allowed
-        BATT_LEVEL=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | grep -E "^\s*level:" | head -n 1 | awk '{print $2}')
+        # 3. >= 31% : Task Execution Allowed (Proactively heal if Not charging / Safety timer expire)
+        BATT_DUMP=$(timeout 2 adb -s "$DEV_ID" shell "dumpsys battery" 2>/dev/null | tr -d '\r')
+        BATT_LEVEL=$(echo "$BATT_DUMP" | grep -E "^\s*level:" | head -n 1 | awk '{print $2}')
+        BATT_STATUS=$(echo "$BATT_DUMP" | grep -E "^\s*status:" | head -n 1 | awk '{print $2}')
+        BATT_HEALTH=$(echo "$BATT_DUMP" | grep -E "^\s*health:" | head -n 1 | awk '{print $2}')
         if [ -n "$BATT_LEVEL" ] && [ "$BATT_LEVEL" -eq "$BATT_LEVEL" ] 2>/dev/null; then
             CURRENT_TIME=$(date +%s)
+            # Proactive check: status 4 = Not charging, health != 2 = Abnormal/Safety timer expire
+            if [ "$BATT_LEVEL" -lt 95 ] && { [ "$BATT_STATUS" = "4" ] || { [ -n "$BATT_HEALTH" ] && [ "$BATT_HEALTH" != "2" ]; }; }; then
+                LAST_HEAL=${CHARGING_HEAL_LAST_TRY["$DEV_ID"]:-0}
+                if [ $((CURRENT_TIME - LAST_HEAL)) -ge 60 ]; then
+                    CHARGING_HEAL_LAST_TRY["$DEV_ID"]=$CURRENT_TIME
+                    echo "[⚡ BATT-HEAL] [$DEV_ID] Detected charging lock (level=${BATT_LEVEL}%, status=${BATT_STATUS}, health=${BATT_HEALTH}). Resetting PMIC safety timer..."
+                    "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "heal_charging"
+                fi
+            fi
+
             if [ "$BATT_LEVEL" -lt 25 ]; then
                 if [ -f "$DEV_TMP/deep_sleep_manual_off" ] || [ -f "logs/${DEV_ID}/tmp/deep_sleep_manual_off" ]; then
-                    echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%), but Deep Sleep manually disabled via Web UI. Keeping default mode..."
+                    echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%), but Deep Sleep manually disabled via Web UI. Keeping default mode & healing charger..."
+                    "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "heal_charging"
                 else
                     echo "[🔋] [$DEV_ID] Battery critical (${BATT_LEVEL}% < 25%). Entering MAX SLEEP (Fast-Charging Standby)..."
                     "$WIFI_MULTI_LIB/power_mode.sh" "$DEV_ID" "deep_sleep"
@@ -254,21 +349,20 @@ while true; do
             timeout 3 adb -s "$DEV_ID" shell ime set com.android.adbkeyboard/.AdbIME >/dev/null 2>&1
         fi
 
-        # --- [NEW] Dynamic SSID-to-Modem Mapping with Caching & Z Flip Override ---
+        # --- [NEW] Dynamic SSID-to-Modem Mapping with Caching & Foldable Override ---
         BIND_IP=""
         MODEM_IDX=""
         
-        # 1. Device Initial Scan: Cache model and override state for Z Flip models if CLOSED
+        # 1. Device Initial Scan: Cache model and override state for Foldable (SM-F*) models if CLOSED
         if [ -z "${DEVICE_MODEL_CACHE[$DEV_ID]}" ]; then
             MODEL=$(timeout 3 adb -s "$DEV_ID" shell "getprop ro.product.model" | tr -d '\r\n')
             if [ -n "$MODEL" ]; then
                 DEVICE_MODEL_CACHE["$DEV_ID"]="$MODEL"
                 echo "[INITIALIZE] [$DEV_ID] Detected Model: $MODEL"
-                if [[ "$MODEL" == "SM-F711N" || "$MODEL" == "SM-F721N" ]]; then
-                    if adb -s "$DEV_ID" shell cmd device_state state 2>/dev/null | grep -q "Committed state:.*CLOSE"; then
-                        echo "[INITIALIZE] [$DEV_ID] Z Flip is CLOSED. Overriding to state 3 (OPEN)..."
-                        adb -s "$DEV_ID" shell cmd device_state state 3 >/dev/null 2>&1
-                        adb -s "$DEV_ID" shell "settings put system accelerometer_rotation 0; settings put system user_rotation 0" >/dev/null 2>&1
+                if [[ "$MODEL" == SM-F* ]]; then
+                    if timeout 3 adb -s "$DEV_ID" shell "cmd -l 2>/dev/null | grep -q 'device_state' && cmd device_state state 2>/dev/null" | grep -q "Committed state:.*CLOSE"; then
+                        echo "[INITIALIZE] [$DEV_ID] Foldable ($MODEL) is CLOSED. Overriding to state 3 (OPEN)..."
+                        timeout 3 adb -s "$DEV_ID" shell "cmd device_state state 3; settings put system accelerometer_rotation 0; settings put system user_rotation 0" >/dev/null 2>&1
                     fi
                 fi
             fi
@@ -298,10 +392,27 @@ while true; do
             fi
         fi
 
-        # --- Strict Safety Gate: Prevent execution if mapping fails (NO FALLBACK) ---
+        # --- Wi-Fi Auto-Healing & Strict Safety Gate ---
         if [ -z "$BIND_IP" ]; then
-            # Clear cache in case the device changed Wi-Fi AP
             unset "SUBNET_CACHE[$DEV_ID]"
+            NOW_TS=$(date +%s)
+            LAST_WIFI_TRY=${WIFI_RECOVERY_LAST_TRY["$DEV_ID"]:-0}
+            if [ $((NOW_TS - LAST_WIFI_TRY)) -ge 60 ]; then
+                WIFI_RECOVERY_LAST_TRY["$DEV_ID"]=$NOW_TS
+                RECOVERED_SUB=$(recover_device_wifi "$DEV_ID")
+                if [ -n "$RECOVERED_SUB" ]; then
+                    SUBNET_IDX="$RECOVERED_SUB"
+                    MODEM_IDX="$RECOVERED_SUB"
+                    BIND_IP=$(get_ip "lte${MODEM_IDX}")
+                    if [ -n "$BIND_IP" ]; then
+                        SUBNET_CACHE["$DEV_ID"]="$SUBNET_IDX"
+                        echo "[✅ WIFI-HEAL] [$DEV_ID] Auto-recovered Wi-Fi -> 192.168.${SUBNET_IDX}.x (Modem lte$MODEM_IDX: $BIND_IP)"
+                    fi
+                fi
+            fi
+        fi
+
+        if [ -z "$BIND_IP" ]; then
             SSID=$(get_device_ssid "$DEV_ID")
             echo "[⚠️] [$DEV_ID] SKIPPED: Wi-Fi IP subnet ($SUBNET_IDX) has no active matching modem. (SSID: $SSID)"
             continue

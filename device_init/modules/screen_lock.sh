@@ -44,15 +44,22 @@ init_screen_lock() {
         # 4. Dismiss any active keyguard
         adb -s "$serial" shell "wm dismiss-keyguard" 2>/dev/null
 
-        # 5. Z-Flip / Foldable: ensure main screen is OPEN (prevents SubHome/Cover screen mode)
-        adb -s "$serial" shell "if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then cmd device_state state 3 2>/dev/null || true; sleep 0.5 2>/dev/null; fi"
+        # 5. Z-Flip / Foldable: ensure main screen is OPEN (Only on SM-F* foldables where device_state exists)
+        adb -s "$serial" shell "
+            MODEL=\$(getprop ro.product.model 2>/dev/null)
+            case \"\$MODEL\" in
+                SM-F*)
+                    if cmd -l 2>/dev/null | grep -q 'device_state'; then
+                        if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then
+                            cmd device_state state 3 2>/dev/null || true
+                            sleep 0.5 2>/dev/null
+                        fi
+                    fi
+                    ;;
+            esac
+        " 2>/dev/null
 
-        # 6. Battery & Display Power Optimization:
-        # - Lock to 60Hz (prevents 120Hz power drain)
-        # - Disable auto brightness
-        # - Enable dark mode
-        # - Disable battery protect cap (allow 100% full charge)
-        # - Disable slate kiosk mode & enable high-current USB
+        # 6. Battery & Display Power Optimization (Modular across Android 11~15 / S20+):
         adb -s "$serial" shell "
             settings put global adb_allowed_connection_time 0
             settings put system accelerometer_rotation 0
@@ -61,8 +68,25 @@ init_screen_lock() {
             settings put system peak_refresh_rate 60.0
             settings put system min_refresh_rate 60.0
             settings put global protect_battery 0
-            cmd uimode night yes
-            su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null
+            cmd uimode night yes 2>/dev/null || true
+            su -c '
+                for d in /sys/class/power_supply/battery /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery /sys/devices/platform/battery/power_supply/battery; do
+                    if [ -d \"\$d\" ]; then
+                        [ -f \"\$d/batt_high_current_usb\" ] && echo 1 > \"\$d/batt_high_current_usb\" 2>/dev/null
+                        [ -f \"\$d/store_mode\" ] && echo 0 > \"\$d/store_mode\" 2>/dev/null
+                        [ -f \"\$d/batt_full_capacity\" ] && echo 100 > \"\$d/batt_full_capacity\" 2>/dev/null
+                        [ -f \"\$d/input_suspend\" ] && echo 0 > \"\$d/input_suspend\" 2>/dev/null
+                        if [ -f \"\$d/batt_slate_mode\" ]; then
+                            if [ -f \"\$d/uevent\" ] && grep -qE \"POWER_SUPPLY_STATUS=Not charging|POWER_SUPPLY_HEALTH=Safety timer expire\" \"\$d/uevent\" 2>/dev/null; then
+                                echo 1 > \"\$d/batt_slate_mode\" 2>/dev/null
+                                sleep 1
+                            fi
+                            echo 0 > \"\$d/batt_slate_mode\" 2>/dev/null
+                        fi
+                        break
+                    fi
+                done
+            ' 2>/dev/null
         " 2>/dev/null
 
         # Verify
@@ -72,8 +96,18 @@ init_screen_lock() {
     else
         # Still dismiss keyguard, ensure device_state and power settings just in case
         adb -s "$serial" shell "wm dismiss-keyguard" 2>/dev/null
-        adb -s "$serial" shell "if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then cmd device_state state 3 2>/dev/null || true; sleep 0.5 2>/dev/null; fi"
         adb -s "$serial" shell "
+            MODEL=\$(getprop ro.product.model 2>/dev/null)
+            case \"\$MODEL\" in
+                SM-F*)
+                    if cmd -l 2>/dev/null | grep -q 'device_state'; then
+                        if ! cmd device_state state 2>/dev/null | grep -q 'Committed state:.*OPEN'; then
+                            cmd device_state state 3 2>/dev/null || true
+                            sleep 0.5 2>/dev/null
+                        fi
+                    fi
+                    ;;
+            esac
             settings put global adb_allowed_connection_time 0
             settings put system accelerometer_rotation 0
             settings put system user_rotation 0
@@ -81,8 +115,25 @@ init_screen_lock() {
             settings put system peak_refresh_rate 60.0
             settings put system min_refresh_rate 60.0
             settings put global protect_battery 0
-            cmd uimode night yes
-            su -c 'echo 1 > /sys/class/power_supply/battery/batt_high_current_usb; echo 0 > /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery/batt_slate_mode' 2>/dev/null
+            cmd uimode night yes 2>/dev/null || true
+            su -c '
+                for d in /sys/class/power_supply/battery /sys/devices/platform/samsung_mobile_device/samsung_mobile_device:battery/power_supply/battery /sys/devices/platform/battery/power_supply/battery; do
+                    if [ -d \"\$d\" ]; then
+                        [ -f \"\$d/batt_high_current_usb\" ] && echo 1 > \"\$d/batt_high_current_usb\" 2>/dev/null
+                        [ -f \"\$d/store_mode\" ] && echo 0 > \"\$d/store_mode\" 2>/dev/null
+                        [ -f \"\$d/batt_full_capacity\" ] && echo 100 > \"\$d/batt_full_capacity\" 2>/dev/null
+                        [ -f \"\$d/input_suspend\" ] && echo 0 > \"\$d/input_suspend\" 2>/dev/null
+                        if [ -f \"\$d/batt_slate_mode\" ]; then
+                            if [ -f \"\$d/uevent\" ] && grep -qE \"POWER_SUPPLY_STATUS=Not charging|POWER_SUPPLY_HEALTH=Safety timer expire\" \"\$d/uevent\" 2>/dev/null; then
+                                echo 1 > \"\$d/batt_slate_mode\" 2>/dev/null
+                                sleep 1
+                            fi
+                            echo 0 > \"\$d/batt_slate_mode\" 2>/dev/null
+                        fi
+                        break
+                    fi
+                done
+            ' 2>/dev/null
         " 2>/dev/null
         echo -e "    [✓] Screen lock is already DISABLED & Power optimizations applied. Skipping."
     fi
