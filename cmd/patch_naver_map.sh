@@ -145,9 +145,9 @@ install_nmap_with_watchdog() {
     " >/dev/null 2>&1
     timeout 8 adb -s "$target_serial" shell "$has_su -c 'rm -rf /data/local/tmp/*.apk /data/app/vmdl*.tmp 2>/dev/null'" >/dev/null 2>&1
 
-    echo "[$(date '+%H:%M:%S')] [$target_serial] 신규 Naver Map APK 파일 전송 및 설치 시작 (최대 ${max_timeout}초 제한)..."
+    echo "[$(date '+%H:%M:%S')] [$target_serial] 신규 Naver Map APK 파일 전송 및 설치 시작 (--no-streaming, 최대 ${max_timeout}초 제한)..."
 
-    adb -s "$target_serial" install-multiple -r -d -g $apks >"$install_log" 2>&1 &
+    adb -s "$target_serial" install-multiple --no-streaming -r -d -g $apks >"$install_log" 2>&1 &
     local install_pid=$!
 
     while [ $elapsed -lt $max_timeout ]; do
@@ -176,9 +176,11 @@ install_nmap_with_watchdog() {
         # 2. 5초 주기로 디바이스 연결 끊김 감지
         if [ $((elapsed % 5)) -eq 0 ] && [ $elapsed -gt 0 ]; then
             if [ "$(timeout 3 adb -s "$target_serial" get-state 2>/dev/null | tr -d '\r\n')" != "device" ]; then
-                echo -e "\e[1;31m[⚠️] [$target_serial] 설치 도중 디바이스 연결 끊김 감지! (${elapsed}초 경과)\e[0m"
+                echo -e "\e[1;31m[⚠️] [$target_serial] 설치 도중 디바이스 연결 끊김 감지! (${elapsed}초 경과) 재연결 시도 중...\e[0m"
                 kill -9 $install_pid 2>/dev/null
                 wait $install_pid 2>/dev/null
+                adb -s "$target_serial" reconnect >/dev/null 2>&1 || true
+                timeout 10 adb -s "$target_serial" wait-for-device >/dev/null 2>&1 || true
                 rm -f "$install_log"
                 return 1
             fi
@@ -217,6 +219,9 @@ install_nmap_with_watchdog() {
         fi
     fi
 
+    # 임시 푸시된 APK 정리
+    timeout 5 adb -s "$target_serial" shell "rm -f /data/local/tmp/*.apk 2>/dev/null" >/dev/null 2>&1
+
     if [ "$install_success" = true ]; then
         rm -f "$install_log"
         return 0
@@ -244,8 +249,15 @@ for serial in $DEVICES; do
     echo "=================================================="
     echo "[$(date '+%H:%M:%S')] 🚀 [$serial] 네이버 지도 강제 패치 시작..."
     
-    # 0. 디바이스 활성 상태 점검 (연결 끊김/오프라인 사전 방어)
+    # 0. 디바이스 활성 상태 점검 (offline 상태면 1회 자동 reconnect 시도)
     dev_state=$(timeout 4 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')
+    if [ "$dev_state" != "device" ]; then
+        echo "[*] [$serial] 현재 상태(${dev_state:-disconnected}) -> ADB 재연결(reconnect) 시도 중..."
+        adb -s "$serial" reconnect >/dev/null 2>&1 || true
+        timeout 12 adb -s "$serial" wait-for-device >/dev/null 2>&1 || true
+        sleep 2
+        dev_state=$(timeout 4 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')
+    fi
     if [ "$dev_state" != "device" ]; then
         echo -e "\e[1;31m[⚠️] [$serial] 디바이스가 연결 해제되었거나 오프라인 상태입니다 (상태: ${dev_state:-disconnected}). 다음 기기로 건너뜁니다.\e[0m"
         continue

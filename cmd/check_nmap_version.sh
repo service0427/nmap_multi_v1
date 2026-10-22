@@ -49,6 +49,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# 일시적 offline 상태인 기기들이 있으면 먼저 소프트웨어 재연결 시도 (unauthorized는 건드리지 않음)
+OFFLINE_DEVS=$(adb devices | awk '$2=="offline"{print $1}')
+if [ -n "$OFFLINE_DEVS" ]; then
+    echo -e "\e[1;33m[*] 오프라인 상태 기기 감지 -> ADB 재연결(reconnect) 시도 중...\e[0m"
+    for off_dev in $OFFLINE_DEVS; do
+        adb -s "$off_dev" reconnect >/dev/null 2>&1 || true
+    done
+    sleep 3
+fi
+
 # 연결된 기기 리스팅
 if [ -n "$TARGET_DEVICE" ]; then
     # 특정 디바이스가 지정된 경우 연결 여부 검증

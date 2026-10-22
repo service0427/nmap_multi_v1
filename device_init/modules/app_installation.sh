@@ -137,30 +137,32 @@ init_app_installation() {
                 
                 if [ "$needs_patch" = true ]; then
                     echo -e "    - Uninstalling old Naver Map..."
+                    adb -s "$serial" shell "am force-stop $nmap_pkg" >/dev/null 2>&1
                     adb -s "$serial" uninstall "$nmap_pkg" >/dev/null 2>&1
                     sleep 2
-                    echo -e "    - Installing new Naver Map from $folder_name..."
+                    echo -e "    - Installing new Naver Map from $folder_name (--no-streaming)..."
                     local install_res
-                    install_res=$(adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
+                    install_res=$(timeout 300 adb -s "$serial" install-multiple --no-streaming -r -d -g $nmap_apks 2>&1)
                     if [ $? -ne 0 ]; then
                         echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
                     else
                         echo -e "    [✓] Naver Map installed successfully."
                     fi
-                    adb -s "$serial" shell "$has_su -c 'rm -rf /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/* /data/data/com.nhn.android.nmap/code_cache/*'" >/dev/null 2>&1
+                    adb -s "$serial" shell "$has_su -c 'rm -rf /data/local/tmp/*.apk /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/* /data/data/com.nhn.android.nmap/code_cache/*'" >/dev/null 2>&1
                 else
                     echo -e "    [✓] Naver Map ($device_ver) is already installed & up-to-date. Skipping."
                     adb -s "$serial" shell "$has_su -c 'rm -rf /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/WebView/* /data/data/com.nhn.android.nmap/code_cache/*'" >/dev/null 2>&1
                 fi
             else
-                echo -e "    - Naver Map not found. Installing from $nmap_dir..."
+                echo -e "    - Naver Map not found. Installing from $nmap_dir (--no-streaming)..."
                 local install_res
-                install_res=$(timeout 120 adb -s "$serial" install-multiple -r -d -g $nmap_apks 2>&1)
+                install_res=$(timeout 300 adb -s "$serial" install-multiple --no-streaming -r -d -g $nmap_apks 2>&1)
                 if [ $? -ne 0 ]; then
                     echo -e "    \e[1;31m[!] Error installing Naver Map: $install_res\e[0m"
                 else
                     echo -e "    [✓] Naver Map installed successfully."
                 fi
+                adb -s "$serial" shell "rm -f /data/local/tmp/*.apk 2>/dev/null" >/dev/null 2>&1
             fi
         else
             echo -e "    [!] Warning: No APKs found in $nmap_dir"
@@ -181,7 +183,7 @@ init_app_installation() {
                     timeout 60 adb -s "$serial" install -r -d -g $files >/dev/null 2>&1
                 fi
             else
-                timeout 120 adb -s "$serial" install-multiple -r -d -g $files >/dev/null 2>&1
+                timeout 120 adb -s "$serial" install-multiple --no-streaming -r -d -g $files >/dev/null 2>&1
             fi
             
             # Verify installation

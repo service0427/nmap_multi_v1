@@ -120,6 +120,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Auto-reconnect any temporarily offline devices before enumerating (do not touch unauthorized)
+OFFLINE_DEVS=$(adb devices | awk '$2=="offline"{print $1}')
+if [ -n "$OFFLINE_DEVS" ]; then
+    echo "[*] Offline devices detected. Attempting ADB reconnect..."
+    for off_dev in $OFFLINE_DEVS; do
+        adb -s "$off_dev" reconnect >/dev/null 2>&1 || true
+    done
+    sleep 3
+fi
+
 # Get connected devices
 if [ -z "$TARGET_DEVICE" ]; then
     echo "[*] No target device specified. Checking all connected devices..."
@@ -355,7 +365,11 @@ if [ "$has_nmap_apk" = false ]; then
     fi
 fi
 
+MAX_CONCURRENT_INIT=4
 for serial in $DEVICES; do
+    while [ "$(jobs -rp | wc -l)" -ge "$MAX_CONCURRENT_INIT" ]; do
+        sleep 2
+    done
     (
         echo -e "${CYAN}============================================================${NC}"
         echo -e "Initializing device: ${GREEN}$serial${NC}"
