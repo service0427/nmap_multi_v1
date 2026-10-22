@@ -124,37 +124,6 @@ else
     exit 1
 fi
 
-# 패치 중 wifi-scheduler 및 매크로 프로세스와의 ADB/PackageManager 충돌 방지
-RESTORE_SCHEDULER=false
-TOTAL_TARGET_COUNT=$(echo "$DEVICES" | wc -w)
-if command -v pm2 >/dev/null 2>&1; then
-    # 최신 adb-recovery-monitor 코드 즉시 반영
-    if pm2 jlist 2>/dev/null | grep -q '"name":"adb-recovery-monitor"'; then
-        pm2 restart adb-recovery-monitor >/dev/null 2>&1 || true
-    fi
-    if [ "$TOTAL_TARGET_COUNT" -gt 1 ]; then
-        SCHED_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="wifi-scheduler") | .pm2_env.status' 2>/dev/null)
-        if [ "$SCHED_STATUS" = "online" ]; then
-            echo "[*] 패치 중 ADB/USB 대역폭 및 패키지 매니저 충돌 방지를 위해 wifi-scheduler를 일시 중지합니다..."
-            pm2 stop wifi-scheduler >/dev/null 2>&1 || true
-            RESTORE_SCHEDULER=true
-        fi
-        pkill -9 -f "wifi_multi/lib/main.sh" 2>/dev/null || true
-        pkill -9 -f "macro/monitor.sh" 2>/dev/null || true
-        pkill -9 -f "gps/auto_reloader.py" 2>/dev/null || true
-        pkill -9 -f "mitmdump -p" 2>/dev/null || true
-        sleep 2
-    fi
-fi
-
-cleanup_patch_runner() {
-    if [ "$RESTORE_SCHEDULER" = true ] && command -v pm2 >/dev/null 2>&1; then
-        echo -e "\n[*] 패치 종료: wifi-scheduler 서비스를 다시 시작합니다..."
-        pm2 start wifi-scheduler >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup_patch_runner EXIT INT TERM
-
 # 네이버 지도 설치 와치독 함수 (최대 180초, PackageManager 락 경합 방지 및 1회 자동 재시도)
 install_nmap_with_watchdog() {
     local target_serial="$1"
@@ -282,11 +251,6 @@ fi
 for serial in $DEVICES; do
     echo "=================================================="
     echo "[$(date '+%H:%M:%S')] 🚀 [$serial] 네이버 지도 강제 패치 시작..."
-
-    # 단일 기기 패치 시에도 해당 기기의 실행 중인 매크로 워커 정리
-    pkill -9 -f "main.sh $serial" 2>/dev/null || true
-    pkill -9 -f "monitor.sh $serial" 2>/dev/null || true
-    pkill -9 -f "auto_reloader.py .* $serial" 2>/dev/null || true
     
     # 0. 디바이스 활성 상태 점검 (연결 끊김/오프라인 사전 방어)
     dev_state=$(timeout 4 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')
