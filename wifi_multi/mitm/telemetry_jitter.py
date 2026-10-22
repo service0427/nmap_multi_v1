@@ -20,15 +20,21 @@ SESSION_STORAGE_OFFSET = 0
 SESSION_BOOT_OFFSET_MS = 0
 SESSION_INSTALL_OFFSET_SEC = 0
 SESSION_INIT_OFFSET_MS = 0
+SESSION_FIXED_INSTALL_TS = 0
+SESSION_FIXED_INIT_TS = 0
 
 
 def reset_session_offsets():
     """Initializes or re-randomizes session offsets."""
     global SESSION_STORAGE_OFFSET, SESSION_BOOT_OFFSET_MS, SESSION_INSTALL_OFFSET_SEC, SESSION_INIT_OFFSET_MS
+    global SESSION_FIXED_INSTALL_TS, SESSION_FIXED_INIT_TS
     SESSION_STORAGE_OFFSET = random.randint(-500000000, 500000000)
     SESSION_BOOT_OFFSET_MS = random.randint(300000, 86400000)
     SESSION_INSTALL_OFFSET_SEC = random.randint(86400, 604800)
     SESSION_INIT_OFFSET_MS = (SESSION_INSTALL_OFFSET_SEC * 1000) - random.randint(60000, 600000)
+    now_sec = int(time.time())
+    SESSION_FIXED_INSTALL_TS = now_sec - random.randint(864000, 2592000) - SESSION_INSTALL_OFFSET_SEC
+    SESSION_FIXED_INIT_TS = (SESSION_FIXED_INSTALL_TS * 1000) + random.randint(1000, 60000)
 
 
 # Initialize on module import
@@ -40,19 +46,7 @@ reset_session_offsets()
 # =============================================================================
 def synthesize_session_timestamps(obj, url: str = "", logger=None):
     """Auto-synthesizes realistic time values if pm clear resets them to 0."""
-    current_ms = int(time.time() * 1000)
-    
     if isinstance(obj, dict):
-        def get_safe_init_ts(val):
-            if val < 100000000000:
-                return current_ms - random.randint(864000000, 2592000000)
-            return val
-
-        def get_safe_install_ts(val):
-            if val < 100000000:
-                return int(time.time()) - random.randint(86400, 2592000)
-            return val
-
         res = {}
         for k, v in obj.items():
             if k == "storage_size" and isinstance(v, (int, float)):
@@ -66,12 +60,12 @@ def synthesize_session_timestamps(obj, url: str = "", logger=None):
                     logger.record(url, "telemetry_jitter", "timestamp", "last_boot_ts", v, new_v)
                 res[k] = new_v
             elif k == "install_ts" and isinstance(v, (int, float)):
-                new_v = get_safe_install_ts(v) - SESSION_INSTALL_OFFSET_SEC
+                new_v = SESSION_FIXED_INSTALL_TS
                 if logger:
                     logger.record(url, "telemetry_jitter", "timestamp", "install_ts", v, new_v)
                 res[k] = new_v
             elif k == "init_ts" and isinstance(v, (int, float)):
-                new_v = get_safe_init_ts(v) - SESSION_INIT_OFFSET_MS
+                new_v = SESSION_FIXED_INIT_TS
                 if logger:
                     logger.record(url, "telemetry_jitter", "timestamp", "init_ts", v, new_v)
                 res[k] = new_v

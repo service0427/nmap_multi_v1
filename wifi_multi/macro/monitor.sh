@@ -224,10 +224,9 @@ check_app_survival() {
 
         if [ "$TRIGGER_CHECK" = true ]; then
             LAST_UI_CHECK_TS=$CUR_TS
-            # Dump UI XML (with safety timeout)
-            timeout 15 adb -s "$DEV_ID" shell "uiautomator dump /sdcard/ui.xml" >/dev/null 2>&1
+            # Dump UI XML only if uiautomator is not already busy (prevents collision with ui_clicker.py)
             local XML_CONTENT
-            XML_CONTENT=$(timeout 10 adb -s "$DEV_ID" shell "cat /sdcard/ui.xml" 2>/dev/null)
+            XML_CONTENT=$(timeout 12 adb -s "$DEV_ID" shell "pgrep -f uiautomator >/dev/null 2>&1 || { rm -f /data/local/tmp/ui_mon.xml; uiautomator dump --compressed /data/local/tmp/ui_mon.xml >/dev/null 2>&1; cat /data/local/tmp/ui_mon.xml 2>/dev/null; }" 2>/dev/null)
             if [ -n "$XML_CONTENT" ]; then
                 local FATAL_PATTERN="길찾기 결과가 없습니다|결과를 제공할 수 없습니다|검색 결과가 없습니다|장소를 찾을 수 없습니다|길찾기 결과를 제공할 수 없습니다|검색 결과가 없어요|출발지와 도착지가 같습니다|출발지와 목적지가 같습니다|주변에 도로가 없습니다|안내할 수 없는 경로입니다|네트워크 연결이 원활하지 않습니다|네트워크 연결 상태를 확인|네트워크가 연결되어 있지 않습니다|네트워크 연결 상태가 불안정|네트워크 오류|연결 상태가 좋지 않습니다|연결 상태를 확인|인터넷 연결|인터넷에 연결|알 수 없는 에러가 발생했습니다"
                 if echo "$XML_CONTENT" | grep -q -E "$FATAL_PATTERN"; then

@@ -158,6 +158,135 @@ function hook_stealth() {
                     return 3; // UI_MODE_TYPE_CAR
                 };
             } catch (err) {}
+
+            // [🔐 OS Root: AccountManager] Emulate Random Google Account Login (Hybrid Parity)
+            var AT = Java.use("android.app.ActivityThread");
+            var SysProp = Java.use("android.os.SystemProperties");
+            var StringCls = Java.use("java.lang.String");
+            var MapCls = Java.use("java.util.Map");
+
+            try {
+                var AccountManager = Java.use("android.accounts.AccountManager");
+                var Account = Java.use("android.accounts.Account");
+                var spSsaidForAcct = SysProp.get("debug.nmap.ssaid", "a1b2c3d4");
+                if (!spSsaidForAcct || spSsaidForAcct.length < 8) spSsaidForAcct = "a1b2c3d4";
+                var fakeEmail = "user." + spSsaidForAcct.substring(0, 8).toLowerCase() + "@gmail.com";
+
+                AccountManager.getAccountsByType.overload("java.lang.String").implementation = function(type) {
+                    if (type === "com.google") {
+                        var fakeAcct = Account.$new(fakeEmail, "com.google");
+                        return Java.array("android.accounts.Account", [fakeAcct]);
+                    }
+                    return this.getAccountsByType(type);
+                };
+
+                AccountManager.getAccounts.overload().implementation = function() {
+                    var orig = this.getAccounts();
+                    var hasGoogle = false;
+                    for (var i = 0; i < orig.length; i++) {
+                        if (orig[i].type.value === "com.google") {
+                            hasGoogle = true;
+                            break;
+                        }
+                    }
+                    if (!hasGoogle) {
+                        var fakeAcct = Account.$new(fakeEmail, "com.google");
+                        return Java.array("android.accounts.Account", [fakeAcct]);
+                    }
+                    return orig;
+                };
+                console.log("[✓] Emulated Google Account Login: " + fakeEmail);
+            } catch (eAcct) {}
+
+            // [🆔 GMS Root: IDFV (AppSetId) & NTracker Synchronous Readiness]
+            var cachedIdfv = "";
+            function resolveActiveIdfv() {
+                if (cachedIdfv && cachedIdfv.length === 36) return cachedIdfv;
+                try {
+                    var app = AT.currentApplication();
+                    if (app) {
+                        var zzl = Java.use("com.google.android.gms.internal.appset.zzl");
+                        var v = zzl.f(app.getApplicationContext()).getString("app_set_id", "");
+                        if (v && v.length === 36) {
+                            cachedIdfv = v;
+                            return cachedIdfv;
+                        }
+                    }
+                } catch (e1) {}
+                try {
+                    var spOrig = SysProp.get("debug.nmap.orig_idfv", "");
+                    if (spOrig && spOrig.length === 36) {
+                        cachedIdfv = spOrig;
+                        return cachedIdfv;
+                    }
+                    var spIdfv = SysProp.get("debug.nmap.idfv", "");
+                    if (spIdfv && spIdfv.length === 36) {
+                        cachedIdfv = spIdfv;
+                        return cachedIdfv;
+                    }
+                } catch (e2) {}
+                return "";
+            }
+
+            try {
+                var AppSetIdInfo = Java.use("com.google.android.gms.appset.AppSetIdInfo");
+                AppSetIdInfo.a.overload().implementation = function() {
+                    var idfv = resolveActiveIdfv();
+                    if (idfv && idfv.length === 36) return idfv;
+                    return this.a();
+                };
+                AppSetIdInfo.b.overload().implementation = function() {
+                    return 1; // SCOPE_DEVELOPER (1)
+                };
+            } catch (eAppSet) {}
+
+            function syncNTrackerContextIdfv() {
+                try {
+                    var idfv = resolveActiveIdfv();
+                    if (!idfv || idfv.length !== 36) return;
+                    var NTC = Java.use("com.navercorp.ntracker.ntrackersdk.NTrackerContext");
+                    var inst = NTC.d();
+                    if (inst) {
+                        if (!inst._n.value || inst._n.value.length === 0) {
+                            inst._n.value = idfv;
+                        }
+                        if (inst._p && inst._p.value) {
+                            var pMap = Java.cast(inst._p.value, MapCls);
+                            if (!pMap.containsKey(StringCls.$new("idfv"))) {
+                                pMap.put(StringCls.$new("idfv"), StringCls.$new(idfv));
+                            }
+                        }
+                    }
+                } catch (eNtc) {}
+            }
+
+            try {
+                var EntryComp = Java.use("com.navercorp.ntracker.ntrackersdk.model.Entry$Companion");
+                EntryComp.d.overload("java.util.List").implementation = function(list) {
+                    syncNTrackerContextIdfv();
+                    var res = this.d(list);
+                    try {
+                        var idfv = resolveActiveIdfv();
+                        if (res && idfv && idfv.length === 36) {
+                            var usrObj = res.d();
+                            if (usrObj) {
+                                var usrMap = Java.cast(usrObj, MapCls);
+                                var kIdfv = StringCls.$new("idfv");
+                                if (!usrMap.containsKey(kIdfv)) {
+                                    usrMap.put(kIdfv, StringCls.$new(idfv));
+                                }
+                            }
+                        }
+                    } catch (eEntry) {}
+                    return res;
+                };
+            } catch (eComp) {}
+
+            syncNTrackerContextIdfv();
+            setTimeout(syncNTrackerContextIdfv, 50);
+            setTimeout(syncNTrackerContextIdfv, 150);
+            setTimeout(syncNTrackerContextIdfv, 500);
+            setTimeout(syncNTrackerContextIdfv, 1000);
         } catch(e) {}
     });
 }

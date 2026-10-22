@@ -177,9 +177,28 @@ echo "[*] Enabling IP Forwarding permanently..."
 sudo sysctl -w net.ipv4.ip_forward=1
 echo "net.ipv4.ip_forward=1" | sudo tee /etc/sysctl.d/99-ip-forward.conf >/dev/null
 
-# 9.2. ADB Key 루트 디렉토리 동기화 및 권한 설정
-echo "[*] Synchronizing ADB Keys to root directory..."
-# ADB 서버를 1회 실행하여 키가 없을 경우 기본 adbkey 자동 생성 보장
+# 9.2. ADB Key 루트 디렉토리 동기화, /usr/bin/adb tech 고정 래퍼 설치 및 연결 기기 키 영구 각인
+echo "[*] Synchronizing ADB Keys, installing /usr/bin/adb tech wrapper, and pinning keys on devices..."
+# 1) /usr/bin/adb 래퍼 설치 (root 크론잡이나 sudo 실행 시에도 무조건 tech 계정/키로 실행되도록 강제)
+if [ -x "/usr/lib/android-sdk/platform-tools/adb" ]; then
+    sudo sh -c '
+        if ! grep -q "runuser -u tech" /usr/bin/adb 2>/dev/null; then
+            rm -f /usr/bin/adb
+            cat << "WRAP_EOF" > /usr/bin/adb
+#!/bin/sh
+if [ "$(id -u)" -eq 0 ] && id -u tech >/dev/null 2>&1; then
+    exec runuser -u tech -- env HOME=/home/tech /usr/lib/android-sdk/platform-tools/adb "$@"
+fi
+export HOME="/home/tech"
+exec /usr/lib/android-sdk/platform-tools/adb "$@"
+WRAP_EOF
+            chmod 755 /usr/bin/adb
+        fi
+    '
+    echo "  -> Installed /usr/bin/adb wrapper to enforce tech account execution."
+fi
+
+# 2) ADB 서버를 1회 실행하여 키가 없을 경우 기본 adbkey 자동 생성 보장
 adb start-server >/dev/null 2>&1
 sleep 1
 
@@ -198,6 +217,12 @@ if [ -f "$HOME/.android/adbkey" ] && [ "$HOME" != "/root" ]; then
         sudo chown root:root /root/.android/adbkey_k17 /root/.android/adbkey_k17.pub
     fi
     echo "  -> ADB Keys successfully copied and secured under /root/.android/"
+fi
+
+# 3) 연결된 모든 기기에 호스트 공개키(tech@호스트명, root@호스트명, 원본 adbkey.pub) 영구 각인
+SCRIPT_ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_ROOT_DIR/utils/recovery_adbkey.sh" ]; then
+    bash "$SCRIPT_ROOT_DIR/utils/recovery_adbkey.sh" || true
 fi
 
 # 9.5. 자동 업데이트(unattended-upgrades) 비활성화 (재부팅/서비스 재시작 방지)

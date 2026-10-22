@@ -65,8 +65,19 @@ def handle_request(addon, flow: http.HTTPFlow):
             target_ids[k] = cached_targets[k]
 
     dynamic_lookup = IdentityLookup(target_ids)
-    for orig_v, spoof_v in SESSION_LEARNED_IDENTITIES.items():
-        dynamic_lookup.register(orig_v, spoof_v)
+    for orig_v, learned_type_or_val in SESSION_LEARNED_IDENTITIES.items():
+        if learned_type_or_val in ("idfv", "adid", "ssaid", "ni", "token"):
+            cur_spoof = target_ids.get(learned_type_or_val)
+        elif len(str(orig_v)) == 36 and "-" in str(orig_v):
+            cur_spoof = target_ids.get("idfv")
+        elif len(str(orig_v)) == 32:
+            cur_spoof = target_ids.get("ni")
+        elif len(str(orig_v)) == 16:
+            cur_spoof = target_ids.get("ssaid")
+        else:
+            cur_spoof = target_ids.get("token")
+        if cur_spoof:
+            dynamic_lookup.register(orig_v, cur_spoof)
 
     # Protected query params and headers that must never be altered
     all_protected_query = {"caller", "x-hmac-md", "timestamp"}
@@ -113,7 +124,7 @@ def handle_request(addon, flow: http.HTTPFlow):
                             if cur_val and target_val and cur_val != target_val and len(cur_val) > 3:
                                 if cur_val not in dynamic_lookup.exact_map:
                                     dynamic_lookup.register(cur_val, target_val)
-                                    SESSION_LEARNED_IDENTITIES[cur_val] = target_val
+                                    SESSION_LEARNED_IDENTITIES[cur_val] = target_k
 
                 # Dynamic 1:1 tree replacement across entire JSON tree
                 dynamic_walk_and_replace(decoded_obj, dynamic_lookup, "body", flow.request.url, AUDIT_LOGGER)

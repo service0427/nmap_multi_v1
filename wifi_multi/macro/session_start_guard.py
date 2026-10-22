@@ -53,6 +53,7 @@ def check_existing_session_start(log_dir):
     for f in nlog_files:
         try:
             with open(f, "r", errors="ignore") as fp:
+                d = json.load(fp)
                 b = d.get("request", {}).get("body", {})
                 if isinstance(b, dict) and "_decoded" in b and isinstance(b["_decoded"], dict):
                     b = b["_decoded"]

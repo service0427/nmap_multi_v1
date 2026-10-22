@@ -11,13 +11,21 @@ YELLOW="\e[1;33m"
 RED="\e[1;31m"
 NC="\e[0m"
 
+DEFAULT_GDRIVE_LINK="https://drive.google.com/file/d/1QAOL_oJ4YaQABhvnjtnPlgeobu54PUoq/view?usp=drive_link"
 INPUT_ARG="$1"
+
+if [ "$INPUT_ARG" = "-y" ] || [ "$INPUT_ARG" = "--yes" ]; then
+    INPUT_ARG="$DEFAULT_GDRIVE_LINK"
+fi
 
 if [ -z "$INPUT_ARG" ]; then
     echo -e "${CYAN}============================================================${NC}"
     echo -e "${CYAN}   Naver Map Automated Version Updater (Google Drive)       ${NC}"
     echo -e "${CYAN}============================================================${NC}"
-    read -p "[?] Google Drive 공유 링크 또는 파일 ID를 입력하세요: " INPUT_ARG < /dev/tty
+    read -p "[?] Google Drive 공유 링크 또는 파일 ID를 입력하세요 (엔터 시 기본값: 1QAOL_oJ4YaQABhvnjtnPlgeobu54PUoq): " INPUT_ARG < /dev/tty
+    if [ -z "$INPUT_ARG" ]; then
+        INPUT_ARG="$DEFAULT_GDRIVE_LINK"
+    fi
 fi
 
 if [ -z "$INPUT_ARG" ]; then
@@ -77,11 +85,11 @@ fi
 
 if [ -z "$DETECTED_VERSION" ]; then
     echo -e "${YELLOW}[!] 아카이브 내부에서 버전 정보를 자동으로 감지하지 못했습니다.${NC}"
-    read -p "[?] 네이버 지도 버전 번호를 수동 입력하세요 (예: 6.10.0.16): " DETECTED_VERSION < /dev/tty
+    read -p "[?] 네이버 지도 버전 번호를 수동 입력하세요 (예: 6.11.2.2): " DETECTED_VERSION < /dev/tty
 fi
 
 if [[ ! "$DETECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}[-] 오류: 올바르지 않은 버전 포맷입니다 ($DETECTED_VERSION). 4자리 버전 형식(예: 6.10.0.16)이어야 합니다.${NC}"
+    echo -e "${RED}[-] 오류: 올바르지 않은 버전 포맷입니다 ($DETECTED_VERSION). 4자리 버전 형식(예: 6.11.2.2)이어야 합니다.${NC}"
     rm -f "$TMP_ARCHIVE"
     exit 1
 fi
@@ -92,7 +100,15 @@ echo -e "${GREEN}[✓] 검수 완료: 네이버 지도 버전 ${CYAN}$DETECTED_V
 TARGET_DIR="$WORKSPACE_DIR/install"
 mkdir -p "$TARGET_DIR"
 echo -e "${CYAN}[*] 로컬 install 디렉토리에 에셋 배치 중...${NC}"
-tar -xzf "$TMP_ARCHIVE" -C "$TARGET_DIR"
+if tar -tf "$TMP_ARCHIVE" 2>/dev/null | grep -qE '^(\./)?install/'; then
+    tar -xzf "$TMP_ARCHIVE" -C "$WORKSPACE_DIR"
+else
+    tar -xzf "$TMP_ARCHIVE" -C "$TARGET_DIR"
+fi
+if [ -d "$TARGET_DIR/install" ]; then
+    cp -rf "$TARGET_DIR/install/"* "$TARGET_DIR/" 2>/dev/null || true
+    rm -rf "$TARGET_DIR/install"
+fi
 rm -f "$TMP_ARCHIVE"
 
 # 6. version.conf 및 폴백 기본값 업데이트
@@ -104,13 +120,19 @@ if [ -f "$VERSION_CONF" ]; then
 fi
 
 # 폴백 코드 갱신
-for script_file in "$WORKSPACE_DIR/device_init.sh" "$WORKSPACE_DIR/update_nmap.sh" "$WORKSPACE_DIR/cmd/check_nmap_version.sh"; do
+for script_file in "$WORKSPACE_DIR/device_init.sh" "$WORKSPACE_DIR/update_nmap.sh" "$WORKSPACE_DIR/cmd/check_nmap_version.sh" "$WORKSPACE_DIR/wifi_multi/mitm/identity_cache.py"; do
     if [ -f "$script_file" ]; then
         sed -i 's/TARGET_NMAP_VERSION="[0-9.]*"/TARGET_NMAP_VERSION="'"$DETECTED_VERSION"'"/g' "$script_file"
+        sed -i 's/"TARGET_NMAP_VERSION", "[0-9.]*"/"TARGET_NMAP_VERSION", "'"$DETECTED_VERSION"'"/g' "$script_file"
         sed -i 's/TARGET_VER="[0-9.]*"/TARGET_VER="'"$DETECTED_VERSION"'"/g' "$script_file"
         sed -i 's/GDRIVE_NMAP_ID="[a-zA-Z0-9_-]*"/GDRIVE_NMAP_ID="'"$GDRIVE_FILE_ID"'"/g' "$script_file"
     fi
 done
+
+if [ -d "$WORKSPACE_DIR/wifi_multi/mitm/cache" ]; then
+    rm -f "$WORKSPACE_DIR/wifi_multi/mitm/cache/"*.json 2>/dev/null || true
+    echo -e "${GREEN}[✓] MITM 캐시(wifi_multi/mitm/cache/*.json) 초기화 완료${NC}"
+fi
 
 # 7. Git Push 인증 체크 및 자동 푸시
 echo -e "${CYAN}[*] Git 푸시 권한 확인 중...${NC}"
@@ -134,7 +156,7 @@ if [ "$NEED_PROMPT" = true ]; then
 fi
 
 echo -e "${CYAN}[*] GitHub에 새 버전 설정 Commit & Push 진행 중...${NC}"
-git add version.conf device_init.sh update_nmap.sh cmd/check_nmap_version.sh
+git add version.conf device_init.sh update_nmap.sh cmd/check_nmap_version.sh wifi_multi/mitm/identity_cache.py
 git commit -m "Update: Upgrade Naver Map target version to $DETECTED_VERSION (GDrive ID: $GDRIVE_FILE_ID)"
 git push origin main
 

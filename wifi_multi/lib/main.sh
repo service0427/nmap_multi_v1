@@ -349,7 +349,7 @@ sleep 1
 
 APP_UID=$(adb -s "$DEV_ID" shell "pm list packages -U com.nhn.android.nmap" | grep -oE "uid:[0-9]+" | cut -d: -f2 | head -n 1)
 [ -z "$APP_UID" ] && APP_UID="root"
-./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ID_SSAID" "$NMAP_ID_IDFV" "$NMAP_ID_ADID"
+./lib/inject_template.sh "$DEV_ID" "com.nhn.android.nmap" "$APP_UID" "$NMAP_ID_SSAID" "$NMAP_ID_IDFV" "$NMAP_ID_ADID" "$NMAP_ORIG_IDFV"
 
 # 4. Proxy & Workers
 adb -s "$DEV_ID" forward tcp:"$NMAP_FRIDA_PORT" tcp:27042 >/dev/null 2>&1
@@ -480,20 +480,9 @@ adb -s "$DEV_ID" shell "settings put system accelerometer_rotation 0; settings p
 
 # Fixed: Use START coordinates for initial position
 ./gps/static.sh "$DEV_ID" "$NMAP_START_LAT" "$NMAP_START_LNG"
-adb -s "$DEV_ID" shell monkey -p com.nhn.android.nmap -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1
-
-PID=""
-for i in {1..10}; do
-    RAW_PID=$(adb -s "$DEV_ID" shell pidof com.nhn.android.nmap 2>/dev/null | tr -d '\r\n')
-    if [ -n "$RAW_PID" ]; then
-        PID=$(echo "$RAW_PID" | awk '{print $1}')
-        break
-    fi
-    sleep 1
-done
+RAW_PID=$(adb -s "$DEV_ID" shell "am start -n com.nhn.android.nmap/com.naver.map.LaunchActivity >/dev/null 2>&1; for i in \$(seq 1 100); do p=\$(pidof com.nhn.android.nmap 2>/dev/null); if [ -n \"\$p\" ]; then echo \"\$p\"; break; fi; sleep 0.02; done" 2>/dev/null | tr -d '\r\n')
+PID=$(echo "$RAW_PID" | awk '{print $1}')
 [ -z "$PID" ] && cleanup "App Launch Timeout"
-
-sleep 0.5
 
 nohup frida -H localhost:"$NMAP_FRIDA_PORT" --runtime=v8 -p "$PID" \
     -l lib/hooks/network_hook.js \

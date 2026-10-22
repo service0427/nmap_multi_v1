@@ -134,17 +134,45 @@ if [ -z "$DEVICES" ]; then
     exit 1
 fi
 
+# Ensure script never runs adb as root (if invoked via sudo, re-exec as tech)
+if [ "$(id -u)" -eq 0 ] && id -u tech >/dev/null 2>&1; then
+    exec sudo -H -u tech HOME=/home/tech "$0" "$@"
+fi
+export HOME="/home/tech"
+
 CYAN="\e[1;36m"
 GREEN="\e[1;32m"
 YELLOW="\e[1;33m"
 NC="\e[0m"
 
-# Sync tech user's ADB key to root account if non-interactive sudo is available (prevents root/tech key mismatch)
+# Sync tech user's ADB key to root account and install /usr/bin/adb wrapper so root cronjobs (e.g. qewr-agent) never spawn root adb servers
 if [ -f "/home/tech/.android/adbkey" ] && [ -f "/home/tech/.android/adbkey.pub" ]; then
-    sudo -n sh -c 'mkdir -p /root/.android && cp /home/tech/.android/adbkey /home/tech/.android/adbkey.pub /root/.android/ && chmod 600 /root/.android/adbkey && chmod 644 /root/.android/adbkey.pub' 2>/dev/null || true
+    sudo -n sh -c '
+        mkdir -p /root/.android
+        cp /home/tech/.android/adbkey /home/tech/.android/adbkey.pub /root/.android/
+        chmod 600 /root/.android/adbkey
+        chmod 644 /root/.android/adbkey.pub
+        if [ -x "/usr/lib/android-sdk/platform-tools/adb" ] && ! grep -q "runuser -u tech" /usr/bin/adb 2>/dev/null; then
+            rm -f /usr/bin/adb
+            cat << "WRAP_EOF" > /usr/bin/adb
+#!/bin/sh
+if [ "$(id -u)" -eq 0 ] && id -u tech >/dev/null 2>&1; then
+    exec runuser -u tech -- env HOME=/home/tech /usr/lib/android-sdk/platform-tools/adb "$@"
+fi
+export HOME="/home/tech"
+exec /usr/lib/android-sdk/platform-tools/adb "$@"
+WRAP_EOF
+            chmod 755 /usr/bin/adb
+        fi
+    ' 2>/dev/null || true
 fi
 
-# Helper: Prevent ADB authorization expiration & permanently pin host adbkey.pub
+# Clear stale MITM identity cache on device_init
+if [ -d "$BASE_DIR/wifi_multi/mitm/cache" ]; then
+    rm -f "$BASE_DIR/wifi_multi/mitm/cache/"*.json 2>/dev/null || true
+fi
+
+# Helper: Prevent ADB authorization expiration & permanently pin host adbkey.pub (including current hostname variants)
 ensure_adb_auth_persistence() {
     local serial="$1"
     local has_su="$2"
@@ -156,7 +184,7 @@ ensure_adb_auth_persistence() {
     # 2. Permanently pin host's adbkey.pub into /data/misc/adb/adb_keys (survives reboots even if 1-time 'Allow' was tapped)
     if [ -n "$has_su" ]; then
         local pub_file=""
-        for candidate in "$HOME/.android/adbkey.pub" "/home/tech/.android/adbkey.pub" "/root/.android/adbkey.pub"; do
+        for candidate in "/home/tech/.android/adbkey.pub" "$HOME/.android/adbkey.pub" "/root/.android/adbkey.pub"; do
             if [ -f "$candidate" ]; then
                 pub_file="$candidate"
                 break
@@ -168,13 +196,20 @@ ensure_adb_auth_persistence() {
             pub_content=$(cat "$pub_file" 2>/dev/null | tr -d '\r\n')
             local key_body
             key_body=$(awk '{print $1}' "$pub_file" 2>/dev/null)
+            local cur_host
+            cur_host=$(hostname 2>/dev/null | tr -d '\r\n')
+            [ -z "$cur_host" ] && cur_host="localhost"
             if [ -n "$key_body" ]; then
+                local key_tech="${key_body} tech@${cur_host}"
+                local key_root="${key_body} root@${cur_host}"
                 adb -s "$serial" shell "$has_su -c '
                     mkdir -p /data/misc/adb
                     touch /data/misc/adb/adb_keys
-                    if ! grep -qF \"$key_body\" /data/misc/adb/adb_keys 2>/dev/null; then
-                        echo \"$pub_content\" >> /data/misc/adb/adb_keys
-                    fi
+                    for k in \"$key_tech\" \"$key_root\" \"$pub_content\"; do
+                        if [ -n \"\$k\" ] && ! grep -qxF \"\$k\" /data/misc/adb/adb_keys 2>/dev/null; then
+                            echo \"\$k\" >> /data/misc/adb/adb_keys
+                        fi
+                    done
                     chown system:shell /data/misc/adb /data/misc/adb/adb_keys
                     chmod 2750 /data/misc/adb
                     chmod 640 /data/misc/adb/adb_keys
@@ -187,7 +222,7 @@ ensure_adb_auth_persistence() {
     if [ "$verbose" = "true" ]; then
         local verify_timeout
         verify_timeout=$(adb -s "$serial" shell "settings get global adb_allowed_connection_time" 2>/dev/null | tr -d '\r\n')
-        echo -e "[✓] ADB authorization persistence: ${GREEN}Timeout disabled (adb_allowed_connection_time=${verify_timeout:-0}) & host key pinned${NC}"
+        echo -e "[✓] ADB authorization persistence: ${GREEN}Timeout disabled (adb_allowed_connection_time=${verify_timeout:-0}) & host keys pinned (tech@${HOST_NAME})${NC}"
     fi
 }
 
@@ -292,7 +327,7 @@ fi
 if [ -f "$BASE_DIR/version.conf" ]; then
     source "$BASE_DIR/version.conf"
 else
-    TARGET_NMAP_VERSION="6.10.0.16"
+    TARGET_NMAP_VERSION="6.11.2.2"
 fi
 
 # Ensure installation assets are present before initializing devices

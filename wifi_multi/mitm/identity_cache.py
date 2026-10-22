@@ -29,7 +29,7 @@ _LOCK = threading.Lock()
 def extract_app_version(flow_request) -> str:
     """Extracts Naver Map application version from request URL, headers, or environment."""
     if not flow_request:
-        return os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")
+        return os.environ.get("TARGET_NMAP_VERSION", "6.11.2.2")
 
     # 1. From caller query param
     url = getattr(flow_request, "url", "")
@@ -60,7 +60,7 @@ def extract_app_version(flow_request) -> str:
         return m.group(1)
 
     # 4. Fallback to global config or environment
-    return os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")
+    return os.environ.get("TARGET_NMAP_VERSION", "6.11.2.2")
 
 
 def get_cache_path(device_id: str, app_version: Optional[str] = None) -> str:
@@ -76,7 +76,7 @@ def load_verified_cache(device_id: str, current_app_version: Optional[str] = Non
     if not device_id or device_id == "Unknown":
         return None
 
-    app_ver = (current_app_version or os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")).strip()
+    app_ver = (current_app_version or os.environ.get("TARGET_NMAP_VERSION", "6.11.2.2")).strip()
     cache_file = get_cache_path(device_id, app_ver)
 
     # Check version-specific cache first
@@ -119,7 +119,7 @@ def save_verified_cache(device_id: str, app_version: str, target_ids: Dict[str, 
     if not device_id or device_id == "Unknown":
         return False
 
-    app_ver = (app_version or os.environ.get("TARGET_NMAP_VERSION", "6.10.0.16")).strip()
+    app_ver = (app_version or os.environ.get("TARGET_NMAP_VERSION", "6.11.2.2")).strip()
     cache_file = get_cache_path(device_id, app_ver)
     cache_data = {
         "device_id": device_id,

@@ -35,15 +35,30 @@ def get_ui_dump_pair(device_id, category_name):
         dev_tmp_dir = os.path.join(root_dir, "logs", "devices", device_id, "tmp")
         os.makedirs(dev_tmp_dir, exist_ok=True)
         
-        # [V2.5] Added timeout to prevent infinite hang of uiautomator dump
-        subprocess.run(["adb", "-s", device_id, "shell", "uiautomator", "dump", "/sdcard/ui.xml"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=15)
+        # [V2.7] Fast single-shell uiautomator dump --compressed to /data/local/tmp (bypasses slow /sdcard FUSE)
         temp_xml = os.path.join(dev_tmp_dir, f"raw_{device_id}.xml")
-        subprocess.run(["adb", "-s", device_id, "pull", "/sdcard/ui.xml", temp_xml], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
-        tree = ET.parse(temp_xml)
-        save_multiline_xml(tree.getroot(), xml_file)
-        os.remove(temp_xml)
-        subprocess.run(["adb", "-s", device_id, "shell", "screencap", "-p", "/sdcard/screen.png"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
-        subprocess.run(["adb", "-s", device_id, "pull", "/sdcard/screen.png", png_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
+        dump_ok = False
+        last_err = None
+        for attempt in range(3):
+            try:
+                subprocess.run(
+                    ["adb", "-s", device_id, "shell", "killall -9 uiautomator 2>/dev/null || true; rm -f /data/local/tmp/ui.xml; uiautomator dump --compressed /data/local/tmp/ui.xml >/dev/null 2>&1; [ -s /data/local/tmp/ui.xml ] || uiautomator dump /data/local/tmp/ui.xml >/dev/null 2>&1"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=15
+                )
+                subprocess.run(["adb", "-s", device_id, "pull", "/data/local/tmp/ui.xml", temp_xml], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
+                tree = ET.parse(temp_xml)
+                save_multiline_xml(tree.getroot(), xml_file)
+                os.remove(temp_xml)
+                dump_ok = True
+                break
+            except Exception as e:
+                last_err = e
+                time.sleep(0.8)
+        if not dump_ok:
+            raise last_err
+        if os.environ.get("SAVE_UI_SCREENSHOTS", "false").lower() == "true":
+            subprocess.run(["adb", "-s", device_id, "shell", "screencap", "-p", "/data/local/tmp/screen.png"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
+            subprocess.run(["adb", "-s", device_id, "pull", "/data/local/tmp/screen.png", png_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
         return xml_file, png_file
     except subprocess.TimeoutExpired:
         print(f" [-] Capture Pair Timeout (15s)")

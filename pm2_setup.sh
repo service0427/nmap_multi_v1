@@ -11,6 +11,11 @@ echo "   Nmap Production Service Registration (PM2)"
 echo "   Root: $PROJECT_ROOT"
 echo "============================================================"
 
+# 0. Ensure /usr/bin/adb tech wrapper & device ADB key persistence
+if [ -f "utils/recovery_adbkey.sh" ]; then
+    bash utils/recovery_adbkey.sh >/dev/null 2>&1 || true
+fi
+
 # 1.5 Back up current running status of scheduler
 WIFI_STATUS=""
 if command -v pm2 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then

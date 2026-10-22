@@ -11,9 +11,9 @@ if [ -f "$WORKSPACE_DIR/version.conf" ]; then
     source "$WORKSPACE_DIR/version.conf"
 else
     # Fallbacks in case config is missing
-    TARGET_NMAP_VERSION="6.10.0.16"
+    TARGET_NMAP_VERSION="6.11.2.2"
     GDRIVE_BASE_ID="1gVkwK5RkuV66cWkElScNttsngmjF7xjy"
-    GDRIVE_NMAP_ID="1L7T0PfGRJJpEOPvNxgA0BncbPTpRmrug"
+    GDRIVE_NMAP_ID="1QAOL_oJ4YaQABhvnjtnPlgeobu54PUoq"
 fi
 
 TARGET_DIR="$WORKSPACE_DIR/install"
@@ -135,12 +135,27 @@ if [ "$has_nmap" = false ]; then
     
     if [ $? -eq 0 ] && [ -f "$NMAP_ARCHIVE" ]; then
         echo "[✓] 네이버 지도 다운로드 완료. 압축을 해제합니다..."
-        tar -xzf "$NMAP_ARCHIVE" -C "$TARGET_DIR"
+        mkdir -p "$TARGET_DIR"
+        if tar -tf "$NMAP_ARCHIVE" 2>/dev/null | grep -qE '^(\./)?install/'; then
+            tar -xzf "$NMAP_ARCHIVE" -C "$WORKSPACE_DIR"
+        else
+            tar -xzf "$NMAP_ARCHIVE" -C "$TARGET_DIR"
+        fi
+        if [ -d "$TARGET_DIR/install" ]; then
+            cp -rf "$TARGET_DIR/install/"* "$TARGET_DIR/" 2>/dev/null || true
+            rm -rf "$TARGET_DIR/install"
+        fi
         rm -f "$NMAP_ARCHIVE"
     else
         echo -e "\e[1;31m[-] 네이버 지도 다운로드 실패. Google Drive 파일 공유 설정을 확인해주세요.\e[0m"
         exit 1
     fi
+fi
+
+# Clear stale MITM identity cache upon update
+if [ -d "$WORKSPACE_DIR/wifi_multi/mitm/cache" ]; then
+    rm -f "$WORKSPACE_DIR/wifi_multi/mitm/cache/"*.json 2>/dev/null || true
+    echo "[✓] MITM 캐시(wifi_multi/mitm/cache/*.json) 초기화 완료."
 fi
 
 echo -e "\e[1;32m[✓] 다운로드 및 파일 갱신 작업이 성공적으로 완료되었습니다.\e[0m"

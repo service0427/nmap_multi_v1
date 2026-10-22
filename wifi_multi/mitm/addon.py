@@ -66,8 +66,10 @@ class ProxyV2ClassicLog:
                 from mitm.dynamic_tree_replacer import IdentityLookup, dynamic_replace_headers, dynamic_walk_and_replace
                 target_ids = get_target_identities()
                 lookup = IdentityLookup(target_ids)
-                for orig_v, spoof_v in SESSION_LEARNED_IDENTITIES.items():
-                    lookup.register(orig_v, spoof_v)
+                for orig_v, learned_type_or_val in SESSION_LEARNED_IDENTITIES.items():
+                    cur_spoof = target_ids.get(learned_type_or_val) if learned_type_or_val in ("idfv", "adid", "ssaid", "ni", "token") else target_ids.get("idfv")
+                    if cur_spoof:
+                        lookup.register(orig_v, cur_spoof)
                 dynamic_replace_headers(flow.request.headers, lookup, flow.request.url)
                 if flow.request.content:
                     raw = flow.request.content

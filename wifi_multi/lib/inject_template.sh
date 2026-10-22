@@ -1,7 +1,7 @@
 #!/bin/bash
 # wifi_multi/lib/inject_template.sh: Surgical Golden Template Injection
 
-DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ID_SSAID=$4; NMAP_ID_IDFV=$5; NMAP_ID_ADID=$6
+DEV_ID=$1; PKG_NAME=$2; APP_UID=$3; NMAP_ID_SSAID=$4; NMAP_ID_IDFV=$5; NMAP_ID_ADID=$6; NMAP_ORIG_IDFV=$7
 [ -z "$DEV_ID" ] || [ -z "$PKG_NAME" ] && exit 1
 
 NC="\e[0m"; GREEN="\e[1;32m"
@@ -10,9 +10,19 @@ NC="\e[0m"; GREEN="\e[1;32m"
 DEV_TMP_DIR="${WIFI_MULTI_LOGS}/devices/${DEV_ID}/tmp"
 mkdir -p "$DEV_TMP_DIR"
 
-# Dynamic Date for Consent Realism
-RAND_DAYS=$(shuf -i 1-90 -n 1)
-TARGET_DATE=$(date -d "$RAND_DAYS days ago" +%Y-%m-%d)
+# Dynamic Date & Timestamp for Consent & AppSet Realism
+NOW_SEC=$(date +%s)
+RAND_MS=$(shuf -i 101-989 -n 1)
+NOW_MS="${NOW_SEC}${RAND_MS}"
+RAND_DAYS=$(shuf -i 3-90 -n 1)
+INIT_SEC=$((NOW_SEC - RAND_DAYS * 86400))
+INIT_TS_MS="${INIT_SEC}$(shuf -i 100-998 -n 1)"
+TARGET_DATE=$(date -d "@${INIT_SEC}" +%Y-%m-%d)
+
+APPSET_IDFV="${NMAP_ORIG_IDFV:-$NMAP_ID_IDFV}"
+if [ -z "$APPSET_IDFV" ]; then
+    APPSET_IDFV="4c581785-2a1c-46f4-a4c8-d45592ea5a73"
+fi
 
 # [ConsentInfo] - Full guest terms agreed
 cat <<EOF > "${DEV_TMP_DIR}/tmp_consent.xml"
@@ -42,14 +52,33 @@ cat <<EOF > "${DEV_TMP_DIR}/tmp_navisettings.xml"
     <int name="PREF_NAVI_VOLUME" value="0" />
 </map>
 EOF
+# [AppSetIdStorage] - Pre-seed AppSet ID so NTracker has IDFV at 0.00ms on first nlogapp
+cat <<EOF > "${DEV_TMP_DIR}/tmp_appset.xml"
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="app_set_id">$APPSET_IDFV</string>
+    <long name="app_set_id_creation_time" value="$INIT_TS_MS" />
+    <long name="app_set_id_last_used_time" value="$NOW_MS" />
+</map>
+EOF
+# [NTracker_SharedPreference]
+cat <<EOF > "${DEV_TMP_DIR}/tmp_ntracker.xml"
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <long name="NTracker_FirstOpenTime" value="$INIT_TS_MS" />
+    <boolean name="NTracker_ADID_Collected" value="true" />
+</map>
+EOF
 
 adb -s "$DEV_ID" shell "su -c 'mkdir -p /data/data/$PKG_NAME/shared_prefs'"
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_consent.xml" /data/local/tmp/ConsentInfo.xml >/dev/null 2>&1
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_prefs.xml" /data/local/tmp/prefs.xml >/dev/null 2>&1
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_navi.xml" /data/local/tmp/navi.xml >/dev/null 2>&1
 adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_navisettings.xml" /data/local/tmp/navisettings.xml >/dev/null 2>&1
+adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_appset.xml" /data/local/tmp/app_set_id_storage.xml >/dev/null 2>&1
+adb -s "$DEV_ID" push "${DEV_TMP_DIR}/tmp_ntracker.xml" /data/local/tmp/NTracker_SharedPreference.xml >/dev/null 2>&1
 
-adb -s "$DEV_ID" shell "su -c 'cp /data/local/tmp/ConsentInfo.xml /data/data/$PKG_NAME/shared_prefs/ && cp /data/local/tmp/prefs.xml /data/data/$PKG_NAME/shared_prefs/com.nhn.android.nmap_preferences.xml && cp /data/local/tmp/navi.xml /data/data/$PKG_NAME/shared_prefs/NativeNaviDefaults.xml && cp /data/local/tmp/navisettings.xml /data/data/$PKG_NAME/shared_prefs/NaviSettingsInfo.xml && chown -R $APP_UID:$APP_UID /data/data/$PKG_NAME/shared_prefs && chmod -R 777 /data/data/$PKG_NAME/shared_prefs && restorecon -R /data/data/$PKG_NAME && setprop debug.nmap.ssaid $NMAP_ID_SSAID && setprop debug.nmap.idfv $NMAP_ID_IDFV && setprop debug.nmap.adid $NMAP_ID_ADID'"
+adb -s "$DEV_ID" shell "su -c 'cp /data/local/tmp/ConsentInfo.xml /data/data/$PKG_NAME/shared_prefs/ && cp /data/local/tmp/prefs.xml /data/data/$PKG_NAME/shared_prefs/com.nhn.android.nmap_preferences.xml && cp /data/local/tmp/navi.xml /data/data/$PKG_NAME/shared_prefs/NativeNaviDefaults.xml && cp /data/local/tmp/navisettings.xml /data/data/$PKG_NAME/shared_prefs/NaviSettingsInfo.xml && cp /data/local/tmp/app_set_id_storage.xml /data/data/$PKG_NAME/shared_prefs/app_set_id_storage.xml && cp /data/local/tmp/NTracker_SharedPreference.xml /data/data/$PKG_NAME/shared_prefs/NTracker_SharedPreference.xml && chown -R $APP_UID:$APP_UID /data/data/$PKG_NAME/shared_prefs && chmod -R 777 /data/data/$PKG_NAME/shared_prefs && restorecon -R /data/data/$PKG_NAME && setprop debug.nmap.ssaid $NMAP_ID_SSAID && setprop debug.nmap.idfv $NMAP_ID_IDFV && setprop debug.nmap.orig_idfv $APPSET_IDFV && setprop debug.nmap.adid $NMAP_ID_ADID'"
 
-rm -f "${DEV_TMP_DIR}/tmp_consent.xml" "${DEV_TMP_DIR}/tmp_prefs.xml" "${DEV_TMP_DIR}/tmp_navi.xml" "${DEV_TMP_DIR}/tmp_navisettings.xml"
+rm -f "${DEV_TMP_DIR}/tmp_consent.xml" "${DEV_TMP_DIR}/tmp_prefs.xml" "${DEV_TMP_DIR}/tmp_navi.xml" "${DEV_TMP_DIR}/tmp_navisettings.xml" "${DEV_TMP_DIR}/tmp_appset.xml" "${DEV_TMP_DIR}/tmp_ntracker.xml"
 echo -e "    > ${GREEN}[✓] Golden Template Injected.${NC}"

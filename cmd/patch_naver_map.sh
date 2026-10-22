@@ -201,6 +201,17 @@ install_nmap_with_watchdog() {
     fi
 }
 
+# ADB 래퍼 설치 및 호스트 ADB 키 동기화/각인 보장
+if [ -f "$PROJECT_ROOT/utils/recovery_adbkey.sh" ]; then
+    bash "$PROJECT_ROOT/utils/recovery_adbkey.sh" >/dev/null 2>&1 || true
+fi
+
+# 구버전 MITM 캐시 초기화
+if [ -d "$PROJECT_ROOT/wifi_multi/mitm/cache" ]; then
+    rm -f "$PROJECT_ROOT/wifi_multi/mitm/cache/"*.json 2>/dev/null || true
+    echo "[*] MITM 기기 캐시(wifi_multi/mitm/cache/*.json) 초기화 완료."
+fi
+
 for serial in $DEVICES; do
     echo "=================================================="
     echo "[$(date '+%H:%M:%S')] 🚀 [$serial] 네이버 지도 강제 패치 시작..."
@@ -238,8 +249,8 @@ for serial in $DEVICES; do
         continue
     fi
 
-    # 5. 환경 설정 잔재 소거 (타임아웃 5초)
-    timeout 5 adb -s "$serial" shell "$HAS_SU -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
+    # 5. 환경 설정 및 WebView/캐시 잔재 소거 (타임아웃 5초)
+    timeout 5 adb -s "$serial" shell "$HAS_SU -c 'rm -rf /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/* /data/data/com.nhn.android.nmap/code_cache/* 2>/dev/null'" >/dev/null 2>&1
 
     # 6. 모듈을 통한 초기화 및 볼륨/권한 설정 재이식 (타임아웃 60초)
     echo "[$(date '+%H:%M:%S')] [$serial] 네이버 지도 권한 및 볼륨 0 뮤트 설정 재이식 중..."

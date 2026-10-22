@@ -39,7 +39,7 @@ def log(level, message):
     print(f"[{timestamp}] [{level}] {message}", flush=True)
 
 def get_adb_processes():
-    """Returns a list of tuples (pid, user, cmd) for all adb processes."""
+    """Returns a list of tuples (pid, user, cmd) for all host adb processes."""
     processes = []
     try:
         # Run ps to get pid, user, and command arguments
@@ -48,8 +48,15 @@ def get_adb_processes():
             parts = line.strip().split(None, 2)
             if len(parts) >= 3:
                 pid, user, cmd = parts[0], parts[1], parts[2]
-                # Filter for processes containing 'adb' but exclude grep, ps, or this monitor itself
-                if "adb" in cmd and "grep" not in cmd and "adb_recovery_monitor" not in cmd:
+                # Match actual host adb executable invocations (avoid matching /data/adb, adbkey, adbd, adbkeyboard)
+                tokens = cmd.split()
+                is_adb_bin = False
+                for tok in tokens[:3]:
+                    base = os.path.basename(tok)
+                    if base == "adb":
+                        is_adb_bin = True
+                        break
+                if is_adb_bin and "adbd" not in cmd and "adbkeyboard" not in cmd and "grep" not in cmd and "adb_recovery_monitor" not in cmd:
                     try:
                         processes.append((int(pid), user, cmd))
                     except ValueError:
@@ -57,6 +64,66 @@ def get_adb_processes():
     except Exception as e:
         log("ERROR", f"Failed to list processes: {e}")
     return processes
+
+def ensure_host_adb_wrapper_and_keys():
+    """Ensures /root/.android has tech's adbkey and /usr/bin/adb wraps platform-tools/adb to always run as tech."""
+    script = r'''
+    if [ -f "/home/tech/.android/adbkey" ] && [ -f "/home/tech/.android/adbkey.pub" ]; then
+        mkdir -p /root/.android
+        cp /home/tech/.android/adbkey /home/tech/.android/adbkey.pub /root/.android/
+        chmod 600 /root/.android/adbkey
+        chmod 644 /root/.android/adbkey.pub
+    fi
+    if [ -x "/usr/lib/android-sdk/platform-tools/adb" ] && [ -L "/usr/bin/adb" ]; then
+        rm -f /usr/bin/adb
+        cat << 'WRAP_EOF' > /usr/bin/adb
+#!/bin/sh
+if [ "$(id -u)" -eq 0 ] && id -u tech >/dev/null 2>&1; then
+    exec runuser -u tech -- env HOME=/home/tech /usr/lib/android-sdk/platform-tools/adb "$@"
+fi
+export HOME="/home/tech"
+exec /usr/lib/android-sdk/platform-tools/adb "$@"
+WRAP_EOF
+        chmod 755 /usr/bin/adb
+    fi
+    '''
+    try:
+        subprocess.run(["sudo", "-n", "sh", "-c", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except Exception:
+        pass
+
+def pin_adb_keys_on_device(serial):
+    """Pins host adbkey.pub (with tech@hostname, root@hostname, and original pub comment) into /data/misc/adb/adb_keys on an authorized device."""
+    pub_file = os.path.join(TECH_ANDROID_DIR, "adbkey.pub")
+    if not os.path.exists(pub_file):
+        return False
+    try:
+        with open(pub_file, "r") as f:
+            pub_content = f.read().strip()
+        if not pub_content:
+            return False
+        key_body = pub_content.split()[0]
+        cur_host = os.uname().nodename.strip() or "localhost"
+        key_tech = f"{key_body} tech@{cur_host}"
+        key_root = f"{key_body} root@{cur_host}"
+        remote_cmd = (
+            "settings put global adb_allowed_connection_time 0 >/dev/null 2>&1; "
+            "su -c '"
+            "setprop persist.sys.usb.config adb 2>/dev/null; "
+            "mkdir -p /data/misc/adb && touch /data/misc/adb/adb_keys; "
+            f"for k in \"{key_tech}\" \"{key_root}\" \"{pub_content}\"; do "
+            "if [ -n \"$k\" ] && ! grep -qxF \"$k\" /data/misc/adb/adb_keys 2>/dev/null; then "
+            "echo \"$k\" >> /data/misc/adb/adb_keys; "
+            "fi; done; "
+            "chown system:shell /data/misc/adb /data/misc/adb/adb_keys; "
+            "chmod 2750 /data/misc/adb; chmod 640 /data/misc/adb/adb_keys; "
+            "restorecon -R /data/misc/adb 2>/dev/null || chcon u:object_r:adb_keys_file:s0 /data/misc/adb/adb_keys 2>/dev/null || true"
+            "'"
+        )
+        ok, _, _ = run_adb_cmd(["-s", serial, "shell", remote_cmd], timeout_sec=4)
+        return ok
+    except Exception:
+        return False
 
 def kill_processes(pids, use_sudo=False):
     """Kills a list of PIDs."""
@@ -66,7 +133,7 @@ def kill_processes(pids, use_sudo=False):
     cmd = ["sudo", "kill", "-9"] if use_sudo else ["kill", "-9"]
     cmd.extend(str(pid) for pid in pids)
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         log("ERROR", f"Failed to kill processes: {e}")
 
@@ -250,7 +317,7 @@ def reset_usb_device(usb_path):
         log("ERROR", f"Failed to execute hardware reset for {usb_path}: {e}")
     return False
 
-def check_adb_status(missing_reset_done):
+def check_adb_status(missing_reset_done, pinned_serials=None):
     """
     Checks the adb server status and synchronizes usb_ports.json with live hardware.
     Returns (is_ok, reason, bad_serials, offline_serials, missing_serials, unauthorized_serials, device_count, root_pids, sysfs_map)
@@ -271,6 +338,7 @@ def check_adb_status(missing_reset_done):
         lines = stdout.strip().split("\n")
         device_count = 0
         connected_serials = []
+        authorized_serials = []
         unauthorized_serials = []
         offline_serials = []
         live_usb_updates = {}
@@ -283,6 +351,8 @@ def check_adb_status(missing_reset_done):
             if len(parts) < 2:
                 continue
             serial = parts[0]
+            if ":" in serial:
+                continue
             state = parts[1]
             device_count += 1
             connected_serials.append(serial)
@@ -291,10 +361,23 @@ def check_adb_status(missing_reset_done):
             for p in parts[2:]:
                 if p.startswith("usb:"):
                     live_usb_updates[serial] = p
-            if state == "unauthorized":
+            if state == "device":
+                authorized_serials.append(serial)
+            elif state == "unauthorized":
                 unauthorized_serials.append(serial)
+                if pinned_serials is not None:
+                    pinned_serials.discard(serial)
             elif state == "offline":
                 offline_serials.append(serial)
+                if pinned_serials is not None:
+                    pinned_serials.discard(serial)
+
+        # 2.5 Auto-pin adb_keys on newly authorized devices (up to 5 per cycle to avoid blocking monitor loop)
+        if pinned_serials is not None:
+            unpinned = [s for s in authorized_serials if s not in pinned_serials]
+            for s in unpinned[:5]:
+                if pin_adb_keys_on_device(s):
+                    pinned_serials.add(s)
 
         # 3. Synchronize usb_ports.json with live port mappings and prune unplugged ghost devices
         missing_serials = []
@@ -367,15 +450,17 @@ def check_adb_status(missing_reset_done):
 
 def main():
     log("INFO", "ADB Recovery Monitor Daemon started (Pinpoint Targeted Healing & Auto USB Sync active).")
+    ensure_host_adb_wrapper_and_keys()
     
     bad_consecutive_counts = {}
     missing_reset_done = set()
+    pinned_serials = set()
     logged_unauthorized = set()
     global_hang_streak = 0
     
     while True:
         try:
-            is_ok, reason, bad_serials, offline_serials, missing_serials, unauthorized_serials, dev_count, root_pids, sysfs_map = check_adb_status(missing_reset_done)
+            is_ok, reason, bad_serials, offline_serials, missing_serials, unauthorized_serials, dev_count, root_pids, sysfs_map = check_adb_status(missing_reset_done, pinned_serials)
             
             # 1. Root adb 프로세스가 발견되면 전체 리셋 대신 해당 Root PID만 조용히 저격 사살
             if root_pids:

@@ -147,9 +147,10 @@ init_app_installation() {
                     else
                         echo -e "    [✓] Naver Map installed successfully."
                     fi
-                    adb -s "$serial" shell "$has_su -c 'rm -f /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml'" >/dev/null 2>&1
+                    adb -s "$serial" shell "$has_su -c 'rm -rf /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/* /data/data/com.nhn.android.nmap/code_cache/*'" >/dev/null 2>&1
                 else
                     echo -e "    [✓] Naver Map ($device_ver) is already installed & up-to-date. Skipping."
+                    adb -s "$serial" shell "$has_su -c 'rm -rf /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/WebView/* /data/data/com.nhn.android.nmap/code_cache/*'" >/dev/null 2>&1
                 fi
             else
                 echo -e "    - Naver Map not found. Installing from $nmap_dir..."
@@ -235,9 +236,9 @@ init_app_installation() {
     if [ -n "$has_su" ]; then
         su_cmd="$has_su"
     fi
-    adb -s "$serial" shell "$su_cmd -c 'setprop persist.sys.usb.config adb && setprop sys.usb.config adb && svc usb setFunctions adb'" 2>/dev/null
-    sleep 2
-    adb -s "$serial" wait-for-device
+    # Only set persistent property for future boots; do NOT call 'svc usb setFunctions adb' or 'setprop sys.usb.config adb'
+    # because the device is already connected via ADB and resetting the USB gadget mid-session clears 1-time in-memory ADB auth!
+    adb -s "$serial" shell "$su_cmd -c 'setprop persist.sys.usb.config adb'" 2>/dev/null
     
     # 5.2 Disable Bloatware & MTP packages
     adb -s "$serial" shell pm uninstall com.google.android.webview >/dev/null 2>&1

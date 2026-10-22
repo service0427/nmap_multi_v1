@@ -16,6 +16,7 @@ import json
 class IdentityLookup:
     """Pre-compiled lookup tables for exact identity matching and compound token replacement."""
     def __init__(self, target_ids: dict):
+        self.target_ids = dict(target_ids or {})
         self.exact_map = {}
         self.byte_map = {}
         self.token_pair = None
@@ -170,14 +171,8 @@ def dynamic_replace_headers(headers, lookup: IdentityLookup, url="", logger=None
     for k in list(headers.keys()):
         if k.lower() in prot:
             continue
-        val = headers[k]
-        new_v, replaced, orig_m, spoof_m = lookup.replace_value(val)
-        if replaced:
-            headers[k] = new_v
-            if logger:
-                logger.record(url, "dynamic_walker", "header", k, orig_m, spoof_m)
-        elif k.lower() == "cookie" and isinstance(val, str):
-            # Check for cookie substrings like NAPP_DI=...
+        if k.lower() == "cookie":
+            val = "; ".join(headers.get_all(k)) if hasattr(headers, "get_all") else headers[k]
             mod_cookie = val
             cookie_modified = False
             for o_str, s_str in lookup.exact_map.items():
@@ -186,8 +181,15 @@ def dynamic_replace_headers(headers, lookup: IdentityLookup, url="", logger=None
                     cookie_modified = True
                     if logger:
                         logger.record(url, "dynamic_walker", "cookie", "cookie_substring", o_str[:8], s_str[:8])
-            if cookie_modified:
+            if cookie_modified or mod_cookie != headers[k]:
                 headers[k] = mod_cookie
+            continue
+        val = headers[k]
+        new_v, replaced, orig_m, spoof_m = lookup.replace_value(val)
+        if replaced:
+            headers[k] = new_v
+            if logger:
+                logger.record(url, "dynamic_walker", "header", k, orig_m, spoof_m)
 
 
 def dynamic_replace_url_query(url_str: str, lookup: IdentityLookup, logger=None, protected_query=None) -> str:
