@@ -355,6 +355,31 @@ if [ "$has_nmap_apk" = false ]; then
     fi
 fi
 
+# Pause wifi-scheduler and active macro workers during multi-device initialization to prevent ADB/USB contention
+RESTORE_SCHEDULER_INIT=false
+if command -v pm2 >/dev/null 2>&1; then
+    if pm2 jlist 2>/dev/null | grep -q '"name":"adb-recovery-monitor"'; then
+        pm2 restart adb-recovery-monitor >/dev/null 2>&1 || true
+    fi
+    if [ -z "$TARGET_DEVICE" ]; then
+        SCHED_STATUS=$(pm2 jlist 2>/dev/null | jq -r '.[] | select(.name=="wifi-scheduler") | .pm2_env.status' 2>/dev/null)
+        if [ "$SCHED_STATUS" = "online" ]; then
+            echo -e "${YELLOW}[*] Stopping wifi-scheduler during device initialization to prevent ADB contention...${NC}"
+            pm2 stop wifi-scheduler >/dev/null 2>&1 || true
+            RESTORE_SCHEDULER_INIT=true
+        fi
+        pkill -9 -f "wifi_multi/lib/main.sh" 2>/dev/null || true
+        pkill -9 -f "macro/monitor.sh" 2>/dev/null || true
+        pkill -9 -f "gps/auto_reloader.py" 2>/dev/null || true
+        pkill -9 -f "mitmdump -p" 2>/dev/null || true
+        sleep 2
+    else
+        pkill -9 -f "main.sh $TARGET_DEVICE" 2>/dev/null || true
+        pkill -9 -f "monitor.sh $TARGET_DEVICE" 2>/dev/null || true
+        pkill -9 -f "auto_reloader.py .* $TARGET_DEVICE" 2>/dev/null || true
+    fi
+fi
+
 for serial in $DEVICES; do
     (
         echo -e "${CYAN}============================================================${NC}"
@@ -421,4 +446,8 @@ done
 while [ -n "$(jobs -p)" ]; do
     wait $(jobs -p) 2>/dev/null || true
 done
+if [ "$RESTORE_SCHEDULER_INIT" = true ] && command -v pm2 >/dev/null 2>&1; then
+    echo -e "${YELLOW}[*] Restoring wifi-scheduler service...${NC}"
+    pm2 start wifi-scheduler >/dev/null 2>&1 || true
+fi
 echo -e "${GREEN}[✓] Device Initialization Complete.${NC}"

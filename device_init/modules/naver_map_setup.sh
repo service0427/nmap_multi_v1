@@ -264,6 +264,7 @@ EOF
         echo -e "    ${YELLOW}[⚠️] 디바이스 연결 끊김. 뮤트 설정 중단.${NC}"
         return 1
     fi
+    timeout 5 adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/nmap_mute.sh'" >/dev/null 2>&1
     timeout 10 adb -s "$serial" push "$HOST_TMP/nmap_mute_$serial.sh" /data/local/tmp/nmap_mute.sh >/dev/null 2>&1
     timeout 10 adb -s "$serial" shell "$has_su -c 'sh /data/local/tmp/nmap_mute.sh'" >/dev/null 2>&1
     timeout 5 adb -s "$serial" shell "$has_su -c 'rm -f /data/local/tmp/nmap_mute.sh'" >/dev/null 2>&1
