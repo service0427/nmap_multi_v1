@@ -52,10 +52,19 @@ case "$1" in
         shift
         python3 "$CMD_DIR/reset_lte.py" "$@"
         ;;
+    --usb|--lsusb|--port|--ports|--usb-speed)
+        shift
+        python3 "$CMD_DIR/check_usb_ports.py" "$@"
+        ;;
     --help|-h)
         echo -e "\n============================================================"
         echo -e " 📱 Nmap Multi Control CLI (cmd.sh)"
         echo -e "============================================================"
+        echo -e "  --usb [<기기ID>] [-t|-l] : lsusb -t 포트 속도 및 ADB 기기 매핑 조회"
+        echo -e "                            - 전체 조회 (트리 + 요약표): ./cmd.sh --usb"
+        echo -e "                            - 트리만 조회: ./cmd.sh --usb -t"
+        echo -e "                            - 요약표만 조회: ./cmd.sh --usb -l"
+        echo -e "                            - 특정 기기 조회: ./cmd.sh --usb <기기ID>"
         echo -e "  --lte [<인터페이스>]   : LTE 모뎀 종합 진단 및 자동 최적화/치료"
         echo -e "                            - SIP ALG 자동 비활성화 (모뎀 멈춤/ACK 누락 방지)"
         echo -e "                            - LTE 인터페이스 MTU 1420 최적화 (패킷 손실 방지)"
