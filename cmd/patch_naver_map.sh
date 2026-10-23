@@ -124,114 +124,136 @@ else
     exit 1
 fi
 
-# 네이버 지도 설치 와치독 함수 (최대 300초)
+# 네이버 지도 설치 함수 (파일 스테이징 + pm install-create/write/commit + 컴파일 가속, 최대 300초)
 install_nmap_with_watchdog() {
     local target_serial="$1"
     local apks="$2"
     local has_su="$3"
     local max_timeout=300
-    local elapsed=0
-    local install_success=false
-    local install_log="/tmp/nmap_install_${target_serial}.log"
-    rm -f "$install_log"
+    local start_ts=$(date +%s)
 
-    # 설치 전 Play Protect / Package Verifier 비활성화 및 미완료 임시 파일 정리
-    timeout 8 adb -s "$target_serial" shell "
-        settings put global package_verifier_enable 0
-        settings put global verifier_verify_adb_installs 0
-        settings put global package_verifier_user_consent -1
-        pm disable-user --user 0 com.android.vending 2>/dev/null
-        rm -f /data/local/tmp/*.apk 2>/dev/null
+    echo "[$(date '+%H:%M:%S')] [$target_serial] [1/3] 패키지 검증/Play Protect 비활성화 및 CPU 전 코어/고성능 모드 해제..."
+    timeout 10 adb -s "$target_serial" shell "
+        settings put global package_verifier_enable 0 2>/dev/null
+        settings put global verifier_verify_adb_installs 0 2>/dev/null
+        settings put global package_verifier_user_consent -1 2>/dev/null
+        pm disable-user --user 0 com.android.vending >/dev/null 2>&1
+        cmd power set-mode 0 2>/dev/null
+        settings put global low_power 0 2>/dev/null
+        $has_su -c '
+            for c in 1 2 3 4 5 6 7 8 9; do
+                [ -f \"/sys/devices/system/cpu/cpu\${c}/online\" ] && echo 1 > \"/sys/devices/system/cpu/cpu\${c}/online\" 2>/dev/null
+            done
+            setprop pm.dexopt.install verify 2>/dev/null
+        ' 2>/dev/null
     " >/dev/null 2>&1
-    timeout 8 adb -s "$target_serial" shell "$has_su -c 'rm -rf /data/local/tmp/*.apk /data/app/vmdl*.tmp 2>/dev/null'" >/dev/null 2>&1
 
-    echo "[$(date '+%H:%M:%S')] [$target_serial] 신규 Naver Map APK 파일 전송 및 설치 시작 (--no-streaming, 최대 ${max_timeout}초 제한)..."
+    # 1. 기기 내 임시 스테이징 폴더 준비 및 잔여 임시 파일 정리 후 대용량 APK(309MB) 개별 고속 Push
+    local remote_tmp="/data/local/tmp/nmap_install_stage"
+    timeout 8 adb -s "$target_serial" shell "$has_su -c 'rm -rf /data/local/tmp/*.apk /data/app/vmdl*.tmp $remote_tmp 2>/dev/null'" >/dev/null 2>&1
+    timeout 5 adb -s "$target_serial" shell "mkdir -p $remote_tmp" >/dev/null 2>&1
 
-    adb -s "$target_serial" install-multiple --no-streaming -r -d -g $apks >"$install_log" 2>&1 &
-    local install_pid=$!
-
-    while [ $elapsed -lt $max_timeout ]; do
-        # 1. 프로세스 자연 종료 확인
-        if ! kill -0 $install_pid 2>/dev/null; then
-            wait $install_pid 2>/dev/null
-            local install_ret=$?
-            if [ $install_ret -eq 0 ] || grep -q "Success" "$install_log" 2>/dev/null; then
-                install_success=true
-                echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] install-multiple 프로세스 정상 완료 (${elapsed}초 소요)."
+    echo "[$(date '+%H:%M:%S')] [$target_serial] [2/3] 대용량 APK 파일 기기 내부로 고속 전송(Push) 중..."
+    local push_ok=true
+    for apk_path in $apks; do
+        local apk_name=$(basename "$apk_path")
+        local apk_size_mb=$(du -m "$apk_path" 2>/dev/null | awk '{print $1}')
+        local apk_start_ts=$(date +%s)
+        echo -n "    -> [$target_serial] 전송 중: $apk_name (${apk_size_mb}MB)... "
+        if timeout 180 adb -s "$target_serial" push "$apk_path" "$remote_tmp/$apk_name" >/dev/null 2>&1; then
+            echo "완료 ($(( $(date +%s) - apk_start_ts ))초)"
+        else
+            echo -e "\e[1;31m실패! (재연결 후 1회 재시도...)\e[0m"
+            adb -s "$target_serial" reconnect >/dev/null 2>&1 || true
+            timeout 10 adb -s "$target_serial" wait-for-device >/dev/null 2>&1 || true
+            sleep 2
+            if timeout 180 adb -s "$target_serial" push "$apk_path" "$remote_tmp/$apk_name" >/dev/null 2>&1; then
+                echo "    -> [$target_serial] 재시도 전송 완료: $apk_name"
             else
-                local check_path
-                check_path=$(timeout 5 adb -s "$target_serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r\n')
-                if [[ "$check_path" == *"package:"* ]]; then
-                    install_success=true
-                    echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 프로세스 종료 후 패키지 설치 확인됨 (${elapsed}초 소요)."
-                else
-                    local err_msg
-                    err_msg=$(tail -n 3 "$install_log" 2>/dev/null | tr '\r\n' ' ')
-                    echo -e "\e[1;33m[!] [$target_serial] install-multiple 반환 코드 ${install_ret} (${elapsed}초): ${err_msg:-출력 없음}\e[0m"
-                fi
-            fi
-            break
-        fi
-
-        # 2. 5초 주기로 디바이스 연결 끊김 감지
-        if [ $((elapsed % 5)) -eq 0 ] && [ $elapsed -gt 0 ]; then
-            if [ "$(timeout 3 adb -s "$target_serial" get-state 2>/dev/null | tr -d '\r\n')" != "device" ]; then
-                echo -e "\e[1;31m[⚠️] [$target_serial] 설치 도중 디바이스 연결 끊김 감지! (${elapsed}초 경과) 재연결 시도 중...\e[0m"
-                kill -9 $install_pid 2>/dev/null
-                wait $install_pid 2>/dev/null
-                adb -s "$target_serial" reconnect >/dev/null 2>&1 || true
-                timeout 10 adb -s "$target_serial" wait-for-device >/dev/null 2>&1 || true
-                rm -f "$install_log"
-                return 1
-            fi
-        fi
-
-        # 3. 60초 경과 후부터 15초 단위로 설치 여부 조기 판단
-        if [ $elapsed -ge 60 ] && [ $((elapsed % 15)) -eq 0 ]; then
-            local check_path
-            check_path=$(timeout 4 adb -s "$target_serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r\n')
-            if [[ "$check_path" == *"package:"* ]]; then
-                install_success=true
-                echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 조기 설치 감지 성공! (${elapsed}초 시점 완료)"
-                kill -9 $install_pid 2>/dev/null
-                wait $install_pid 2>/dev/null
+                echo -e "\e[1;31m[⚠️] [$target_serial] $apk_name 파일 전송(push) 최종 실패 또는 타임아웃!\e[0m"
+                push_ok=false
                 break
             fi
         fi
-
-        sleep 1
-        elapsed=$((elapsed + 1))
     done
 
-    # 타임아웃 시 백그라운드 프로세스 정리
-    if kill -0 $install_pid 2>/dev/null; then
-        kill -9 $install_pid 2>/dev/null
-        wait $install_pid 2>/dev/null
-    fi
+    if [ "$push_ok" = true ]; then
+        local push_elapsed=$(( $(date +%s) - start_ts ))
+        echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] APK 전송 완료 (${push_elapsed}초 소요). [3/3] 기기 로컬 패키지 설치(pm install-commit) 시작..."
 
-    # 최종 안전 확인
-    if [ "$install_success" != true ]; then
-        local final_check
-        final_check=$(timeout 5 adb -s "$target_serial" shell "pm path com.nhn.android.nmap" 2>/dev/null | tr -d '\r\n')
-        if [[ "$final_check" == *"package:"* ]]; then
-            install_success=true
-            echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 최종 시점 패키지 설치 완료 감지."
+        # 2. 기기 내부에서 로컬 파일 기반 pm install 세션 생성/기록/커밋 (스트리밍 병목 제거)
+        local session_id
+        session_id=$(timeout 15 adb -s "$target_serial" shell "pm install-create -r -d -g" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 | tr -d '\r\n')
+        if [ -n "$session_id" ]; then
+            local write_ok=true
+            local idx=0
+            for apk_path in $apks; do
+                local apk_name=$(basename "$apk_path")
+                local apk_bytes=$(stat -c%s "$apk_path" 2>/dev/null || wc -c < "$apk_path")
+                if ! timeout 60 adb -s "$target_serial" shell "pm install-write -S $apk_bytes $session_id ${idx}_${apk_name} $remote_tmp/$apk_name" >/dev/null 2>&1; then
+                    write_ok=false
+                    break
+                fi
+                idx=$((idx + 1))
+            done
+
+            if [ "$write_ok" = true ]; then
+                # 이미 새 APK가 모두 세션에 적재되었으므로, 서명/버전 충돌 방지를 위해 구버전이 다른 서명일 경우를 대비해 commit 시도 후 실패 시에만 제거 후 재시도
+                local commit_out
+                commit_out=$(timeout 180 adb -s "$target_serial" shell "pm install-commit $session_id" 2>&1 | tr -d '\r')
+                if [[ "$commit_out" == *"Success"* ]]; then
+                    timeout 5 adb -s "$target_serial" shell "rm -rf $remote_tmp" >/dev/null 2>&1
+                    local total_elapsed=$(( $(date +%s) - start_ts ))
+                    echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 로컬 스테이징 설치 정상 완료 (총 ${total_elapsed}초 소요)."
+                    return 0
+                else
+                    echo "    -> [$target_serial] 덮어쓰기 커밋 응답($commit_out). 구버전 앱 제거 후 클린 세션 커밋 재시도..."
+                    timeout 15 adb -s "$target_serial" uninstall com.nhn.android.nmap >/dev/null 2>&1
+                    session_id=$(timeout 15 adb -s "$target_serial" shell "pm install-create -r -d -g" 2>/dev/null | grep -oE '[0-9]+' | tail -n 1 | tr -d '\r\n')
+                    if [ -n "$session_id" ]; then
+                        idx=0
+                        for apk_path in $apks; do
+                            local apk_name=$(basename "$apk_path")
+                            local apk_bytes=$(stat -c%s "$apk_path" 2>/dev/null || wc -c < "$apk_path")
+                            timeout 60 adb -s "$target_serial" shell "pm install-write -S $apk_bytes $session_id ${idx}_${apk_name} $remote_tmp/$apk_name" >/dev/null 2>&1
+                            idx=$((idx + 1))
+                        done
+                        commit_out=$(timeout 180 adb -s "$target_serial" shell "pm install-commit $session_id" 2>&1 | tr -d '\r')
+                        if [[ "$commit_out" == *"Success"* ]]; then
+                            timeout 5 adb -s "$target_serial" shell "rm -rf $remote_tmp" >/dev/null 2>&1
+                            local total_elapsed=$(( $(date +%s) - start_ts ))
+                            echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 클린 세션 설치 정상 완료 (총 ${total_elapsed}초 소요)."
+                            return 0
+                        fi
+                    fi
+                fi
+            else
+                timeout 5 adb -s "$target_serial" shell "pm install-abandon $session_id" >/dev/null 2>&1
+            fi
         fi
     fi
 
-    # 임시 푸시된 APK 정리
-    timeout 5 adb -s "$target_serial" shell "rm -f /data/local/tmp/*.apk 2>/dev/null" >/dev/null 2>&1
+    timeout 5 adb -s "$target_serial" shell "rm -rf $remote_tmp" >/dev/null 2>&1
 
-    if [ "$install_success" = true ]; then
-        rm -f "$install_log"
+    # 3. Fallback: install-multiple --no-streaming (최대 240초 대기)
+    echo "[$(date '+%H:%M:%S')] [$target_serial] [Fallback] install-multiple --no-streaming 방식으로 재시도 (최대 240초)..."
+    if timeout 240 adb -s "$target_serial" install-multiple --no-streaming -r -d -g $apks >/dev/null 2>&1 || \
+       timeout 240 adb -s "$target_serial" install-multiple -r -d -g $apks >/dev/null 2>&1; then
+        local total_elapsed=$(( $(date +%s) - start_ts ))
+        echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] Fallback 설치 완료 (총 ${total_elapsed}초 소요)."
         return 0
-    else
-        local err_msg
-        err_msg=$(tail -n 3 "$install_log" 2>/dev/null | tr '\r\n' ' ')
-        rm -f "$install_log"
-        echo -e "\e[1;31m[⚠️] [$target_serial] APK 설치 실패 또는 타임아웃(${max_timeout}초) 발생. (${err_msg:-로그 없음})\e[0m"
-        return 1
     fi
+
+    # 4. 최종 확인
+    local final_ver
+    final_ver=$(timeout 5 adb -s "$target_serial" shell "dumpsys package com.nhn.android.nmap 2>/dev/null | grep versionName | head -n 1 | cut -d= -f2" 2>/dev/null | tr -d '\r\n ')
+    if [ -n "$final_ver" ] && { [ -z "$TARGET_NMAP_VERSION" ] || [ "$final_ver" = "$TARGET_NMAP_VERSION" ]; }; then
+        echo "[$(date '+%H:%M:%S')] [$target_serial] [✓] 최종 패키지 버전($final_ver) 설치 확인 완료."
+        return 0
+    fi
+
+    echo -e "\e[1;31m[⚠️] [$target_serial] APK 설치 실패 또는 타임아웃 발생.\e[0m"
+    return 1
 }
 
 # ADB 래퍼 설치 및 호스트 ADB 키 동기화/각인 보장
@@ -273,33 +295,41 @@ for serial in $DEVICES; do
         continue
     fi
 
-    # 2. 기존 앱 강제 종료 및 제거 (타임아웃 20초)
-    echo "[$(date '+%H:%M:%S')] [$serial] 기존 Naver Map 앱 제거 중..."
+    # 2. 패치 중 스케줄러(loop.sh / main.sh) 간섭 차단 락 설정 및 진행 중 프로세스 정리
+    PATCH_LOCK_DIR="$PROJECT_ROOT/wifi_multi/logs/devices/${serial}/tmp"
+    mkdir -p "$PATCH_LOCK_DIR" 2>/dev/null
+    touch "$PATCH_LOCK_DIR/patching_nmap" 2>/dev/null
+    pkill -9 -f "main.sh $serial" 2>/dev/null || true
+    pkill -9 -f "monitor.sh $serial" 2>/dev/null || true
+    pkill -9 -f "auto_reloader.py .* $serial" 2>/dev/null || true
     timeout 5 adb -s "$serial" shell "am force-stop com.nhn.android.nmap" >/dev/null 2>&1
-    timeout 20 adb -s "$serial" uninstall com.nhn.android.nmap >/dev/null 2>&1
 
     # 3. 설치 전 연결 상태 재확인
     if [ "$(timeout 3 adb -s "$serial" get-state 2>/dev/null | tr -d '\r\n')" != "device" ]; then
         echo -e "\e[1;31m[⚠️] [$serial] 디바이스 연결 끊김 감지! 다음 기기로 건너뜁니다.\e[0m"
+        rm -f "$PATCH_LOCK_DIR/patching_nmap" 2>/dev/null
         continue
     fi
 
-    # 4. 신규 앱 설치 (최대 180초 제한, 1회 자동 재시도 포함)
+    # 4. 신규 앱 설치 (로컬 스테이징 + verify 필터 가속, 구버전 선제 삭제 방지로 Missing 상태 예방)
     if ! install_nmap_with_watchdog "$serial" "$NMAP_APKS" "$HAS_SU"; then
         echo -e "\e[1;31m[⚠️] [$serial] 설치 실패로 인해 다음 기기로 건너뜁니다.\e[0m"
+        rm -f "$PATCH_LOCK_DIR/patching_nmap" 2>/dev/null
         continue
     fi
 
     # 5. 환경 설정 및 WebView/캐시 잔재 소거 (타임아웃 5초)
     timeout 5 adb -s "$serial" shell "$HAS_SU -c 'rm -rf /data/data/com.nhn.android.nmap/shared_prefs/com.nhn.android.nmap_preferences.xml /data/data/com.nhn.android.nmap/app_webview/* /data/data/com.nhn.android.nmap/cache/* /data/data/com.nhn.android.nmap/code_cache/* 2>/dev/null'" >/dev/null 2>&1
 
-    # 6. 모듈을 통한 초기화 및 볼륨/권한 설정 재이식 (타임아웃 90초)
+    # 6. 모듈을 통한 초기화 및 볼륨/권한 설정 재이식 (타임아웃 60초)
     echo "[$(date '+%H:%M:%S')] [$serial] 네이버 지도 권한 및 볼륨 0 뮤트 설정 재이식 중..."
-    if ! timeout 90 bash -c "source \"$SETUP_MODULE\" && init_naver_map \"$serial\" \"$HAS_SU\""; then
+    if ! timeout 60 bash -c "source \"$SETUP_MODULE\" && init_naver_map \"$serial\" \"$HAS_SU\""; then
         echo -e "\e[1;31m[⚠️] [$serial] 네이버 지도 초기화 도중 오류 또는 타임아웃 발생. 다음 기기로 진행합니다.\e[0m"
+        rm -f "$PATCH_LOCK_DIR/patching_nmap" 2>/dev/null
         continue
     fi
-    
+
+    rm -f "$PATCH_LOCK_DIR/patching_nmap" 2>/dev/null
     echo -e "\e[1;32m[$(date '+%H:%M:%S')] [$serial] [✓] 네이버 지도 강제 패치 및 설정 이식 완료!\e[0m"
     echo "=================================================="
 done

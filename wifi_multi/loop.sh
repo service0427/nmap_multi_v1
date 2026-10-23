@@ -268,6 +268,12 @@ while true; do
             continue
         fi
 
+        # --- [NEW] Naver Map Patching Lock Shield ---
+        if [ -f "logs/devices/${DEV_ID}/tmp/patching_nmap" ] || [ -f "logs/${DEV_ID}/tmp/patching_nmap" ]; then
+            DEV_INDEX=$((DEV_INDEX + 1))
+            continue
+        fi
+
         # --- [NEW] Web Monitor ON/OFF (Excluded) Shield ---
         EXCLUDED_JSON="$WIFI_MULTI_ROOT/config/excluded_devices.json"
         if [ -f "$EXCLUDED_JSON" ]; then
